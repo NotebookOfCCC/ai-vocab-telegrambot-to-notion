@@ -41,7 +41,7 @@ OUTPUT FORMAT (strict JSON):
     {
       "english": "the phrase (add /phonetic/ for uncommon pronunciation)",
       "chinese": "中文翻译 (情感标签如适用，如：贬义/褒义/中性)",
-      "explanation": "详细中文解释，包含：1)核心含义 2)使用场景 3)搭配用法 4)注意事项。写成完整的一段话，不要省略。",
+      "explanation": "简洁中文解释，2-3句话概括核心含义和常见用法即可。",
       "example_en": "One clear English example sentence (prefer using the user's input sentence if it's a sentence)",
       "example_zh": "对应的完整中文翻译",
       "category": "one of: 固定词组, 口语, 新闻, 职场, 学术词汇, 写作, 情绪, 其他"
