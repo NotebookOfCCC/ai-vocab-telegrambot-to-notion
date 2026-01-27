@@ -1,6 +1,7 @@
 """
 Notion Handler - Saves vocabulary entries to Notion database
 """
+import random
 from notion_client import Client
 
 
@@ -218,3 +219,79 @@ class NotionHandler:
                 "success": False,
                 "error": str(e)
             }
+
+    def fetch_random_entries(self, count: int = 10) -> list:
+        """Fetch random entries from the database."""
+        try:
+            # Query all entries from the database
+            all_entries = []
+            has_more = True
+            start_cursor = None
+
+            while has_more:
+                query_params = {"database_id": self.database_id, "page_size": 100}
+                if start_cursor:
+                    query_params["start_cursor"] = start_cursor
+
+                response = self.client.databases.query(**query_params)
+                all_entries.extend(response.get("results", []))
+                has_more = response.get("has_more", False)
+                start_cursor = response.get("next_cursor")
+
+            if not all_entries:
+                return []
+
+            # Randomly select entries
+            selected = random.sample(all_entries, min(count, len(all_entries)))
+
+            # Parse entries into dictionaries
+            parsed_entries = []
+            for page in selected:
+                entry = self._parse_page_to_entry(page)
+                if entry:
+                    parsed_entries.append(entry)
+
+            return parsed_entries
+
+        except Exception as e:
+            return []
+
+    def _parse_page_to_entry(self, page: dict) -> dict:
+        """Parse a Notion page into an entry dictionary."""
+        try:
+            properties = page.get("properties", {})
+            entry = {}
+
+            for prop_name, prop_value in properties.items():
+                prop_type = prop_value.get("type")
+                prop_name_lower = prop_name.lower()
+
+                # Title property (English word)
+                if prop_type == "title":
+                    title_content = prop_value.get("title", [])
+                    if title_content:
+                        entry["english"] = title_content[0].get("plain_text", "")
+
+                # Rich text properties
+                elif prop_type == "rich_text":
+                    rich_text = prop_value.get("rich_text", [])
+                    content = rich_text[0].get("plain_text", "") if rich_text else ""
+
+                    if "chinese" in prop_name_lower or "中文" in prop_name_lower:
+                        entry["chinese"] = content
+                    elif "explanation" in prop_name_lower or "解释" in prop_name_lower:
+                        entry["explanation"] = content
+                    elif "example" in prop_name_lower or "例句" in prop_name_lower:
+                        entry["example"] = content
+
+                # Select property (category)
+                elif prop_type == "select":
+                    if "category" in prop_name_lower or "类别" in prop_name_lower:
+                        select_value = prop_value.get("select")
+                        if select_value:
+                            entry["category"] = select_value.get("name", "")
+
+            return entry if entry.get("english") else None
+
+        except Exception:
+            return None
