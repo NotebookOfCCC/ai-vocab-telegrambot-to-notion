@@ -364,10 +364,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text("Session expired. Send new text to analyze.")
         return
 
-    # Handle cancel - clear session and start fresh
+    # Handle cancel - clear session, keep content, remove buttons
     if data == "cancel":
         user_sessions[user_id] = {}
-        await query.edit_message_text("Cancelled the saving.")
+        original_text = query.message.text
+        # Remove the "(Type to edit more)" hint and add cancelled status
+        new_text = original_text.replace("\n\n(Type to edit more)", "")
+        new_text += "\n\n— Cancelled the saving."
+        await query.edit_message_text(new_text)
         return
 
     # Handle category selection (from category buttons)
@@ -412,19 +416,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Clear session
         user_sessions[user_id] = {}
 
-        # Build confirmation message and remove buttons
+        # Keep content, remove buttons, add status
+        original_text = query.message.text
+        new_text = original_text.replace("\n\n(Type to edit more)", "")
+
         if saved_entries:
-            messages = []
             for entry in saved_entries:
-                # Get short Chinese (first meaning before any semicolon/comma)
                 chinese = entry.get('chinese', '')
                 short_chinese = chinese.split('；')[0].split(';')[0].split('，')[0].split(',')[0].strip()
-                messages.append(f"Saved to Notion: {entry['english']} - {short_chinese} ({entry['category']})")
+                new_text += f"\n\n— Saved to Notion: {entry['english']} - {short_chinese} ({entry['category']})"
             if failed_count > 0:
-                messages.append(f"({failed_count} failed)")
-            await query.edit_message_text("\n".join(messages))
+                new_text += f"\n({failed_count} failed)"
         else:
-            await query.edit_message_text("Failed to save.")
+            new_text += "\n\n— Failed to save."
+
+        await query.edit_message_text(new_text)
         return
 
 
