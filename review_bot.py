@@ -60,12 +60,21 @@ def format_entry_for_review(entry: dict, index: int, total: int) -> str:
     return "\n".join(lines)
 
 
-async def send_review_batch():
-    """Fetch random entries and send review messages."""
+async def send_review_batch(manual: bool = False):
+    """Fetch random entries and send review messages.
+
+    Args:
+        manual: If True, bypass the pause check (for /review command)
+    """
     global is_paused
 
-    if is_paused:
-        logger.info("Review is paused, skipping batch")
+    import datetime
+    now = datetime.datetime.now()
+    trigger_type = "manual" if manual else "scheduled"
+    logger.info(f"send_review_batch triggered ({trigger_type}) at {now.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    if is_paused and not manual:
+        logger.info("Review is paused, skipping scheduled batch")
         return
 
     if not REVIEW_USER_ID:
@@ -120,13 +129,13 @@ Commands:
 
 
 async def review_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /review command - manual trigger."""
+    """Handle /review command - manual trigger (works even when paused)."""
     if str(update.effective_user.id) != REVIEW_USER_ID:
         await update.message.reply_text("Sorry, this bot is private.")
         return
 
     await update.message.reply_text("Fetching review entries...")
-    await send_review_batch()
+    await send_review_batch(manual=True)
 
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -213,6 +222,11 @@ async def post_init(app: Application) -> None:
     scheduler.start()
     logger.info(f"Scheduler started with timezone {TIMEZONE}")
     logger.info("Scheduled jobs: 8:00, 13:00, 19:00, 22:00")
+
+    # Log next run times for debugging
+    for job in scheduler.get_jobs():
+        next_run = job.next_run_time
+        logger.info(f"Job '{job.name}' next run: {next_run}")
 
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
