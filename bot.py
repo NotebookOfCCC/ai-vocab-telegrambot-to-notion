@@ -216,9 +216,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 InlineKeyboardButton("Cancel", callback_data="cancel")
             ])
 
-        # Add hint about editing
-        response += "\n\n(Type to edit, e.g. \"shorter\" or \"改成口语\")"
-
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(response, reply_markup=reply_markup)
 
@@ -368,10 +365,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data == "cancel":
         user_sessions[user_id] = {}
         original_text = query.message.text
-        # Remove the "(Type to edit more)" hint and add cancelled status
+        # Remove any edit hints and show cancelled status
         new_text = original_text.replace("\n\n(Type to edit more)", "")
-        new_text += "\n\n— Cancelled the saving."
         await query.edit_message_text(new_text)
+        await query.message.reply_text("— Cancelled the saving.")
         return
 
     # Handle category selection (from category buttons)
@@ -416,21 +413,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Clear session
         user_sessions[user_id] = {}
 
-        # Keep content, remove buttons, add status
+        # Keep content, remove buttons
         original_text = query.message.text
         new_text = original_text.replace("\n\n(Type to edit more)", "")
+        await query.edit_message_text(new_text)
 
+        # Send save confirmation as separate message
         if saved_entries:
             for entry in saved_entries:
                 chinese = entry.get('chinese', '')
                 short_chinese = chinese.split('；')[0].split(';')[0].split('，')[0].split(',')[0].strip()
-                new_text += f"\n\n— Saved to Notion: {entry['english']} - {short_chinese} ({entry['category']})"
+                await query.message.reply_text(f"— Saved to Notion: {entry['english']} - {short_chinese} ({entry['category']})")
             if failed_count > 0:
-                new_text += f"\n({failed_count} failed)"
+                await query.message.reply_text(f"({failed_count} failed)")
         else:
-            new_text += "\n\n— Failed to save."
+            await query.message.reply_text("— Failed to save.")
 
-        await query.edit_message_text(new_text)
         return
 
 

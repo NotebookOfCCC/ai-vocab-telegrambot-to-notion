@@ -106,10 +106,18 @@ async def send_review_batch(manual: bool = False):
         logger.error(f"Error sending review batch: {e}")
 
 
+async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /myid command - show user's Telegram ID for setup."""
+    user_id = update.effective_user.id
+    await update.message.reply_text(f"Your Telegram ID: {user_id}\n\nSet this as REVIEW_USER_ID in Railway.")
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
-    if str(update.effective_user.id) != REVIEW_USER_ID:
-        await update.message.reply_text("Sorry, this bot is private.")
+    user_id = str(update.effective_user.id)
+    logger.info(f"/start from user {user_id}, expected {REVIEW_USER_ID}")
+    if user_id != REVIEW_USER_ID:
+        await update.message.reply_text(f"Sorry, this bot is private.\n\nYour ID: {user_id}\nUse /myid to get your ID for setup.")
         return
 
     info_message = f"""
@@ -130,8 +138,10 @@ Commands:
 
 async def review_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /review command - manual trigger (works even when paused)."""
-    if str(update.effective_user.id) != REVIEW_USER_ID:
-        await update.message.reply_text("Sorry, this bot is private.")
+    user_id = str(update.effective_user.id)
+    logger.info(f"/review from user {user_id}")
+    if user_id != REVIEW_USER_ID:
+        await update.message.reply_text(f"Sorry, this bot is private. Your ID: {user_id}")
         return
 
     await update.message.reply_text("Fetching review entries...")
@@ -264,6 +274,7 @@ def main():
 
     # Add handlers
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("myid", myid_command))
     application.add_handler(CommandHandler("review", review_command))
     application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CommandHandler("resume", resume_command))
