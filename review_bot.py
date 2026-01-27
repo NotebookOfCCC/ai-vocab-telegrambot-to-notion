@@ -106,7 +106,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     info_message = f"""
 Vocabulary Review Bot
 
-Schedule: 9:00, 13:00, 17:00, 21:00 ({TIMEZONE})
+Schedule: 8:00, 13:00, 19:00, 22:00 ({TIMEZONE})
 Entries per batch: 10
 
 Commands:
@@ -170,10 +170,10 @@ Timezone: {TIMEZONE}
 Scheduled jobs: {len(jobs)}
 
 Next reviews:
-- 9:00
+- 8:00
 - 13:00
-- 17:00
-- 21:00
+- 19:00
+- 22:00
 """
     await update.message.reply_text(status_message)
 
@@ -184,12 +184,12 @@ async def post_init(app: Application) -> None:
 
     scheduler = AsyncIOScheduler(timezone=TIMEZONE)
 
-    # Schedule review batches at 9:00, 13:00, 17:00, and 21:00
+    # Schedule review batches at 8:00, 13:00, 19:00, and 22:00
     scheduler.add_job(
         send_review_batch,
-        CronTrigger(hour=9, minute=0, timezone=TIMEZONE),
+        CronTrigger(hour=8, minute=0, timezone=TIMEZONE),
         id="review_morning",
-        name="Morning Review (9:00)"
+        name="Morning Review (8:00)"
     )
     scheduler.add_job(
         send_review_batch,
@@ -199,20 +199,20 @@ async def post_init(app: Application) -> None:
     )
     scheduler.add_job(
         send_review_batch,
-        CronTrigger(hour=17, minute=0, timezone=TIMEZONE),
-        id="review_afternoon",
-        name="Afternoon Review (17:00)"
+        CronTrigger(hour=19, minute=0, timezone=TIMEZONE),
+        id="review_evening",
+        name="Evening Review (19:00)"
     )
     scheduler.add_job(
         send_review_batch,
-        CronTrigger(hour=21, minute=0, timezone=TIMEZONE),
-        id="review_evening",
-        name="Evening Review (21:00)"
+        CronTrigger(hour=22, minute=0, timezone=TIMEZONE),
+        id="review_night",
+        name="Night Review (22:00)"
     )
 
     scheduler.start()
     logger.info(f"Scheduler started with timezone {TIMEZONE}")
-    logger.info("Scheduled jobs: 9:00, 13:00, 17:00, 21:00")
+    logger.info("Scheduled jobs: 8:00, 13:00, 19:00, 22:00")
 
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -260,7 +260,7 @@ def main():
 
     # Start polling
     print(f"Review bot starting with timezone {TIMEZONE}...")
-    print("Schedule: 9:00, 13:00, 17:00, 21:00")
+    print("Schedule: 8:00, 13:00, 19:00, 22:00")
     print("Press Ctrl+C to stop")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
