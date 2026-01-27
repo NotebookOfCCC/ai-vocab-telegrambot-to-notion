@@ -95,9 +95,31 @@ python bot.py
 - `/help` - Show help
 - `/test` - Test Notion connection
 
-## Hosting (Optional)
+## Deployment
 
-To keep the bot running 24/7, deploy to:
+This bot is deployed on **Heroku** with auto-deploy from GitHub.
+
+### How to Deploy Changes
+
+1. Make your code changes
+2. Commit and push to GitHub:
+   ```bash
+   git add .
+   git commit -m "Your change description"
+   git push origin main
+   ```
+3. Heroku automatically deploys when you push to GitHub
+4. Wait 1-2 minutes, then test the bot
+
+### Heroku Setup (Already Done)
+
+The bot runs as a worker dyno on Heroku. Auto-deploy is connected to the GitHub repo:
+- GitHub: `NotebookOfCCC/ai-vocab-telegrambot-to-notion`
+- Heroku Dashboard: https://dashboard.heroku.com
+
+Environment variables are configured in Heroku Dashboard → Settings → Config Vars.
+
+### Alternative Hosting Options
 
 - **Railway** (free tier available): [railway.app](https://railway.app)
 - **Render** (free tier): [render.com](https://render.com)
