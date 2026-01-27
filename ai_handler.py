@@ -66,6 +66,16 @@ class AIHandler:
     def __init__(self, api_key: str):
         self.client = anthropic.Anthropic(api_key=api_key)
 
+    def _sanitize_json_response(self, text: str) -> str:
+        """Fix special characters that break JSON parsing."""
+        # Replace curly/smart quotes with straight quotes
+        text = text.replace('"', '"').replace('"', '"')
+        text = text.replace(''', "'").replace(''', "'")
+        # Replace other problematic Unicode characters
+        text = text.replace('…', '...')
+        text = text.replace('—', '-').replace('–', '-')
+        return text
+
     def analyze_input(self, user_input: str) -> dict:
         """Analyze user input and generate learning entries."""
         message = self.client.messages.create(
@@ -83,6 +93,9 @@ class AIHandler:
         response_text = re.sub(r'^```json\s*', '', response_text)
         response_text = re.sub(r'\s*```$', '', response_text)
         response_text = response_text.strip()
+
+        # Fix common special characters that break JSON parsing
+        response_text = self._sanitize_json_response(response_text)
 
         try:
             result = json.loads(response_text)
@@ -200,6 +213,9 @@ Respond with valid JSON only."""
         response_text = re.sub(r'^```json\s*', '', response_text)
         response_text = re.sub(r'\s*```$', '', response_text)
         response_text = response_text.strip()
+
+        # Fix common special characters that break JSON parsing
+        response_text = self._sanitize_json_response(response_text)
 
         try:
             modified = json.loads(response_text)
