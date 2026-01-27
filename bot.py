@@ -367,7 +367,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Handle cancel - clear session and start fresh
     if data == "cancel":
         user_sessions[user_id] = {}
-        await query.edit_message_text("Cancelled. Send me new text to analyze.")
+        await query.edit_message_text("Cancelled the saving.")
         return
 
     # Handle category selection (from category buttons)
