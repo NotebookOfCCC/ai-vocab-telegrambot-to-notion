@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 REVIEW_BOT_TOKEN = os.getenv("REVIEW_BOT_TOKEN")
 REVIEW_USER_ID = os.getenv("REVIEW_USER_ID")
 NOTION_KEY = os.getenv("NOTION_API_KEY")
-NOTION_DB_ID = os.getenv("NOTION_DATABASE_ID", "2eb67845254b8042bfe7d0afbb7b233c")
+NOTION_DB_ID = os.getenv("NOTION_DATABASE_ID")
 TIMEZONE = os.getenv("TIMEZONE", "Asia/Shanghai")
 
 # Global state

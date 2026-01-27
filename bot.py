@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY")
 NOTION_KEY = os.getenv("NOTION_API_KEY")
-NOTION_DB_ID = os.getenv("NOTION_DATABASE_ID", "2eb67845254b8042bfe7d0afbb7b233c")
+NOTION_DB_ID = os.getenv("NOTION_DATABASE_ID")
 ALLOWED_USERS = os.getenv("ALLOWED_USER_IDS", "").split(",")
 ALLOWED_USERS = [uid.strip() for uid in ALLOWED_USERS if uid.strip()]
 

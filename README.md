@@ -52,7 +52,7 @@ A Telegram bot that helps you learn English vocabulary with AI-powered explanati
 TELEGRAM_BOT_TOKEN=your_telegram_token
 ANTHROPIC_API_KEY=your_claude_api_key
 NOTION_API_KEY=your_notion_integration_token
-NOTION_DATABASE_ID=2eb67845254b8042bfe7d0afbb7b233c
+NOTION_DATABASE_ID=your_database_id
 ALLOWED_USER_IDS=your_telegram_user_id
 ```
 
