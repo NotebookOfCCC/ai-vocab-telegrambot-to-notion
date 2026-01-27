@@ -412,19 +412,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Clear session
         user_sessions[user_id] = {}
 
-        # Send a NEW short message (don't edit the original)
+        # Build confirmation message and remove buttons
         if saved_entries:
+            messages = []
             for entry in saved_entries:
                 # Get short Chinese (first meaning before any semicolon/comma)
                 chinese = entry.get('chinese', '')
                 short_chinese = chinese.split('；')[0].split(';')[0].split('，')[0].split(',')[0].strip()
-                # Format: Saved to Notion: english - short_chinese (category)
-                msg = f"Saved to Notion: {entry['english']} - {short_chinese} ({entry['category']})"
-                await query.message.reply_text(msg)
+                messages.append(f"Saved to Notion: {entry['english']} - {short_chinese} ({entry['category']})")
             if failed_count > 0:
-                await query.message.reply_text(f"({failed_count} failed)")
+                messages.append(f"({failed_count} failed)")
+            await query.edit_message_text("\n".join(messages))
         else:
-            await query.message.reply_text("Failed to save.")
+            await query.edit_message_text("Failed to save.")
         return
 
 
