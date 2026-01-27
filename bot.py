@@ -196,8 +196,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # Create inline keyboard buttons
         keyboard = []
         if len(entries) == 1:
-            # Single entry - just Save button
-            keyboard.append([InlineKeyboardButton("Save", callback_data="save_1")])
+            # Single entry - Save and Cancel buttons
+            keyboard.append([
+                InlineKeyboardButton("Save", callback_data="save_1"),
+                InlineKeyboardButton("Cancel", callback_data="cancel")
+            ])
         else:
             # Multiple entries - show numbered save buttons
             row = []
@@ -208,7 +211,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     row = []
             if row:
                 keyboard.append(row)
-            keyboard.append([InlineKeyboardButton("Save All", callback_data="save_all")])
+            keyboard.append([
+                InlineKeyboardButton("Save All", callback_data="save_all"),
+                InlineKeyboardButton("Cancel", callback_data="cancel")
+            ])
 
         # Add hint about editing
         response += "\n\n(Type to edit, e.g. \"shorter\" or \"改成口语\")"
@@ -300,7 +306,10 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
             user_sessions[user_id]["pending_entries"] = pending_entries
             entry = pending_entries[0]
             response = ai_handler._format_single_entry(entry)
-            keyboard = [[InlineKeyboardButton("Save", callback_data="save_1")]]
+            keyboard = [[
+                InlineKeyboardButton("Save", callback_data="save_1"),
+                InlineKeyboardButton("Cancel", callback_data="cancel")
+            ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
                 f"Category → {cat}\n{response}\n\n(Type to edit more)",
@@ -319,14 +328,26 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
         user_sessions[user_id]["pending_entries"] = pending_entries
 
         response = ai_handler._format_single_entry(result["entry"])
-        keyboard = [[InlineKeyboardButton("Save", callback_data="save_1")]]
+        keyboard = [[
+            InlineKeyboardButton("Save", callback_data="save_1"),
+            InlineKeyboardButton("Cancel", callback_data="cancel")
+        ]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             f"Updated!\n{response}\n\n(Type to edit more)",
             reply_markup=reply_markup
         )
     else:
-        await update.message.reply_text(f"Couldn't understand that. Try again or click Save.")
+        # Show buttons so user can escape the loop
+        keyboard = [[
+            InlineKeyboardButton("Save", callback_data="save_1"),
+            InlineKeyboardButton("Start New", callback_data="cancel")
+        ]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "Couldn't understand that. Try again, Save current entry, or Start New.",
+            reply_markup=reply_markup
+        )
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -343,6 +364,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text("Session expired. Send new text to analyze.")
         return
 
+    # Handle cancel - clear session and start fresh
+    if data == "cancel":
+        user_sessions[user_id] = {}
+        await query.edit_message_text("Cancelled. Send me new text to analyze.")
+        return
+
     # Handle category selection (from category buttons)
     if data.startswith("cat_"):
         new_category = data[4:]  # Remove "cat_" prefix
@@ -351,7 +378,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         entry = pending_entries[0]
         response = ai_handler._format_single_entry(entry)
-        keyboard = [[InlineKeyboardButton("Save", callback_data="save_1")]]
+        keyboard = [[
+            InlineKeyboardButton("Save", callback_data="save_1"),
+            InlineKeyboardButton("Cancel", callback_data="cancel")
+        ]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
             f"Category → {new_category}\n{response}\n\n(Type to edit more)",
