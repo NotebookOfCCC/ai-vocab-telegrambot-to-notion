@@ -97,7 +97,7 @@ python bot.py
 
 ## Deployment
 
-This bot is deployed on **Heroku** with auto-deploy from GitHub.
+This bot is deployed on **Railway** with auto-deploy from GitHub.
 
 ### How to Deploy Changes
 
@@ -108,32 +108,35 @@ This bot is deployed on **Heroku** with auto-deploy from GitHub.
    git commit -m "Your change description"
    git push origin main
    ```
-3. Heroku automatically deploys when you push to GitHub
+3. Railway automatically deploys when you push to GitHub
 4. Wait 1-2 minutes, then test the bot
 
-### Heroku Setup (Already Done)
+### Railway Setup
 
-The bot runs as a worker dyno on Heroku. Auto-deploy is connected to the GitHub repo:
+The bot runs as a service on Railway. Auto-deploy is connected to the GitHub repo:
 - GitHub: `NotebookOfCCC/ai-vocab-telegrambot-to-notion`
-- Heroku Dashboard: https://dashboard.heroku.com
+- Railway Dashboard: https://railway.app/dashboard
 
-Environment variables are configured in Heroku Dashboard → Settings → Config Vars.
+Environment variables are configured in Railway Dashboard → Variables.
 
-### Alternative Hosting Options
+### Services
 
-- **Railway** (free tier available): [railway.app](https://railway.app)
-- **Render** (free tier): [render.com](https://render.com)
-- **PythonAnywhere** (free tier): [pythonanywhere.com](https://pythonanywhere.com)
-- **Your own server**: Any VPS with Python
+There are two bots that can be deployed:
+1. **Vocab Learner Bot** (`bot.py`) - Main bot for learning vocabulary
+2. **Review Bot** (`review_bot.py`) - Scheduled daily vocabulary reviews
+
+Each bot needs its own Railway service with the appropriate start command.
 
 ## Files
 
 ```
 ai-vocab-telegram-bot/
-├── bot.py              # Main bot logic
+├── bot.py              # Main vocab learner bot
+├── review_bot.py       # Scheduled review bot
 ├── ai_handler.py       # Claude AI integration
 ├── notion_handler.py   # Notion database integration
 ├── requirements.txt    # Python dependencies
+├── Procfile            # Process definitions
 ├── .env.example        # Environment template
 ├── .env                # Your configuration (create this)
 └── README.md           # This file
