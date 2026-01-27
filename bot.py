@@ -358,7 +358,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     pending_entries = session.get("pending_entries", [])
 
     if not pending_entries:
-        await query.edit_message_text("Session expired. Send new text to analyze.")
+        await query.edit_message_text("Session expired. Send new text to analyze.", reply_markup=None)
         return
 
     # Handle cancel - clear session, keep content, remove buttons
@@ -367,7 +367,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         original_text = query.message.text
         # Remove any edit hints and show cancelled status
         new_text = original_text.replace("\n\n(Type to edit more)", "")
-        await query.edit_message_text(new_text)
+        await query.edit_message_text(new_text, reply_markup=None)
         await query.message.reply_text("— Cancelled the saving.")
         return
 
@@ -416,7 +416,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Keep content, remove buttons
         original_text = query.message.text
         new_text = original_text.replace("\n\n(Type to edit more)", "")
-        await query.edit_message_text(new_text)
+        await query.edit_message_text(new_text, reply_markup=None)
 
         # Send save confirmation as separate message
         if saved_entries:
