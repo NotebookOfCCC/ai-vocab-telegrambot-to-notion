@@ -76,6 +76,83 @@ class AIHandler:
         text = text.replace('—', '-').replace('–', '-')
         return text
 
+    def _try_parse_json(self, text: str) -> dict:
+        """
+        Try multiple strategies to parse JSON from AI response.
+        Returns parsed dict or raises JSONDecodeError if all strategies fail.
+        """
+        # Strategy 1: Direct parse after basic cleanup
+        cleaned = text.strip()
+
+        # Remove markdown code blocks if present
+        cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned, flags=re.MULTILINE)
+        cleaned = re.sub(r'\s*```\s*$', '', cleaned)
+        cleaned = cleaned.strip()
+
+        # Sanitize special characters
+        cleaned = self._sanitize_json_response(cleaned)
+
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            pass
+
+        # Strategy 2: Extract JSON object using regex (handles text before/after JSON)
+        json_match = re.search(r'\{[\s\S]*\}', cleaned)
+        if json_match:
+            try:
+                return json.loads(json_match.group())
+            except json.JSONDecodeError:
+                pass
+
+        # Strategy 3: Fix common JSON issues
+        fixed = cleaned
+
+        # Fix trailing commas before } or ]
+        fixed = re.sub(r',(\s*[}\]])', r'\1', fixed)
+
+        # Fix unescaped newlines in strings (convert to \n)
+        # This handles cases where AI puts actual newlines inside JSON strings
+        lines = fixed.split('\n')
+        in_string = False
+        result_lines = []
+        for i, line in enumerate(lines):
+            # Count unescaped quotes to track if we're in a string
+            quote_count = 0
+            j = 0
+            while j < len(line):
+                if line[j] == '"' and (j == 0 or line[j-1] != '\\'):
+                    quote_count += 1
+                j += 1
+
+            if i > 0 and in_string:
+                # We're continuing a string from previous line - join with escaped newline
+                result_lines[-1] = result_lines[-1] + '\\n' + line
+            else:
+                result_lines.append(line)
+
+            # Update in_string state
+            if quote_count % 2 == 1:
+                in_string = not in_string
+
+        fixed = '\n'.join(result_lines)
+
+        try:
+            return json.loads(fixed)
+        except json.JSONDecodeError:
+            pass
+
+        # Strategy 4: Try extracting JSON again after fixes
+        json_match = re.search(r'\{[\s\S]*\}', fixed)
+        if json_match:
+            try:
+                return json.loads(json_match.group())
+            except json.JSONDecodeError:
+                pass
+
+        # All strategies failed - raise the original error for debugging
+        return json.loads(cleaned)  # This will raise JSONDecodeError with details
+
     def analyze_input(self, user_input: str) -> dict:
         """Analyze user input and generate learning entries."""
         message = self.client.messages.create(
@@ -89,26 +166,42 @@ class AIHandler:
 
         response_text = message.content[0].text
 
-        # Clean up response - remove markdown code blocks if present
-        response_text = re.sub(r'^```json\s*', '', response_text)
-        response_text = re.sub(r'\s*```$', '', response_text)
-        response_text = response_text.strip()
-
-        # Fix common special characters that break JSON parsing
-        response_text = self._sanitize_json_response(response_text)
-
         try:
-            result = json.loads(response_text)
+            result = self._try_parse_json(response_text)
             # Add today's date to each entry
             today = date.today().isoformat()
             for entry in result.get("entries", []):
                 entry["date"] = today
             return result
         except json.JSONDecodeError as e:
-            return {
-                "error": f"Failed to parse AI response: {str(e)}",
-                "raw_response": response_text
-            }
+            # Retry once with explicit JSON request
+            try:
+                retry_message = self.client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=2000,
+                    messages=[
+                        {"role": "user", "content": user_input},
+                        {"role": "assistant", "content": response_text},
+                        {"role": "user", "content": "Your response had invalid JSON. Please respond with ONLY valid JSON, no extra text."}
+                    ],
+                    system=SYSTEM_PROMPT
+                )
+                retry_text = retry_message.content[0].text
+                result = self._try_parse_json(retry_text)
+                today = date.today().isoformat()
+                for entry in result.get("entries", []):
+                    entry["date"] = today
+                return result
+            except json.JSONDecodeError as retry_e:
+                return {
+                    "error": f"Failed to parse AI response: {str(retry_e)}",
+                    "raw_response": response_text
+                }
+            except Exception:
+                return {
+                    "error": f"Failed to parse AI response: {str(e)}",
+                    "raw_response": response_text
+                }
 
     def format_entries_for_display(self, analysis: dict) -> str:
         """Format the analysis result for Telegram display."""
@@ -210,16 +303,95 @@ Respond with valid JSON only."""
         )
 
         response_text = message.content[0].text
-        response_text = re.sub(r'^```json\s*', '', response_text)
-        response_text = re.sub(r'\s*```$', '', response_text)
-        response_text = response_text.strip()
-
-        # Fix common special characters that break JSON parsing
-        response_text = self._sanitize_json_response(response_text)
 
         try:
-            modified = json.loads(response_text)
+            modified = self._try_parse_json(response_text)
             modified["date"] = entry.get("date", date.today().isoformat())
             return {"success": True, "entry": modified}
         except json.JSONDecodeError as e:
             return {"success": False, "error": str(e)}
+
+    def detect_target_entry(self, entries: list, user_feedback: str) -> int:
+        """
+        Detect which entry (0-indexed) the user is referring to in their feedback.
+        Uses multiple strategies: explicit number, phrase matching, and AI inference.
+
+        Returns the index of the target entry (0-indexed).
+        """
+        if len(entries) <= 1:
+            return 0
+
+        # Strategy 1: Check for explicit entry number reference (e.g., "第2个", "[2]", "2号")
+        number_patterns = [
+            r'第\s*(\d+)\s*[个条]',  # 第2个, 第2条
+            r'\[(\d+)\]',             # [2]
+            r'(\d+)\s*号',            # 2号
+            r'entry\s*(\d+)',         # entry 2
+            r'#\s*(\d+)',             # #2
+        ]
+        for pattern in number_patterns:
+            match = re.search(pattern, user_feedback, re.IGNORECASE)
+            if match:
+                num = int(match.group(1))
+                if 1 <= num <= len(entries):
+                    return num - 1  # Convert to 0-indexed
+
+        # Strategy 2: Check if user's feedback contains any of the English phrases
+        user_feedback_lower = user_feedback.lower()
+        matched_indices = []
+        for i, entry in enumerate(entries):
+            english = entry.get('english', '').lower()
+            # Remove phonetic notation for matching
+            english_clean = re.sub(r'/[^/]+/', '', english).strip()
+
+            # Check if the English phrase appears in user's feedback
+            if english_clean and english_clean in user_feedback_lower:
+                matched_indices.append((i, len(english_clean)))
+
+            # Also check individual words for partial matches
+            words = english_clean.split()
+            for word in words:
+                if len(word) > 3 and word in user_feedback_lower:
+                    matched_indices.append((i, len(word)))
+
+        # Return the best match (longest match wins)
+        if matched_indices:
+            matched_indices.sort(key=lambda x: x[1], reverse=True)
+            return matched_indices[0][0]
+
+        # Strategy 3: Use AI to determine which entry the feedback refers to
+        entries_desc = "\n".join([
+            f"[{i+1}] {e.get('english', '')} - {e.get('chinese', '')}"
+            for i, e in enumerate(entries)
+        ])
+
+        detect_prompt = f"""Given these vocabulary entries:
+{entries_desc}
+
+And this user feedback: "{user_feedback}"
+
+Which entry number (1-{len(entries)}) is the user most likely referring to?
+- If feedback mentions a specific phrase or word from an entry, choose that entry
+- If unclear, respond with the most likely one based on context
+- If truly ambiguous, respond with 1
+
+Respond with ONLY the number (1-{len(entries)}), nothing else."""
+
+        try:
+            message = self.client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=10,
+                messages=[{"role": "user", "content": detect_prompt}]
+            )
+            response = message.content[0].text.strip()
+            # Extract number from response
+            num_match = re.search(r'(\d+)', response)
+            if num_match:
+                num = int(num_match.group(1))
+                if 1 <= num <= len(entries):
+                    return num - 1
+        except Exception:
+            pass
+
+        # Default to first entry
+        return 0

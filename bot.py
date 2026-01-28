@@ -295,21 +295,25 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("No pending entries to modify.")
         return
 
+    # Detect which entry the user is referring to (0-indexed)
+    target_idx = ai_handler.detect_target_entry(pending_entries, text)
+
     # Check if it's a simple category change with category name in text
     valid_categories = ["固定词组", "口语", "新闻", "职场", "学术词汇", "写作", "情绪", "其他"]
     for cat in valid_categories:
         if cat in text:
-            pending_entries[0]["category"] = cat
+            pending_entries[target_idx]["category"] = cat
             user_sessions[user_id]["pending_entries"] = pending_entries
-            entry = pending_entries[0]
+            entry = pending_entries[target_idx]
             response = ai_handler._format_single_entry(entry)
-            keyboard = [[
-                InlineKeyboardButton("Save", callback_data="save_1"),
-                InlineKeyboardButton("Cancel", callback_data="cancel")
-            ]]
+
+            # Build appropriate keyboard based on number of entries
+            keyboard = _build_edit_keyboard(len(pending_entries), target_idx)
             reply_markup = InlineKeyboardMarkup(keyboard)
+
+            entry_label = f"[{target_idx + 1}] " if len(pending_entries) > 1 else ""
             await update.message.reply_text(
-                f"Category → {cat}\n{response}\n\n(Type to edit more)",
+                f"{entry_label}Category → {cat}\n{response}\n\n(Type to edit more)",
                 reply_markup=reply_markup
             )
             return
@@ -317,34 +321,50 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Use AI to modify the entry based on user request
     await update.message.reply_text("Modifying...")
 
-    entry = pending_entries[0]
+    entry = pending_entries[target_idx]
     result = ai_handler.modify_entry(entry, text)
 
     if result["success"]:
-        pending_entries[0] = result["entry"]
+        pending_entries[target_idx] = result["entry"]
         user_sessions[user_id]["pending_entries"] = pending_entries
 
         response = ai_handler._format_single_entry(result["entry"])
-        keyboard = [[
-            InlineKeyboardButton("Save", callback_data="save_1"),
-            InlineKeyboardButton("Cancel", callback_data="cancel")
-        ]]
+
+        # Build appropriate keyboard based on number of entries
+        keyboard = _build_edit_keyboard(len(pending_entries), target_idx)
         reply_markup = InlineKeyboardMarkup(keyboard)
+
+        entry_label = f"[{target_idx + 1}] " if len(pending_entries) > 1 else ""
         await update.message.reply_text(
-            f"Updated!\n{response}\n\n(Type to edit more)",
+            f"{entry_label}Updated!\n{response}\n\n(Type to edit more)",
             reply_markup=reply_markup
         )
     else:
         # Show buttons so user can escape the loop
-        keyboard = [[
-            InlineKeyboardButton("Save", callback_data="save_1"),
-            InlineKeyboardButton("Start New", callback_data="cancel")
-        ]]
+        keyboard = _build_edit_keyboard(len(pending_entries), target_idx)
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "Couldn't understand that. Try again, Save current entry, or Start New.",
             reply_markup=reply_markup
         )
+
+
+def _build_edit_keyboard(num_entries: int, current_idx: int) -> list:
+    """Build inline keyboard for edit mode based on number of entries."""
+    if num_entries == 1:
+        return [[
+            InlineKeyboardButton("Save", callback_data="save_1"),
+            InlineKeyboardButton("Cancel", callback_data="cancel")
+        ]]
+    else:
+        # Show save button for current entry and save all option
+        return [
+            [
+                InlineKeyboardButton(f"Save [{current_idx + 1}]", callback_data=f"save_{current_idx + 1}"),
+                InlineKeyboardButton("Save All", callback_data="save_all"),
+            ],
+            [InlineKeyboardButton("Cancel", callback_data="cancel")]
+        ]
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
