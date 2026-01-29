@@ -65,8 +65,8 @@ is_paused = False
 def get_task_buttons(task_id: str) -> InlineKeyboardMarkup:
     """Generate Done / Not Yet buttons for a task."""
     keyboard = [[
-        InlineKeyboardButton("✅ Done", callback_data=f"done_{task_id}"),
-        InlineKeyboardButton("⏳ Not Yet", callback_data=f"notyet_{task_id}")
+        InlineKeyboardButton("Done", callback_data=f"done_{task_id}"),
+        InlineKeyboardButton("Not Yet", callback_data=f"notyet_{task_id}")
     ]]
     return InlineKeyboardMarkup(keyboard)
 
@@ -422,9 +422,9 @@ Commands: /habits /video /week /stop /resume"""
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle inline button presses."""
     query = update.callback_query
-    await query.answer()
 
     if str(query.from_user.id) != HABITS_USER_ID:
+        await query.answer()
         return
 
     data = query.data
@@ -433,34 +433,35 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "spoke": "Spoke in English"
     }
 
-    # Handle "Done" button
-    if data.startswith("done_"):
-        task_id = data[5:]  # Remove "done_" prefix
+    try:
+        # Handle "Done" button
+        if data.startswith("done_"):
+            task_id = data[5:]  # Remove "done_" prefix
 
-        if task_id in task_names:
-            # Built-in habit
-            habit_handler.update_habit(task_id, True)
-            task_name = task_names[task_id]
+            if task_id in task_names:
+                # Built-in habit
+                habit_handler.update_habit(task_id, True)
+                task_name = task_names[task_id]
+            else:
+                # Custom task
+                habit_handler.mark_task_done(task_id)
+                reminders = habit_handler.get_all_reminders()
+                task_name = next((r["text"] for r in reminders if r["id"] == task_id), "Task")
+
+            await query.answer()
+            await query.edit_message_text(f"✅ {task_name}")
+
+        # Handle "Not Yet" button - keeps the buttons
+        elif data.startswith("notyet_"):
+            # Just acknowledge, keep buttons
+            await query.answer("I'll remind you later!")
+
         else:
-            # Custom task
-            habit_handler.mark_task_done(task_id)
-            reminders = habit_handler.get_all_reminders()
-            task_name = next((r["text"] for r in reminders if r["id"] == task_id), "Task")
+            await query.answer()
 
-        await query.edit_message_text(f"✅ {task_name}")
-
-    # Handle "Not Yet" button - keeps the buttons
-    elif data.startswith("notyet_"):
-        task_id = data[7:]  # Remove "notyet_" prefix
-
-        if task_id in task_names:
-            task_name = task_names[task_id]
-        else:
-            reminders = habit_handler.get_all_reminders()
-            task_name = next((r["text"] for r in reminders if r["id"] == task_id), "Task")
-
-        # Keep the message and buttons as-is (just acknowledge)
-        await query.answer("I'll remind you later!")
+    except Exception as e:
+        logger.error(f"Callback error: {e}")
+        await query.answer("Error processing request")
 
 
 async def post_init(app: Application) -> None:
