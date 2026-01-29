@@ -7,7 +7,29 @@ import json
 import re
 
 
-SYSTEM_PROMPT = """You are an English vocabulary learning assistant for intermediate-to-advanced Chinese learners.
+# =============================================================================
+# CATEGORY CONFIGURATION - Edit this dict to add/remove/modify categories
+# =============================================================================
+CATEGORIES = {
+    "固定词组": "Phrasal verbs, idioms, collocations",
+    "口语": "Casual speech, slang, conversational",
+    "新闻": "News, journalism, formal reporting",
+    "职场": "Business, professional, workplace",
+    "学术词汇": "Academic, scholarly",
+    "写作": "Literary, formal writing",
+    "情绪": "Emotions, feelings",
+    "科技": "Technology, computing, software, internet",
+    "其他": "Other",
+}
+
+# Generate category list string for prompts
+CATEGORY_LIST = ", ".join(CATEGORIES.keys())
+
+# Generate category guide for prompts
+CATEGORY_GUIDE = "\n".join(f"- {name}: {desc}" for name, desc in CATEGORIES.items())
+
+
+SYSTEM_PROMPT = f"""You are an English vocabulary learning assistant for intermediate-to-advanced Chinese learners.
 
 CRITICAL RULES:
 
@@ -41,31 +63,24 @@ CRITICAL RULES:
    - Quality over quantity: 1 good entry is better than 3 mediocre ones.
 
 OUTPUT FORMAT (strict JSON):
-{
+{{
   "is_sentence": true/false,
   "grammar_correction": "corrected/completed sentence OR null if no issues and not a sentence",
   "grammar_note": "brief explanation of what was corrected, OR null",
   "entries": [
-    {
+    {{
       "english": "the phrase (add /phonetic/ for uncommon pronunciation)",
       "chinese": "中文翻译 (情感标签如适用，如：贬义/褒义/中性)",
       "explanation": "简洁中文解释，2-3句话概括核心含义和常见用法即可。",
       "example_en": "One clear English example sentence (prefer using the user's input sentence if it's a sentence)",
       "example_zh": "对应的完整中文翻译",
-      "category": "one of: 固定词组, 口语, 新闻, 职场, 学术词汇, 写作, 情绪, 其他"
-    }
+      "category": "one of: {CATEGORY_LIST}"
+    }}
   ]
-}
+}}
 
 CATEGORY GUIDE:
-- 固定词组: Phrasal verbs, idioms, collocations
-- 口语: Casual speech, slang, conversational
-- 新闻: News, journalism, formal reporting
-- 职场: Business, professional, workplace
-- 学术词汇: Academic, scholarly
-- 写作: Literary, formal writing
-- 情绪: Emotions, feelings
-- 其他: Other
+{CATEGORY_GUIDE}
 
 Respond with valid JSON only, no markdown."""
 
@@ -82,13 +97,76 @@ class AIHandler:
         # Replace other problematic Unicode characters
         text = text.replace('…', '...')
         text = text.replace('—', '-').replace('–', '-')
+        # Remove zero-width characters and other invisible Unicode
+        text = text.replace('\u200b', '')  # zero-width space
+        text = text.replace('\u200c', '')  # zero-width non-joiner
+        text = text.replace('\u200d', '')  # zero-width joiner
+        text = text.replace('\ufeff', '')  # BOM
         return text
+
+    def _escape_json_string_content(self, text: str) -> str:
+        """
+        Fix unescaped characters inside JSON string values.
+        This handles cases where AI puts unescaped quotes or control chars in strings.
+        """
+        result = []
+        i = 0
+        in_string = False
+        string_start = -1
+
+        while i < len(text):
+            char = text[i]
+
+            if char == '"':
+                # Check if this quote is escaped
+                num_backslashes = 0
+                j = i - 1
+                while j >= 0 and text[j] == '\\':
+                    num_backslashes += 1
+                    j -= 1
+
+                if num_backslashes % 2 == 0:  # Quote is not escaped
+                    if not in_string:
+                        in_string = True
+                        string_start = i
+                        result.append(char)
+                    else:
+                        # Check if this looks like end of string (followed by : , } ] or whitespace)
+                        next_char_idx = i + 1
+                        while next_char_idx < len(text) and text[next_char_idx] in ' \t\n\r':
+                            next_char_idx += 1
+
+                        if next_char_idx >= len(text) or text[next_char_idx] in ':,}]':
+                            # This is likely the end of the string
+                            in_string = False
+                            result.append(char)
+                        else:
+                            # This is an unescaped quote inside the string - escape it
+                            result.append('\\"')
+                else:
+                    result.append(char)
+            elif in_string and char in '\n\r\t':
+                # Escape control characters inside strings
+                if char == '\n':
+                    result.append('\\n')
+                elif char == '\r':
+                    result.append('\\r')
+                elif char == '\t':
+                    result.append('\\t')
+            else:
+                result.append(char)
+
+            i += 1
+
+        return ''.join(result)
 
     def _try_parse_json(self, text: str) -> dict:
         """
         Try multiple strategies to parse JSON from AI response.
         Returns parsed dict or raises JSONDecodeError if all strategies fail.
         """
+        last_error = None
+
         # Strategy 1: Direct parse after basic cleanup
         cleaned = text.strip()
 
@@ -102,30 +180,46 @@ class AIHandler:
 
         try:
             return json.loads(cleaned)
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+            last_error = e
 
         # Strategy 2: Extract JSON object using regex (handles text before/after JSON)
         json_match = re.search(r'\{[\s\S]*\}', cleaned)
         if json_match:
             try:
                 return json.loads(json_match.group())
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as e:
+                last_error = e
 
-        # Strategy 3: Fix common JSON issues
+        # Strategy 3: Fix trailing commas and basic issues
         fixed = cleaned
-
-        # Fix trailing commas before } or ]
         fixed = re.sub(r',(\s*[}\]])', r'\1', fixed)
 
-        # Fix unescaped newlines in strings (convert to \n)
-        # This handles cases where AI puts actual newlines inside JSON strings
+        try:
+            return json.loads(fixed)
+        except json.JSONDecodeError as e:
+            last_error = e
+
+        # Strategy 4: Escape problematic characters inside string values
+        escaped = self._escape_json_string_content(fixed)
+        try:
+            return json.loads(escaped)
+        except json.JSONDecodeError as e:
+            last_error = e
+
+        # Strategy 5: Extract and escape JSON
+        json_match = re.search(r'\{[\s\S]*\}', escaped)
+        if json_match:
+            try:
+                return json.loads(json_match.group())
+            except json.JSONDecodeError as e:
+                last_error = e
+
+        # Strategy 6: Fix unescaped newlines in strings (convert to \n)
         lines = fixed.split('\n')
         in_string = False
         result_lines = []
         for i, line in enumerate(lines):
-            # Count unescaped quotes to track if we're in a string
             quote_count = 0
             j = 0
             while j < len(line):
@@ -134,12 +228,10 @@ class AIHandler:
                 j += 1
 
             if i > 0 and in_string:
-                # We're continuing a string from previous line - join with escaped newline
                 result_lines[-1] = result_lines[-1] + '\\n' + line
             else:
                 result_lines.append(line)
 
-            # Update in_string state
             if quote_count % 2 == 1:
                 in_string = not in_string
 
@@ -147,19 +239,36 @@ class AIHandler:
 
         try:
             return json.loads(fixed)
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+            last_error = e
 
-        # Strategy 4: Try extracting JSON again after fixes
-        json_match = re.search(r'\{[\s\S]*\}', fixed)
+        # Strategy 7: Apply escaping to the newline-fixed version
+        escaped_fixed = self._escape_json_string_content(fixed)
+        try:
+            return json.loads(escaped_fixed)
+        except json.JSONDecodeError as e:
+            last_error = e
+
+        # Strategy 8: Try extracting JSON again after all fixes
+        json_match = re.search(r'\{[\s\S]*\}', escaped_fixed)
         if json_match:
             try:
                 return json.loads(json_match.group())
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as e:
+                last_error = e
 
-        # All strategies failed - raise the original error for debugging
-        return json.loads(cleaned)  # This will raise JSONDecodeError with details
+        # Strategy 9: Aggressive cleanup - remove all control characters
+        aggressive = re.sub(r'[\x00-\x1f\x7f-\x9f]', ' ', cleaned)
+        aggressive = self._escape_json_string_content(aggressive)
+        json_match = re.search(r'\{[\s\S]*\}', aggressive)
+        if json_match:
+            try:
+                return json.loads(json_match.group())
+            except json.JSONDecodeError as e:
+                last_error = e
+
+        # All strategies failed - raise the last error for debugging
+        raise last_error if last_error else json.JSONDecodeError("No valid JSON found", text, 0)
 
     def analyze_input(self, user_input: str) -> dict:
         """Analyze user input and generate learning entries."""
@@ -311,7 +420,7 @@ OUTPUT FORMAT (strict JSON):
     "explanation": "...",
     "example_en": "...",
     "example_zh": "...",
-    "category": "one of: 固定词组, 口语, 新闻, 职场, 学术词汇, 写作, 情绪, 其他"
+    "category": "one of: {CATEGORY_LIST}"
   }}
 }}
 

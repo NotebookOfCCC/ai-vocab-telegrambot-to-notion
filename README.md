@@ -40,7 +40,7 @@ A Telegram bot that helps you learn English vocabulary with AI-powered explanati
 - Chinese (Text)
 - Explanation (Text)
 - Example (Text)
-- Category (Select) with options: 固定词组, 口语, 新闻, 职场, 学术词汇, 写作, 情绪, 其他
+- Category (Select) - categories are configurable in `ai_handler.py` (see `CATEGORIES` dict)
 - Date (Date)
 
 ### Step 4: Configure Environment

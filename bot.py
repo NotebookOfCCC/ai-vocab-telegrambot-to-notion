@@ -14,7 +14,7 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-from ai_handler import AIHandler
+from ai_handler import AIHandler, CATEGORIES, CATEGORY_LIST
 from notion_handler import NotionHandler
 
 # Load environment variables
@@ -80,7 +80,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not is_user_allowed(update.effective_user.id):
         return
 
-    help_text = """
+    help_text = f"""
 Vocab Learning Bot Help
 
 Send me:
@@ -98,7 +98,7 @@ I will:
 Reply with number(s) to save entries to Notion.
 
 Categories available:
-固定词组, 口语, 新闻, 职场, 学术词汇, 写作, 情绪, 其他
+{CATEGORY_LIST}
 """
     await update.message.reply_text(help_text)
 
@@ -299,8 +299,7 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
     target_idx = ai_handler.detect_target_entry(pending_entries, text)
 
     # Check if it's a simple category change with category name in text
-    valid_categories = ["固定词组", "口语", "新闻", "职场", "学术词汇", "写作", "情绪", "其他"]
-    for cat in valid_categories:
+    for cat in CATEGORIES:
         if cat in text:
             pending_entries[target_idx]["category"] = cat
             user_sessions[user_id]["pending_entries"] = pending_entries
