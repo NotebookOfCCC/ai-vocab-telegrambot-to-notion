@@ -401,10 +401,13 @@ CURRENT ENTRY:
 USER MESSAGE: {user_request}
 
 INSTRUCTIONS:
-1. First, determine if the user is asking a QUESTION (contains ?, 吗, 呢, 什么, 为什么, 怎么, 是不是, 是否, etc.)
+1. First, determine if the user is asking a QUESTION (contains ?, 吗, 呢, 什么, 为什么, 怎么, 是不是, 是否, 音标, pronunciation, etc.)
 2. If the user is asking a question:
    - Provide a clear, helpful answer to their question in "question_answer"
-   - Then update the entry if the question implies a modification is needed
+   - IMPORTANT: Always update the entry to incorporate the answer when relevant:
+     * If asking about pronunciation/音标: Add phonetic notation to the "english" field (e.g., "word /wɜːrd/")
+     * If asking about meaning: Update "chinese" or "explanation" if needed
+     * If asking about usage: Update "example_en"/"example_zh" if a better example is given
 3. If the user is giving feedback/instructions (not a question):
    - Set "question_answer" to null
    - Modify the entry according to their request

@@ -334,7 +334,7 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
 
             entry_label = f"[{target_idx + 1}] " if len(pending_entries) > 1 else ""
             sent_message = await update.message.reply_text(
-                f"{entry_label}Category → {cat}\n{response}\n\n(Type to edit more)",
+                f"{entry_label}Category → {cat}\n{response}",
                 reply_markup=reply_markup
             )
 
@@ -368,7 +368,7 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         entry_label = f"[{target_idx + 1}] " if len(pending_entries) > 1 else ""
         sent_message = await update.message.reply_text(
-            f"{entry_label}Updated!\n{response}\n\n(Type to edit more)",
+            f"{entry_label}Updated!\n{response}",
             reply_markup=reply_markup
         )
 
@@ -427,10 +427,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Handle cancel - clear session, keep content, remove buttons
     if data == "cancel":
         user_sessions[user_id] = {}
-        original_text = query.message.text
-        # Remove any edit hints and show cancelled status
-        new_text = original_text.replace("\n\n(Type to edit more)", "")
-        await query.edit_message_text(new_text, reply_markup=None)
+        await query.edit_message_text(query.message.text, reply_markup=None)
         await query.message.reply_text("— Cancelled the saving.")
         return
 
@@ -448,7 +445,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         ]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
-            f"Category → {new_category}\n{response}\n\n(Type to edit more)",
+            f"Category → {new_category}\n{response}",
             reply_markup=reply_markup
         )
         return
@@ -477,9 +474,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         user_sessions[user_id] = {}
 
         # Keep content, remove buttons
-        original_text = query.message.text
-        new_text = original_text.replace("\n\n(Type to edit more)", "")
-        await query.edit_message_text(new_text, reply_markup=None)
+        await query.edit_message_text(query.message.text, reply_markup=None)
 
         # Send save confirmation as separate message
         if saved_entries:
