@@ -2,6 +2,7 @@
 Notion Handler - Saves vocabulary entries to Notion database
 """
 import random
+from datetime import datetime, date
 from notion_client import Client
 
 
@@ -221,7 +222,19 @@ class NotionHandler:
             }
 
     def fetch_random_entries(self, count: int = 10) -> list:
-        """Fetch random entries from the database."""
+        """Fetch random entries from the database (no smart selection)."""
+        return self.fetch_entries_for_review(count, smart=False)
+
+    def fetch_entries_for_review(self, count: int = 10, smart: bool = True) -> list:
+        """
+        Fetch entries for review with optional spaced repetition.
+
+        Smart selection prioritizes:
+        1. Never reviewed entries (Last Reviewed is empty)
+        2. Entries not reviewed recently (older Last Reviewed date)
+        3. Entries with lower review count
+        4. Newer entries (by Date added) get slight priority
+        """
         try:
             # Query all entries from the database
             all_entries = []
@@ -241,26 +254,126 @@ class NotionHandler:
             if not all_entries:
                 return []
 
-            # Randomly select entries
-            selected = random.sample(all_entries, min(count, len(all_entries)))
-
-            # Parse entries into dictionaries
+            # Parse all entries
             parsed_entries = []
-            for page in selected:
+            for page in all_entries:
                 entry = self._parse_page_to_entry(page)
                 if entry:
                     parsed_entries.append(entry)
 
-            return parsed_entries
+            if not smart:
+                # Random selection
+                selected = random.sample(parsed_entries, min(count, len(parsed_entries)))
+                return selected
+
+            # Smart selection with spaced repetition scoring
+            today = date.today()
+            scored_entries = []
+
+            for entry in parsed_entries:
+                score = self._calculate_review_priority(entry, today)
+                scored_entries.append((score, random.random(), entry))  # random for tie-breaking
+
+            # Sort by score (higher = more urgent to review)
+            scored_entries.sort(key=lambda x: (x[0], x[1]), reverse=True)
+
+            # Select top entries
+            selected = [entry for _, _, entry in scored_entries[:count]]
+            return selected
 
         except Exception as e:
             return []
+
+    def _calculate_review_priority(self, entry: dict, today: date) -> float:
+        """
+        Calculate review priority score. Higher = more urgent to review.
+
+        Factors:
+        - Never reviewed: highest priority (100 points)
+        - Days since last review: more days = higher score
+        - Review count: lower count = higher score
+        - Days since added: newer entries get bonus
+        """
+        score = 0.0
+
+        last_reviewed = entry.get("last_reviewed")
+        review_count = entry.get("review_count", 0) or 0
+        date_added = entry.get("date")
+
+        # Factor 1: Never reviewed = highest priority
+        if not last_reviewed:
+            score += 100
+        else:
+            # Factor 2: Days since last review (max 50 points)
+            try:
+                last_date = datetime.strptime(last_reviewed, "%Y-%m-%d").date()
+                days_since_review = (today - last_date).days
+                # More days = higher score, capped at 50
+                score += min(days_since_review * 2, 50)
+            except (ValueError, TypeError):
+                score += 50  # If can't parse, treat as old
+
+        # Factor 3: Lower review count = higher score (max 30 points)
+        # 0 reviews = 30 points, 10+ reviews = 0 points
+        score += max(0, 30 - review_count * 3)
+
+        # Factor 4: Newer entries get slight bonus (max 20 points)
+        if date_added:
+            try:
+                added_date = datetime.strptime(date_added, "%Y-%m-%d").date()
+                days_since_added = (today - added_date).days
+                if days_since_added <= 7:
+                    score += 20  # Added in last week
+                elif days_since_added <= 30:
+                    score += 10  # Added in last month
+            except (ValueError, TypeError):
+                pass
+
+        return score
+
+    def update_review_stats(self, page_id: str) -> dict:
+        """Update Last Reviewed to today and increment Review Count."""
+        try:
+            # First get current review count
+            page = self.client.pages.retrieve(page_id=page_id)
+            properties = page.get("properties", {})
+
+            current_count = 0
+            for prop_name, prop_value in properties.items():
+                if prop_value.get("type") == "number" and "review" in prop_name.lower() and "count" in prop_name.lower():
+                    current_count = prop_value.get("number") or 0
+                    break
+
+            # Update properties
+            update_props = {}
+
+            # Find the exact property names
+            for prop_name, prop_value in properties.items():
+                prop_name_lower = prop_name.lower()
+                if prop_value.get("type") == "date" and "last" in prop_name_lower and "review" in prop_name_lower:
+                    update_props[prop_name] = {
+                        "date": {"start": date.today().isoformat()}
+                    }
+                elif prop_value.get("type") == "number" and "review" in prop_name_lower and "count" in prop_name_lower:
+                    update_props[prop_name] = {
+                        "number": current_count + 1
+                    }
+
+            if update_props:
+                self.client.pages.update(page_id=page_id, properties=update_props)
+
+            return {"success": True}
+
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     def _parse_page_to_entry(self, page: dict) -> dict:
         """Parse a Notion page into an entry dictionary."""
         try:
             properties = page.get("properties", {})
-            entry = {}
+            entry = {
+                "page_id": page.get("id")  # Store page ID for updates
+            }
 
             for prop_name, prop_value in properties.items():
                 prop_type = prop_value.get("type")
@@ -290,6 +403,21 @@ class NotionHandler:
                         select_value = prop_value.get("select")
                         if select_value:
                             entry["category"] = select_value.get("name", "")
+
+                # Date properties
+                elif prop_type == "date":
+                    date_value = prop_value.get("date")
+                    if date_value:
+                        date_start = date_value.get("start", "")
+                        if "last" in prop_name_lower and "review" in prop_name_lower:
+                            entry["last_reviewed"] = date_start
+                        elif prop_name_lower == "date" or "added" in prop_name_lower:
+                            entry["date"] = date_start
+
+                # Number properties
+                elif prop_type == "number":
+                    if "review" in prop_name_lower and "count" in prop_name_lower:
+                        entry["review_count"] = prop_value.get("number") or 0
 
             return entry if entry.get("english") else None
 

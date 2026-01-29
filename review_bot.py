@@ -42,8 +42,17 @@ def format_entry_for_review(entry: dict, index: int, total: int) -> str:
     explanation = entry.get("explanation", "")
     example = entry.get("example", "")
     category = entry.get("category", "")
+    review_count = entry.get("review_count", 0) or 0
 
-    lines = [f"Review {index}/{total}", "", f"{english}"]
+    # Show review status
+    if review_count == 0:
+        status = "🆕 New"
+    elif review_count <= 3:
+        status = f"📖 Review #{review_count + 1}"
+    else:
+        status = f"✅ Review #{review_count + 1}"
+
+    lines = [f"Review {index}/{total}  •  {status}", "", f"{english}"]
 
     if chinese:
         lines.append(chinese)
@@ -61,7 +70,7 @@ def format_entry_for_review(entry: dict, index: int, total: int) -> str:
 
 
 async def send_review_batch(manual: bool = False):
-    """Fetch random entries and send review messages.
+    """Fetch entries using spaced repetition and send review messages.
 
     Args:
         manual: If True, bypass the pause check (for /review command)
@@ -82,7 +91,8 @@ async def send_review_batch(manual: bool = False):
         return
 
     try:
-        entries = notion_handler.fetch_random_entries(10)
+        # Use smart selection with spaced repetition
+        entries = notion_handler.fetch_entries_for_review(10, smart=True)
 
         if not entries:
             logger.warning("No entries fetched from Notion")
@@ -99,6 +109,11 @@ async def send_review_batch(manual: bool = False):
                 chat_id=REVIEW_USER_ID,
                 text=message
             )
+
+            # Update Last Reviewed and Review Count in Notion
+            page_id = entry.get("page_id")
+            if page_id:
+                notion_handler.update_review_stats(page_id)
 
         logger.info(f"Sent {total} review entries to user {REVIEW_USER_ID}")
 
@@ -187,6 +202,11 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 Bot Status: {status}
 Timezone: {TIMEZONE}
 Scheduled jobs: {len(jobs)}
+
+Review Algorithm: Spaced Repetition
+- Prioritizes new and less-reviewed words
+- Tracks Last Reviewed date and Review Count
+- Newer words get slight boost
 
 Next reviews:
 - 8:00
