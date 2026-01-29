@@ -5,8 +5,8 @@ Sends scheduled vocabulary review messages from Notion database.
 import os
 import logging
 from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from notion_handler import NotionHandler
@@ -105,15 +105,20 @@ async def send_review_batch(manual: bool = False):
         total = len(entries)
         for i, entry in enumerate(entries, 1):
             message = format_entry_for_review(entry, i, total)
+            page_id = entry.get("page_id", "")
+
+            # Add Know/Don't Know buttons
+            keyboard = [[
+                InlineKeyboardButton("✓ Know", callback_data=f"know_{page_id}"),
+                InlineKeyboardButton("✗ Don't Know", callback_data=f"dontknow_{page_id}")
+            ]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
             await application.bot.send_message(
                 chat_id=REVIEW_USER_ID,
-                text=message
+                text=message,
+                reply_markup=reply_markup
             )
-
-            # Update Last Reviewed and Review Count in Notion
-            page_id = entry.get("page_id")
-            if page_id:
-                notion_handler.update_review_stats(page_id)
 
         logger.info(f"Sent {total} review entries to user {REVIEW_USER_ID}")
 
@@ -204,9 +209,9 @@ Timezone: {TIMEZONE}
 Scheduled jobs: {len(jobs)}
 
 Review Algorithm: Spaced Repetition
-- Prioritizes new and less-reviewed words
-- Tracks Last Reviewed date and Review Count
-- Newer words get slight boost
+- ✓ Know: Interval doubles (1→2→4→8→16 days)
+- ✗ Don't Know: Review again tomorrow
+- Prioritizes words due for review
 
 Next reviews:
 - 8:00
@@ -215,6 +220,36 @@ Next reviews:
 - 22:00
 """
     await update.message.reply_text(status_message)
+
+
+async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle Know/Don't Know button presses."""
+    query = update.callback_query
+    await query.answer()
+
+    if str(query.from_user.id) != REVIEW_USER_ID:
+        return
+
+    data = query.data
+    if data.startswith("know_"):
+        page_id = data[5:]  # Remove "know_" prefix
+        knew = True
+        result = notion_handler.update_review_stats(page_id, knew=True)
+        if result.get("success"):
+            next_review = result.get("next_review", "?")
+            await query.edit_message_reply_markup(reply_markup=None)
+            await query.message.reply_text(f"✓ Got it! Next review: {next_review}")
+        else:
+            await query.message.reply_text("Failed to update.")
+
+    elif data.startswith("dontknow_"):
+        page_id = data[9:]  # Remove "dontknow_" prefix
+        result = notion_handler.update_review_stats(page_id, knew=False)
+        if result.get("success"):
+            await query.edit_message_reply_markup(reply_markup=None)
+            await query.message.reply_text("✗ Will review again tomorrow!")
+        else:
+            await query.message.reply_text("Failed to update.")
 
 
 async def post_init(app: Application) -> None:
@@ -299,6 +334,7 @@ def main():
     application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CommandHandler("resume", resume_command))
     application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CallbackQueryHandler(handle_review_callback))
 
     # Add error handler
     application.add_error_handler(error_handler)

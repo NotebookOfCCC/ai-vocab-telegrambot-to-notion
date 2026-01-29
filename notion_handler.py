@@ -289,50 +289,75 @@ class NotionHandler:
         Calculate review priority score. Higher = more urgent to review.
 
         Factors:
-        - Never reviewed: highest priority (100 points)
+        - Next Review date: due/overdue = highest priority
+        - Never reviewed: high priority
         - Days since last review: more days = higher score
         - Review count: lower count = higher score
-        - Days since added: newer entries get bonus
         """
         score = 0.0
 
+        next_review = entry.get("next_review")
         last_reviewed = entry.get("last_reviewed")
         review_count = entry.get("review_count", 0) or 0
         date_added = entry.get("date")
 
-        # Factor 1: Never reviewed = highest priority
-        if not last_reviewed:
-            score += 100
+        # Factor 1: Next Review date (highest weight)
+        if next_review:
+            try:
+                next_date = datetime.strptime(next_review, "%Y-%m-%d").date()
+                days_until_review = (next_date - today).days
+                if days_until_review <= 0:
+                    # Due or overdue: highest priority
+                    score += 150 + abs(days_until_review) * 5  # More overdue = higher
+                else:
+                    # Not yet due: lower priority
+                    score += max(0, 30 - days_until_review * 3)
+            except (ValueError, TypeError):
+                score += 50  # If can't parse, moderate priority
+        elif not last_reviewed:
+            # Never reviewed and no next_review set = new word, high priority
+            score += 120
         else:
-            # Factor 2: Days since last review (max 50 points)
+            # Has been reviewed but no next_review set (legacy entries)
+            # Fall back to old algorithm
             try:
                 last_date = datetime.strptime(last_reviewed, "%Y-%m-%d").date()
                 days_since_review = (today - last_date).days
-                # More days = higher score, capped at 50
                 score += min(days_since_review * 2, 50)
             except (ValueError, TypeError):
-                score += 50  # If can't parse, treat as old
+                score += 50
 
-        # Factor 3: Lower review count = higher score (max 30 points)
-        # 0 reviews = 30 points, 10+ reviews = 0 points
+        # Factor 2: Lower review count = higher score (max 30 points)
         score += max(0, 30 - review_count * 3)
 
-        # Factor 4: Newer entries get slight bonus (max 20 points)
+        # Factor 3: Newer entries get slight bonus (max 20 points)
         if date_added:
             try:
                 added_date = datetime.strptime(date_added, "%Y-%m-%d").date()
                 days_since_added = (today - added_date).days
                 if days_since_added <= 7:
-                    score += 20  # Added in last week
+                    score += 20
                 elif days_since_added <= 30:
-                    score += 10  # Added in last month
+                    score += 10
             except (ValueError, TypeError):
                 pass
 
         return score
 
-    def update_review_stats(self, page_id: str) -> dict:
-        """Update Last Reviewed to today and increment Review Count."""
+    def update_review_stats(self, page_id: str, knew: bool = True) -> dict:
+        """
+        Update review stats based on user's response.
+
+        Args:
+            page_id: Notion page ID
+            knew: True if user knew the word, False if not
+
+        Scheduling:
+            - Know: Next review = today + 2^review_count days (1, 2, 4, 8, 16, 32...)
+            - Don't Know: Next review = tomorrow, reset review count to 0
+        """
+        from datetime import timedelta
+
         try:
             # First get current review count
             page = self.client.pages.retrieve(page_id=page_id)
@@ -344,25 +369,43 @@ class NotionHandler:
                     current_count = prop_value.get("number") or 0
                     break
 
+            # Calculate next review date and new count
+            today = date.today()
+            if knew:
+                # Exponential interval: 1, 2, 4, 8, 16, 32 days (capped at 60)
+                interval_days = min(2 ** current_count, 60)
+                next_review = today + timedelta(days=interval_days)
+                new_count = current_count + 1
+            else:
+                # Don't know: review tomorrow, reset count
+                next_review = today + timedelta(days=1)
+                new_count = 0
+
             # Update properties
             update_props = {}
 
-            # Find the exact property names
+            # Find the exact property names and update
             for prop_name, prop_value in properties.items():
                 prop_name_lower = prop_name.lower()
-                if prop_value.get("type") == "date" and "last" in prop_name_lower and "review" in prop_name_lower:
+                prop_type = prop_value.get("type")
+
+                if prop_type == "date" and "last" in prop_name_lower and "review" in prop_name_lower:
                     update_props[prop_name] = {
-                        "date": {"start": date.today().isoformat()}
+                        "date": {"start": today.isoformat()}
                     }
-                elif prop_value.get("type") == "number" and "review" in prop_name_lower and "count" in prop_name_lower:
+                elif prop_type == "date" and "next" in prop_name_lower and "review" in prop_name_lower:
                     update_props[prop_name] = {
-                        "number": current_count + 1
+                        "date": {"start": next_review.isoformat()}
+                    }
+                elif prop_type == "number" and "review" in prop_name_lower and "count" in prop_name_lower:
+                    update_props[prop_name] = {
+                        "number": new_count
                     }
 
             if update_props:
                 self.client.pages.update(page_id=page_id, properties=update_props)
 
-            return {"success": True}
+            return {"success": True, "next_review": next_review.isoformat()}
 
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -409,7 +452,9 @@ class NotionHandler:
                     date_value = prop_value.get("date")
                     if date_value:
                         date_start = date_value.get("start", "")
-                        if "last" in prop_name_lower and "review" in prop_name_lower:
+                        if "next" in prop_name_lower and "review" in prop_name_lower:
+                            entry["next_review"] = date_start
+                        elif "last" in prop_name_lower and "review" in prop_name_lower:
                             entry["last_reviewed"] = date_start
                         elif prop_name_lower == "date" or "added" in prop_name_lower:
                             entry["date"] = date_start
