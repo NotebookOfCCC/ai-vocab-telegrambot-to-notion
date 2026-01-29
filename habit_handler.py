@@ -381,11 +381,15 @@ class HabitHandler:
             logger.error(f"Error fetching reminders: {e}")
             return []
 
-    def get_all_reminders(self) -> list:
-        """Get all enabled reminders regardless of time.
+    def get_all_reminders(self, for_today: bool = True) -> list:
+        """Get enabled reminders.
+
+        Args:
+            for_today: If True, only return reminders for today or without a date.
+                      If False, return all enabled reminders.
 
         Returns:
-            List of reminder dictionaries with text and time
+            List of reminder dictionaries with id, text, and date
         """
         try:
             response = self.client.databases.query(
@@ -393,7 +397,9 @@ class HabitHandler:
                 filter={"property": "Enabled", "checkbox": {"equals": True}}
             )
 
+            today = self._get_today_date_str()
             reminders = []
+
             for page in response.get("results", []):
                 props = page.get("properties", {})
 
@@ -407,12 +413,20 @@ class HabitHandler:
                 date_value = date_prop.get("date", {})
                 date_str = date_value.get("start", "") if date_value else ""
 
-                if text:
-                    reminders.append({
-                        "id": page["id"],
-                        "text": text,
-                        "date": date_str
-                    })
+                if not text:
+                    continue
+
+                # Filter by date if requested
+                if for_today:
+                    # Include if: no date set, or date is today
+                    if date_str and date_str[:10] != today:
+                        continue
+
+                reminders.append({
+                    "id": page["id"],
+                    "text": text,
+                    "date": date_str
+                })
 
             return reminders
 
@@ -420,24 +434,31 @@ class HabitHandler:
             logger.error(f"Error fetching all reminders: {e}")
             return []
 
-    def create_reminder(self, text: str) -> dict:
+    def create_reminder(self, text: str, date: str = None) -> dict:
         """Create a new reminder in the Reminders database.
 
         Args:
             text: The reminder text
+            date: Optional date in YYYY-MM-DD format (for future tasks)
 
         Returns:
             Dictionary with success status and page_id or error
         """
         try:
+            properties = {
+                "Reminder": {"title": [{"text": {"content": text}}]},
+                "Enabled": {"checkbox": True}
+            }
+
+            # Add date if specified
+            if date:
+                properties["Date"] = {"date": {"start": date}}
+
             new_page = self.client.pages.create(
                 parent={"database_id": self.reminders_db_id},
-                properties={
-                    "Reminder": {"title": [{"text": {"content": text}}]},
-                    "Enabled": {"checkbox": True}
-                }
+                properties=properties
             )
-            logger.info(f"Created reminder: {text}")
+            logger.info(f"Created reminder: {text} (date: {date})")
             return {"success": True, "page_id": new_page["id"]}
 
         except Exception as e:

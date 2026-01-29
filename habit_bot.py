@@ -306,21 +306,57 @@ async def habits_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /add command - add a new task."""
+    """Handle /add command - add a new task.
+
+    Supports date prefixes:
+    - /add task description (today)
+    - /add today task description
+    - /add tmr task description (tomorrow)
+    - /add tomorrow task description
+    """
     if str(update.effective_user.id) != HABITS_USER_ID:
         await update.message.reply_text("Sorry, this bot is private.")
         return
 
-    # Get the task text from the command
     if not context.args:
-        await update.message.reply_text("Usage: /add <task description>\n\nExample: /add Practice speaking for 10 minutes")
+        await update.message.reply_text(
+            "Usage: /add [date] <task>\n\n"
+            "Examples:\n"
+            "/add Practice speaking\n"
+            "/add tmr Do taxes\n"
+            "/add tomorrow Call mom"
+        )
         return
 
-    task_text = " ".join(context.args)
-    result = habit_handler.create_reminder(task_text)
+    from datetime import datetime, timedelta
+
+    args = list(context.args)
+    target_date = None
+    date_label = "today"
+
+    # Check for date prefix
+    first_word = args[0].lower()
+    if first_word in ["today"]:
+        args.pop(0)
+        target_date = datetime.now().strftime("%Y-%m-%d")
+        date_label = "today"
+    elif first_word in ["tmr", "tomorrow"]:
+        args.pop(0)
+        target_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        date_label = "tomorrow"
+
+    if not args:
+        await update.message.reply_text("Please provide a task description.")
+        return
+
+    task_text = " ".join(args)
+    result = habit_handler.create_reminder(task_text, target_date)
 
     if result["success"]:
-        await update.message.reply_text(f"✅ Added task:\n📌 {task_text}")
+        if date_label == "today":
+            await update.message.reply_text(f"✅ Added task:\n📌 {task_text}")
+        else:
+            await update.message.reply_text(f"✅ Added task for {date_label}:\n📌 {task_text}")
     else:
         await update.message.reply_text(f"❌ Failed to add task: {result.get('error', 'Unknown error')}")
 
@@ -451,10 +487,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.answer()
             await query.edit_message_text(f"✅ {task_name}")
 
-        # Handle "Not Yet" button - keeps the buttons
+        # Handle "Not Yet" button - dismiss but don't mark done
         elif data.startswith("notyet_"):
-            # Just acknowledge, keep buttons
-            await query.answer("I'll remind you later!")
+            task_id = data[7:]  # Remove "notyet_" prefix
+
+            if task_id in task_names:
+                task_name = task_names[task_id]
+            else:
+                reminders = habit_handler.get_all_reminders()
+                task_name = next((r["text"] for r in reminders if r["id"] == task_id), "Task")
+
+            await query.answer()
+            await query.edit_message_text(f"⏳ {task_name}")
 
         else:
             await query.answer()
