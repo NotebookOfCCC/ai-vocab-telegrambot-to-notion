@@ -1,5 +1,5 @@
 """
-Main entry point - runs both Vocab Learner and Review bots together.
+Main entry point - runs all bots together.
 """
 import subprocess
 import sys
@@ -7,29 +7,33 @@ import os
 import signal
 
 def main():
-    print("Starting both bots...")
+    print("Starting all bots...")
 
-    # Start both bot processes
+    # Start all bot processes
     bot_process = subprocess.Popen([sys.executable, "bot.py"])
     review_process = subprocess.Popen([sys.executable, "review_bot.py"])
+    habit_process = subprocess.Popen([sys.executable, "habit_bot.py"])
 
     print(f"Vocab Learner bot PID: {bot_process.pid}")
     print(f"Review bot PID: {review_process.pid}")
+    print(f"Habit bot PID: {habit_process.pid}")
 
     # Handle shutdown gracefully
     def shutdown(signum, frame):
         print("\nShutting down bots...")
         bot_process.terminate()
         review_process.terminate()
+        habit_process.terminate()
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
 
-    # Wait for both processes
+    # Wait for all processes
     try:
         bot_process.wait()
         review_process.wait()
+        habit_process.wait()
     except KeyboardInterrupt:
         shutdown(None, None)
 

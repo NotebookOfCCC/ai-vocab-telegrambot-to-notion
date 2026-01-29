@@ -1,0 +1,34 @@
+{
+  "playlists": [
+    {
+      "name": "Bloomberg Odd Lots",
+      "playlist_id": "PLe4PRejZgr0MuA6M0zkZyy-99-qc87wKV",
+      "enabled": true
+    },
+    {
+      "name": "Bloomberg",
+      "channel_handle": "@business",
+      "enabled": true
+    },
+    {
+      "name": "CNBC Television",
+      "channel_handle": "@CNBCtelevision",
+      "enabled": true
+    },
+    {
+      "name": "Bloomberg Markets",
+      "channel_handle": "@markets",
+      "enabled": true
+    },
+    {
+      "name": "Lenny's Podcast",
+      "channel_handle": "@LennysPodcast",
+      "enabled": true
+    },
+    {
+      "name": "The Knowledge Project",
+      "channel_handle": "@tkppodcast",
+      "enabled": true
+    }
+  ]
+}
