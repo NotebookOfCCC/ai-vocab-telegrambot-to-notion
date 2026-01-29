@@ -217,7 +217,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             ])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(response, reply_markup=reply_markup)
+        sent_message = await update.message.reply_text(response, reply_markup=reply_markup)
+
+        # Store message info so we can remove buttons later
+        user_sessions[user_id]["last_button_message_id"] = sent_message.message_id
+        user_sessions[user_id]["last_button_message_chat_id"] = sent_message.chat_id
 
     except Exception as e:
         logger.error(f"Error processing message: {e}")
@@ -285,6 +289,21 @@ async def handle_selection(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         await update.message.reply_text(summary)
 
 
+async def _remove_previous_buttons(context: ContextTypes.DEFAULT_TYPE, session: dict) -> None:
+    """Remove buttons from the previous message if it exists."""
+    msg_id = session.get("last_button_message_id")
+    chat_id = session.get("last_button_message_chat_id")
+    if msg_id and chat_id:
+        try:
+            await context.bot.edit_message_reply_markup(
+                chat_id=chat_id,
+                message_id=msg_id,
+                reply_markup=None
+            )
+        except Exception:
+            pass  # Message may have been deleted or already edited
+
+
 async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
     """Handle edit/modification request for pending entry."""
     user_id = update.effective_user.id
@@ -301,6 +320,9 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Check if it's a simple category change with category name in text
     for cat in CATEGORIES:
         if cat in text:
+            # Remove buttons from previous message
+            await _remove_previous_buttons(context, session)
+
             pending_entries[target_idx]["category"] = cat
             user_sessions[user_id]["pending_entries"] = pending_entries
             entry = pending_entries[target_idx]
@@ -311,10 +333,14 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             entry_label = f"[{target_idx + 1}] " if len(pending_entries) > 1 else ""
-            await update.message.reply_text(
+            sent_message = await update.message.reply_text(
                 f"{entry_label}Category → {cat}\n{response}\n\n(Type to edit more)",
                 reply_markup=reply_markup
             )
+
+            # Update message tracking
+            user_sessions[user_id]["last_button_message_id"] = sent_message.message_id
+            user_sessions[user_id]["last_button_message_chat_id"] = sent_message.chat_id
             return
 
     # Use AI to modify the entry based on user request
@@ -324,6 +350,9 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
     result = ai_handler.modify_entry(entry, text)
 
     if result["success"]:
+        # Remove buttons from previous message before showing new one
+        await _remove_previous_buttons(context, session)
+
         # If user asked a question, send the answer first as a separate message
         if result.get("question_answer"):
             await update.message.reply_text(f"💬 {result['question_answer']}")
@@ -338,18 +367,29 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         entry_label = f"[{target_idx + 1}] " if len(pending_entries) > 1 else ""
-        await update.message.reply_text(
+        sent_message = await update.message.reply_text(
             f"{entry_label}Updated!\n{response}\n\n(Type to edit more)",
             reply_markup=reply_markup
         )
+
+        # Update message tracking
+        user_sessions[user_id]["last_button_message_id"] = sent_message.message_id
+        user_sessions[user_id]["last_button_message_chat_id"] = sent_message.chat_id
     else:
+        # Remove buttons from previous message
+        await _remove_previous_buttons(context, session)
+
         # Show buttons so user can escape the loop
         keyboard = _build_edit_keyboard(len(pending_entries), target_idx)
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
+        sent_message = await update.message.reply_text(
             "Couldn't understand that. Try again, Save current entry, or Start New.",
             reply_markup=reply_markup
         )
+
+        # Update message tracking
+        user_sessions[user_id]["last_button_message_id"] = sent_message.message_id
+        user_sessions[user_id]["last_button_message_chat_id"] = sent_message.chat_id
 
 
 def _build_edit_keyboard(num_entries: int, current_idx: int) -> list:
