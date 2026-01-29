@@ -11,6 +11,14 @@ SYSTEM_PROMPT = """You are an English vocabulary learning assistant for intermed
 
 CRITICAL RULES:
 
+0. USE BASE/DICTIONARY FORM FOR WORDS:
+   - ALWAYS convert words to their base/dictionary/lemma form in the "english" field
+   - Plurals → Singular: "fidelities" → "fidelity", "kettles" → "kettle", "analyses" → "analysis"
+   - Conjugated verbs → Base form: "running" → "run", "went" → "go" (unless the specific form has unique meaning)
+   - Past participles → Base form: "broken" → "break" (unless used as adjective with different meaning)
+   - Exception: Keep the original form if it has a distinct meaning (e.g., "broken" as adjective meaning 损坏的)
+   - For phrasal verbs and fixed expressions, use the base verb form: "putting off" → "put off"
+
 1. SENTENCE INPUT - Process in this order:
    a) GRAMMAR CHECK: Check for grammar errors. If found, correct them (keep original meaning).
    b) COMPLETION: If sentence is incomplete, complete it naturally.
@@ -267,8 +275,11 @@ Date: {entry['date']}
 --- Saving to Notion ---"""
 
     def modify_entry(self, entry: dict, user_request: str) -> dict:
-        """Modify an entry based on user's follow-up request."""
-        modify_prompt = f"""You have a vocabulary entry that needs modification based on user feedback.
+        """Modify an entry based on user's follow-up request.
+
+        If user asks a question, returns both the answer and modified entry.
+        """
+        modify_prompt = f"""You have a vocabulary entry that the user is interacting with.
 
 CURRENT ENTRY:
 - English: {entry.get('english', '')}
@@ -278,18 +289,30 @@ CURRENT ENTRY:
 - Example ZH: {entry.get('example_zh', '')}
 - Category: {entry.get('category', '')}
 
-USER REQUEST: {user_request}
+USER MESSAGE: {user_request}
 
-Modify the entry according to the user's request. Keep fields unchanged if not mentioned.
+INSTRUCTIONS:
+1. First, determine if the user is asking a QUESTION (contains ?, 吗, 呢, 什么, 为什么, 怎么, 是不是, 是否, etc.)
+2. If the user is asking a question:
+   - Provide a clear, helpful answer to their question in "question_answer"
+   - Then update the entry if the question implies a modification is needed
+3. If the user is giving feedback/instructions (not a question):
+   - Set "question_answer" to null
+   - Modify the entry according to their request
+
+REMEMBER: Use the base/dictionary form for the "english" field (plurals → singular, conjugated → base form).
 
 OUTPUT FORMAT (strict JSON):
 {{
-  "english": "...",
-  "chinese": "...",
-  "explanation": "...",
-  "example_en": "...",
-  "example_zh": "...",
-  "category": "one of: 固定词组, 口语, 新闻, 职场, 学术词汇, 写作, 情绪, 其他"
+  "question_answer": "Answer to the user's question in the same language they asked (Chinese or English), OR null if not a question",
+  "entry": {{
+    "english": "...",
+    "chinese": "...",
+    "explanation": "...",
+    "example_en": "...",
+    "example_zh": "...",
+    "category": "one of: 固定词组, 口语, 新闻, 职场, 学术词汇, 写作, 情绪, 其他"
+  }}
 }}
 
 Respond with valid JSON only."""
@@ -305,9 +328,15 @@ Respond with valid JSON only."""
         response_text = message.content[0].text
 
         try:
-            modified = self._try_parse_json(response_text)
-            modified["date"] = entry.get("date", date.today().isoformat())
-            return {"success": True, "entry": modified}
+            result = self._try_parse_json(response_text)
+            modified_entry = result.get("entry", result)  # Support both new and old format
+            modified_entry["date"] = entry.get("date", date.today().isoformat())
+
+            return {
+                "success": True,
+                "entry": modified_entry,
+                "question_answer": result.get("question_answer")
+            }
         except json.JSONDecodeError as e:
             return {"success": False, "error": str(e)}
 

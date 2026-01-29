@@ -325,6 +325,10 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
     result = ai_handler.modify_entry(entry, text)
 
     if result["success"]:
+        # If user asked a question, send the answer first as a separate message
+        if result.get("question_answer"):
+            await update.message.reply_text(f"💬 {result['question_answer']}")
+
         pending_entries[target_idx] = result["entry"]
         user_sessions[user_id]["pending_entries"] = pending_entries
 
