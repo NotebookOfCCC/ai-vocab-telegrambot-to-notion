@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 HABITS_BOT_TOKEN = os.getenv("HABITS_BOT_TOKEN")
-HABITS_USER_ID = os.getenv("HABITS_USER_ID")
+HABITS_USER_ID = os.getenv("HABITS_USER_ID", "").strip()
 NOTION_KEY = os.getenv("NOTION_API_KEY")
 TRACKING_DB_ID = os.getenv("HABITS_TRACKING_DB_ID")
 REMINDERS_DB_ID = os.getenv("HABITS_REMINDERS_DB_ID")
@@ -266,6 +266,7 @@ Current streak: {streak} days
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
     user_id = str(update.effective_user.id)
+    logger.info(f"/start from user {user_id}, expected {HABITS_USER_ID}")
 
     if user_id != HABITS_USER_ID:
         await update.message.reply_text(
