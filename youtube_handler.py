@@ -1,6 +1,25 @@
 """
 YouTube Handler
-Fetches videos from configured playlists and channels using YouTube Data API.
+
+Fetches videos from configured playlists and channels using YouTube Data API v3.
+Supports both playlist IDs and channel handles (@username format).
+
+Configuration via video_config.json:
+{
+  "playlists": [
+    {"name": "...", "playlist_id": "PLxxxxx", "enabled": true},
+    {"name": "...", "channel_handle": "@username", "enabled": true}
+  ]
+}
+
+Features:
+- Caches results for 24 hours to minimize API calls
+- Automatically resolves channel handles to uploads playlist IDs
+- Filters out private/deleted videos
+- Random video selection from all enabled sources
+
+Requires: google-api-python-client
+API Key: Get from Google Cloud Console with YouTube Data API v3 enabled
 """
 import json
 import random

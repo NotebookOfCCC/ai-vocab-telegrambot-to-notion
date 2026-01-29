@@ -1,6 +1,29 @@
 """
 Daily Habit Reminder Bot
-Sends daily English practice reminders with YouTube videos and habit tracking.
+
+A Telegram bot for daily English practice reminders with:
+- Morning video recommendations from YouTube
+- Scheduled check-ins at 12:00, 19:00, 22:00
+- Weekly progress summaries on Sundays
+- Task management with Done/Not Yet buttons
+- Integration with Notion for habit tracking
+
+Commands:
+- /habits: View today's tasks
+- /add <task>: Add a new task
+- /video: Get a random practice video
+- /week: Weekly progress summary
+- /stop, /resume: Pause/resume reminders
+- /status: Bot status
+
+Environment variables required:
+- HABITS_BOT_TOKEN: Telegram bot token
+- HABITS_USER_ID: Your Telegram user ID
+- NOTION_API_KEY: Notion integration token
+- HABITS_TRACKING_DB_ID: Notion database for daily tracking
+- HABITS_REMINDERS_DB_ID: Notion database for reminders/tasks
+- YOUTUBE_API_KEY: YouTube Data API key (optional)
+- TIMEZONE: Timezone for scheduling (default: Europe/London)
 """
 import os
 import logging

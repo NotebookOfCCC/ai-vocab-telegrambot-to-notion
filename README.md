@@ -1,143 +1,195 @@
 # Vocab Learning Telegram Bot
 
-A Telegram bot that helps you learn English vocabulary with AI-powered explanations and automatic saving to Notion.
+A Telegram bot system that helps you learn English vocabulary with AI-powered explanations, automatic saving to Notion, scheduled reviews, and daily habit tracking.
 
 ## Features
 
+### Vocab Learner Bot (`bot.py`)
 - **Grammar Check**: Automatically corrects grammar in sentences
 - **Phrase Extraction**: Extracts learnable phrases from sentences
 - **AI Explanations**: Provides Chinese explanations, examples, and categorization
 - **Notion Integration**: Saves vocabulary entries directly to your Notion database
-- **Multi-device**: Works on phone, tablet, and desktop via Telegram
+
+### Review Bot (`review_bot.py`)
+- **Spaced Repetition**: Smart scheduling based on review performance
+- **Scheduled Reviews**: Sends vocabulary reviews at 8:00, 13:00, 19:00, 22:00
+- **3-Button System**: Again (review tomorrow), Good (normal interval), Easy (longer interval)
+
+### Habit Bot (`habit_bot.py`)
+- **Daily Reminders**: Morning video + tasks, check-ins throughout the day
+- **YouTube Integration**: Random videos from configured channels/playlists
+- **Habit Tracking**: Track listening and speaking practice in Notion
+- **Custom Tasks**: Add your own daily tasks via `/add` command
+- **Weekly Summary**: Progress report every Sunday
 
 ## Setup Instructions
 
-### Step 1: Create Telegram Bot
+### Step 1: Create Telegram Bots
 
-1. Open Telegram and search for `@BotFather`
-2. Send `/newbot`
-3. Follow prompts to name your bot
-4. Copy the **API Token** (looks like: `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`)
+Create 3 bots via `@BotFather` on Telegram:
+1. **Vocab Learner Bot** - for learning new vocabulary
+2. **Review Bot** - for scheduled reviews
+3. **Habit Bot** - for daily reminders
 
-### Step 2: Get Claude API Key
+### Step 2: Get API Keys
 
-1. Go to [console.anthropic.com](https://console.anthropic.com)
-2. Sign up or log in
-3. Go to API Keys section
-4. Create new API key and copy it
+1. **Claude API Key**: [console.anthropic.com](https://console.anthropic.com)
+2. **Notion Integration**: [notion.so/my-integrations](https://www.notion.so/my-integrations)
+3. **YouTube API Key** (optional): [Google Cloud Console](https://console.cloud.google.com) - Enable "YouTube Data API v3"
 
-### Step 3: Set Up Notion Integration
+### Step 3: Set Up Notion Databases
 
-1. Go to [notion.so/my-integrations](https://www.notion.so/my-integrations)
-2. Click "New integration"
-3. Name it (e.g., "Vocab Bot")
-4. Copy the **Internal Integration Token**
-5. Go to your Notion vocabulary database
-6. Click "..." menu → "Add connections" → Select your integration
-
-**Your Notion database should have these properties:**
+#### Vocabulary Database
+Required properties:
 - English (Title)
 - Chinese (Text)
 - Explanation (Text)
 - Example (Text)
-- Category (Select) - categories are configurable in `ai_handler.py` (see `CATEGORIES` dict)
+- Category (Select)
 - Date (Date)
+- Review Count (Number) - for spaced repetition
+- Next Review (Date) - for spaced repetition
+
+#### Habit Tracking Database
+Required properties:
+- Date (Title) - format: YYYY-MM-DD
+- Listened (Checkbox)
+- Spoke (Checkbox)
+- Video (Text) - stores video URL
+- Tasks (Text) - stores completed task IDs as JSON
+
+#### Reminders Database
+Required properties:
+- Reminder (Title) - task description
+- Enabled (Checkbox) - whether task is active
+- Date (Date) - optional, for time-specific reminders
 
 ### Step 4: Configure Environment
 
-1. Copy `.env.example` to `.env`
-2. Fill in your API keys:
-
-```
-TELEGRAM_BOT_TOKEN=your_telegram_token
-ANTHROPIC_API_KEY=your_claude_api_key
-NOTION_API_KEY=your_notion_integration_token
-NOTION_DATABASE_ID=your_database_id
-ALLOWED_USER_IDS=your_telegram_user_id
-```
-
-To get your Telegram user ID, message `@userinfobot` on Telegram.
-
-### Step 5: Install & Run
+Copy `.env.example` to `.env` and fill in your values:
 
 ```bash
-# Install Python dependencies
-pip install -r requirements.txt
+# Vocab Learner Bot
+TELEGRAM_BOT_TOKEN=your_vocab_bot_token
+ANTHROPIC_API_KEY=your_claude_api_key
+NOTION_API_KEY=your_notion_integration_token
+NOTION_DATABASE_ID=your_vocab_database_id
+ALLOWED_USER_IDS=your_telegram_user_id
 
-# Run the bot
-python bot.py
+# Review Bot
+REVIEW_BOT_TOKEN=your_review_bot_token
+REVIEW_USER_ID=your_telegram_user_id
+
+# Habit Bot
+HABITS_BOT_TOKEN=your_habit_bot_token
+HABITS_USER_ID=your_telegram_user_id
+HABITS_REMINDERS_DB_ID=your_reminders_database_id
+HABITS_TRACKING_DB_ID=your_tracking_database_id
+YOUTUBE_API_KEY=your_youtube_api_key
+
+# Timezone
+TIMEZONE=Europe/London
 ```
 
-## Usage
+### Step 5: Configure YouTube Playlists (Optional)
 
-1. Open Telegram and find your bot
-2. Send `/start` to begin
-3. Send any English word, phrase, or sentence
-4. Review the AI-generated learning content
-5. Reply with a number to save to Notion
+Edit `video_config.json` to add your preferred channels:
 
-### Example
+```json
+{
+  "playlists": [
+    {
+      "name": "Channel Name",
+      "channel_handle": "@YouTubeHandle",
+      "enabled": true
+    },
+    {
+      "name": "Playlist Name",
+      "playlist_id": "PLxxxxxx",
+      "enabled": true
+    }
+  ]
+}
+```
 
-**You send:** "I've been procrastinating on this task"
+### Step 6: Install & Run
 
-**Bot responds:**
-- Grammar check (if needed)
-- Extracted phrases with explanations
-- Numbered list of saveable items
+```bash
+# Install dependencies
+pip install -r requirements.txt
 
-**You reply:** "1"
+# Run all bots together
+python main.py
 
-**Bot saves:** Entry to your Notion database
+# Or run individual bots
+python bot.py         # Vocab learner
+python review_bot.py  # Scheduled reviews
+python habit_bot.py   # Daily habits
+```
 
 ## Commands
 
+### Vocab Learner Bot
 - `/start` - Welcome message
 - `/help` - Show help
 - `/test` - Test Notion connection
 
+### Review Bot
+- `/start` - Bot info
+- `/review` - Get review batch now
+- `/due` - See pending reviews count
+- `/stop` / `/resume` - Pause/resume scheduled reviews
+- `/status` - Bot status
+
+### Habit Bot
+- `/start` - Bot info
+- `/habits` - Today's tasks with Done/Not Yet buttons
+- `/add <task>` - Add a new task
+- `/video` - Get a random practice video
+- `/week` - Weekly progress summary
+- `/stop` / `/resume` - Pause/resume reminders
+- `/status` - Bot status
+
 ## Deployment
 
-This bot is deployed on **Railway** with auto-deploy from GitHub.
+### Railway
 
-### How to Deploy Changes
+1. Connect your GitHub repo to Railway
+2. Set environment variables in Railway Dashboard
+3. Deploy - Railway auto-deploys on push to main
 
-1. Make your code changes
-2. Commit and push to GitHub:
-   ```bash
-   git add .
-   git commit -m "Your change description"
-   git push origin main
-   ```
-3. Railway automatically deploys when you push to GitHub
-4. Wait 1-2 minutes, then test the bot
+### Start Command
 
-### Railway Setup
+```bash
+python main.py
+```
 
-The bot runs as a service on Railway. Auto-deploy is connected to the GitHub repo:
-- GitHub: `NotebookOfCCC/ai-vocab-telegrambot-to-notion`
-- Railway Dashboard: https://railway.app/dashboard
-
-Environment variables are configured in Railway Dashboard → Variables.
-
-### Services
-
-There are two bots that can be deployed:
-1. **Vocab Learner Bot** (`bot.py`) - Main bot for learning vocabulary
-2. **Review Bot** (`review_bot.py`) - Scheduled daily vocabulary reviews
-
-Each bot needs its own Railway service with the appropriate start command.
+This runs all three bots as separate processes.
 
 ## Files
 
 ```
 ai-vocab-telegram-bot/
-├── bot.py              # Main vocab learner bot
-├── review_bot.py       # Scheduled review bot
-├── ai_handler.py       # Claude AI integration
-├── notion_handler.py   # Notion database integration
+├── bot.py              # Vocab learner bot - AI analysis and Notion saving
+├── review_bot.py       # Review bot - spaced repetition scheduling
+├── habit_bot.py        # Habit bot - daily reminders and tracking
+├── main.py             # Entry point - runs all bots together
+├── ai_handler.py       # Claude AI integration for vocab analysis
+├── notion_handler.py   # Notion API for vocab database
+├── habit_handler.py    # Notion API for habit/reminder databases
+├── youtube_handler.py  # YouTube API for fetching videos
+├── video_config.json   # YouTube channels/playlists configuration
 ├── requirements.txt    # Python dependencies
-├── Procfile            # Process definitions
 ├── .env.example        # Environment template
-├── .env                # Your configuration (create this)
 └── README.md           # This file
 ```
+
+## Schedule
+
+### Review Bot
+- 8:00, 13:00, 19:00, 22:00 - Vocabulary reviews
+
+### Habit Bot
+- 8:00 - Morning video + reminders
+- 12:00, 19:00, 22:00 - Practice check-ins
+- Sunday 20:00 - Weekly summary

@@ -1,5 +1,15 @@
 """
-Main entry point - runs all bots together.
+Main Entry Point
+
+Runs all three Telegram bots as separate processes:
+1. bot.py - Vocab Learner Bot (AI-powered vocabulary learning)
+2. review_bot.py - Review Bot (spaced repetition reviews)
+3. habit_bot.py - Habit Bot (daily practice reminders)
+
+Usage: python main.py
+
+Each bot runs independently and can be stopped/started separately.
+Graceful shutdown on SIGTERM or SIGINT (Ctrl+C).
 """
 import subprocess
 import sys

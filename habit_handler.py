@@ -1,6 +1,23 @@
 """
 Habit Handler
+
 Business logic for habit tracking with Notion integration.
+Manages two Notion databases:
+
+1. Tracking Database - Daily habit entries
+   Properties: Date (title), Listened (checkbox), Spoke (checkbox),
+              Video (text), Tasks (text - JSON array of completed task IDs)
+
+2. Reminders Database - User-defined tasks/reminders
+   Properties: Reminder (title), Enabled (checkbox), Date (date - optional)
+
+Key methods:
+- get_or_create_today_habit(): Get or create today's tracking entry
+- update_habit(field, value): Update Listened/Spoke checkboxes
+- mark_task_done/undone(task_id): Track custom task completion
+- get_weekly_stats(): Calculate 7-day progress statistics
+- get_all_reminders(): Fetch enabled reminders from Notion
+- create_reminder(text): Add a new reminder via bot
 """
 import json
 import logging
