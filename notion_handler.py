@@ -344,19 +344,25 @@ class NotionHandler:
 
         return score
 
-    def update_review_stats(self, page_id: str, knew: bool = True) -> dict:
+    def update_review_stats(self, page_id: str, response: str = "good", knew: bool = None) -> dict:
         """
         Update review stats based on user's response.
 
         Args:
             page_id: Notion page ID
-            knew: True if user knew the word, False if not
+            response: "again", "good", or "easy"
+            knew: Deprecated, kept for backward compatibility
 
         Scheduling:
-            - Know: Next review = today + 2^review_count days (1, 2, 4, 8, 16, 32...)
-            - Don't Know: Next review = tomorrow, reset review count to 0
+            - Again: Next review = tomorrow, reset count to 0
+            - Good: Next review = 2^count days (1, 2, 4, 8, 16, 32, 60 max)
+            - Easy: Next review = 2^(count+1) days, count +2 (skip ahead)
         """
         from datetime import timedelta
+
+        # Backward compatibility
+        if knew is not None:
+            response = "good" if knew else "again"
 
         try:
             # First get current review count
@@ -369,17 +375,23 @@ class NotionHandler:
                     current_count = prop_value.get("number") or 0
                     break
 
-            # Calculate next review date and new count
+            # Calculate next review date and new count based on response
             today = date.today()
-            if knew:
-                # Exponential interval: 1, 2, 4, 8, 16, 32 days (capped at 60)
+
+            if response == "again":
+                # Review tomorrow, reset count
+                next_review = today + timedelta(days=1)
+                new_count = 0
+            elif response == "easy":
+                # Longer interval, skip ahead
+                interval_days = min(2 ** (current_count + 1), 90)
+                next_review = today + timedelta(days=interval_days)
+                new_count = current_count + 2
+            else:  # "good" or default
+                # Normal interval
                 interval_days = min(2 ** current_count, 60)
                 next_review = today + timedelta(days=interval_days)
                 new_count = current_count + 1
-            else:
-                # Don't know: review tomorrow, reset count
-                next_review = today + timedelta(days=1)
-                new_count = 0
 
             # Update properties
             update_props = {}
@@ -409,6 +421,61 @@ class NotionHandler:
 
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    def get_review_stats(self) -> dict:
+        """Get statistics about pending reviews."""
+        try:
+            # Query all entries
+            all_entries = []
+            has_more = True
+            start_cursor = None
+
+            while has_more:
+                query_params = {"database_id": self.database_id, "page_size": 100}
+                if start_cursor:
+                    query_params["start_cursor"] = start_cursor
+
+                response = self.client.databases.query(**query_params)
+                all_entries.extend(response.get("results", []))
+                has_more = response.get("has_more", False)
+                start_cursor = response.get("next_cursor")
+
+            today = date.today()
+            overdue = 0
+            due_today = 0
+            new_words = 0
+            total = len(all_entries)
+
+            for page in all_entries:
+                entry = self._parse_page_to_entry(page)
+                if not entry:
+                    continue
+
+                next_review = entry.get("next_review")
+                last_reviewed = entry.get("last_reviewed")
+
+                if not last_reviewed and not next_review:
+                    # Never reviewed
+                    new_words += 1
+                elif next_review:
+                    try:
+                        next_date = datetime.strptime(next_review, "%Y-%m-%d").date()
+                        if next_date < today:
+                            overdue += 1
+                        elif next_date == today:
+                            due_today += 1
+                    except (ValueError, TypeError):
+                        pass
+
+            return {
+                "overdue": overdue,
+                "due_today": due_today,
+                "new_words": new_words,
+                "total": total
+            }
+
+        except Exception as e:
+            return {"error": str(e)}
 
     def _parse_page_to_entry(self, page: dict) -> dict:
         """Parse a Notion page into an entry dictionary."""

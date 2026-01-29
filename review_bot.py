@@ -107,10 +107,11 @@ async def send_review_batch(manual: bool = False):
             message = format_entry_for_review(entry, i, total)
             page_id = entry.get("page_id", "")
 
-            # Add Know/Don't Know buttons
+            # Add Again/Good/Easy buttons
             keyboard = [[
-                InlineKeyboardButton("✓ Know", callback_data=f"know_{page_id}"),
-                InlineKeyboardButton("✗ Don't Know", callback_data=f"dontknow_{page_id}")
+                InlineKeyboardButton("🔴 Again", callback_data=f"again_{page_id}"),
+                InlineKeyboardButton("🟡 Good", callback_data=f"good_{page_id}"),
+                InlineKeyboardButton("🟢 Easy", callback_data=f"easy_{page_id}")
             ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -147,11 +148,16 @@ Schedule: 8:00, 13:00, 19:00, 22:00 ({TIMEZONE})
 Entries per batch: 10
 
 Commands:
-/start - Show this message
 /review - Get review batch now
+/due - See pending reviews count
 /stop - Pause scheduled reviews
 /resume - Resume scheduled reviews
 /status - Check bot status
+
+Buttons:
+🔴 Again - Review tomorrow
+🟡 Good - Normal interval
+🟢 Easy - Longer interval
 """
     await update.message.reply_text(info_message)
 
@@ -209,21 +215,51 @@ Timezone: {TIMEZONE}
 Scheduled jobs: {len(jobs)}
 
 Review Algorithm: Spaced Repetition
-- ✓ Know: Interval doubles (1→2→4→8→16 days)
-- ✗ Don't Know: Review again tomorrow
-- Prioritizes words due for review
+- 🔴 Again: Review tomorrow, reset progress
+- 🟡 Good: Normal interval (1→2→4→8→16 days)
+- 🟢 Easy: Longer interval, skip ahead
 
-Next reviews:
-- 8:00
-- 13:00
-- 19:00
-- 22:00
+Commands: /review /due /stop /resume
+
+Schedule: 8:00, 13:00, 19:00, 22:00
 """
     await update.message.reply_text(status_message)
 
 
+async def due_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /due command - show how many words are due for review."""
+    if str(update.effective_user.id) != REVIEW_USER_ID:
+        await update.message.reply_text("Sorry, this bot is private.")
+        return
+
+    await update.message.reply_text("Checking due words...")
+
+    try:
+        stats = notion_handler.get_review_stats()
+        due_today = stats.get("due_today", 0)
+        overdue = stats.get("overdue", 0)
+        new_words = stats.get("new_words", 0)
+        total = stats.get("total", 0)
+
+        message = f"""
+📊 Review Stats
+
+🔴 Overdue: {overdue}
+🟡 Due today: {due_today}
+🆕 New (never reviewed): {new_words}
+📚 Total words: {total}
+
+Pending reviews: {overdue + due_today + new_words}
+"""
+        await update.message.reply_text(message)
+
+    except Exception as e:
+        logger.error(f"Error getting review stats: {e}")
+        await update.message.reply_text("Failed to get stats.")
+
+
 async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle Know/Don't Know button presses."""
+    """Handle Again/Good/Easy button presses."""
     query = update.callback_query
     await query.answer()
 
@@ -231,23 +267,33 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     data = query.data
-    if data.startswith("know_"):
-        page_id = data[5:]  # Remove "know_" prefix
-        knew = True
-        result = notion_handler.update_review_stats(page_id, knew=True)
+
+    if data.startswith("again_"):
+        page_id = data[6:]  # Remove "again_" prefix
+        result = notion_handler.update_review_stats(page_id, response="again")
         if result.get("success"):
-            next_review = result.get("next_review", "?")
             await query.edit_message_reply_markup(reply_markup=None)
-            await query.message.reply_text(f"✓ Got it! Next review: {next_review}")
+            await query.message.reply_text("🔴 Will review again tomorrow")
         else:
             await query.message.reply_text("Failed to update.")
 
-    elif data.startswith("dontknow_"):
-        page_id = data[9:]  # Remove "dontknow_" prefix
-        result = notion_handler.update_review_stats(page_id, knew=False)
+    elif data.startswith("good_"):
+        page_id = data[5:]  # Remove "good_" prefix
+        result = notion_handler.update_review_stats(page_id, response="good")
         if result.get("success"):
+            next_review = result.get("next_review", "?")
             await query.edit_message_reply_markup(reply_markup=None)
-            await query.message.reply_text("✗ Will review again tomorrow!")
+            await query.message.reply_text(f"🟡 Next review: {next_review}")
+        else:
+            await query.message.reply_text("Failed to update.")
+
+    elif data.startswith("easy_"):
+        page_id = data[5:]  # Remove "easy_" prefix
+        result = notion_handler.update_review_stats(page_id, response="easy")
+        if result.get("success"):
+            next_review = result.get("next_review", "?")
+            await query.edit_message_reply_markup(reply_markup=None)
+            await query.message.reply_text(f"🟢 Easy! Next review: {next_review}")
         else:
             await query.message.reply_text("Failed to update.")
 
@@ -331,6 +377,7 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("myid", myid_command))
     application.add_handler(CommandHandler("review", review_command))
+    application.add_handler(CommandHandler("due", due_command))
     application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CommandHandler("resume", resume_command))
     application.add_handler(CommandHandler("status", status_command))
