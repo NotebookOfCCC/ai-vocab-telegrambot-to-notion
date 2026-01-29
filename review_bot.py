@@ -238,19 +238,13 @@ async def due_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         stats = notion_handler.get_review_stats()
         due_today = stats.get("due_today", 0)
         overdue = stats.get("overdue", 0)
-        new_words = stats.get("new_words", 0)
-        total = stats.get("total", 0)
 
-        message = f"""
-📊 Review Stats
+        message = f"""📊 Review Stats
 
 🔴 Overdue: {overdue}
 🟡 Due today: {due_today}
-🆕 New (never reviewed): {new_words}
-📚 Total words: {total}
 
-Pending reviews: {overdue + due_today + new_words}
-"""
+Total pending: {overdue + due_today}"""
         await update.message.reply_text(message)
 
     except Exception as e:
