@@ -265,31 +265,17 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
     if data.startswith("again_"):
         page_id = data[6:]  # Remove "again_" prefix
         result = notion_handler.update_review_stats(page_id, response="again")
-        if result.get("success"):
-            await query.edit_message_reply_markup(reply_markup=None)
-            await query.message.reply_text("🔴 Will review again tomorrow")
-        else:
-            await query.message.reply_text("Failed to update.")
+        await query.edit_message_reply_markup(reply_markup=None)
 
     elif data.startswith("good_"):
         page_id = data[5:]  # Remove "good_" prefix
         result = notion_handler.update_review_stats(page_id, response="good")
-        if result.get("success"):
-            next_review = result.get("next_review", "?")
-            await query.edit_message_reply_markup(reply_markup=None)
-            await query.message.reply_text(f"🟡 Next review: {next_review}")
-        else:
-            await query.message.reply_text("Failed to update.")
+        await query.edit_message_reply_markup(reply_markup=None)
 
     elif data.startswith("easy_"):
         page_id = data[5:]  # Remove "easy_" prefix
         result = notion_handler.update_review_stats(page_id, response="easy")
-        if result.get("success"):
-            next_review = result.get("next_review", "?")
-            await query.edit_message_reply_markup(reply_markup=None)
-            await query.message.reply_text(f"🟢 Easy! Next review: {next_review}")
-        else:
-            await query.message.reply_text("Failed to update.")
+        await query.edit_message_reply_markup(reply_markup=None)
 
 
 async def post_init(app: Application) -> None:
