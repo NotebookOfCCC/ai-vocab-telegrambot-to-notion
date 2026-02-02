@@ -118,7 +118,7 @@ class AIHandler:
         """
         self.client = anthropic.Anthropic(api_key=api_key)
         # Sonnet for quality, Haiku for cost savings
-        self.main_model = "claude-3-5-haiku-20241022" if use_cheap_model else "claude-sonnet-4-20250514"
+        self.main_model = "claude-sonnet-4-20250514"  # Always use Sonnet for reliability
 
     def _sanitize_json_response(self, text: str) -> str:
         """Fix special characters that break JSON parsing."""
@@ -462,7 +462,7 @@ Respond with valid JSON only."""
 
         # Use Haiku for modifications - cheaper and fast enough
         message = self.client.messages.create(
-            model="claude-3-5-haiku-20241022",
+            model="claude-sonnet-4-20250514",
             max_tokens=800,
             messages=[
                 {"role": "user", "content": modify_prompt}
@@ -553,7 +553,7 @@ Respond with ONLY the number (1-{len(entries)}), nothing else."""
         try:
             # Use Haiku for simple number detection - much cheaper
             message = self.client.messages.create(
-                model="claude-3-5-haiku-20241022",
+                model="claude-sonnet-4-20250514",
                 max_tokens=10,
                 messages=[{"role": "user", "content": detect_prompt}]
             )
