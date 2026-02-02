@@ -118,13 +118,52 @@ class TaskParser:
 
         return text, date
 
+    def _chinese_num_to_int(self, chinese: str) -> int:
+        """Convert Chinese numeral to integer (1-12 for hours)."""
+        mapping = {
+            '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
+            '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+            '十一': 11, '十二': 12, '两': 2
+        }
+        # Direct mapping for simple cases
+        if chinese in mapping:
+            return mapping[chinese]
+        # Handle 十X pattern (e.g., 十一 = 11, 十二 = 12)
+        if chinese.startswith('十') and len(chinese) == 2:
+            return 10 + mapping.get(chinese[1], 0)
+        return None
+
     def _extract_time(self, text: str) -> tuple:
         """Extract time from text and return (remaining_text, start_time, end_time)."""
         start_time = None
         end_time = None
 
-        # Chinese time patterns: 上午/下午/晚上 + number + 点
-        time_match = re.search(r'(上午|下午|晚上|早上|中午)?(\d{1,2})[点時:：](\d{2})?', text)
+        # Chinese time with Chinese numerals: 上午十一点, 下午三点
+        cn_time_match = re.search(r'(上午|下午|晚上|早上|中午)?(十?[一二三四五六七八九十两])[点點時]', text)
+        if cn_time_match:
+            period = cn_time_match.group(1) or ""
+            cn_num = cn_time_match.group(2)
+            hour = self._chinese_num_to_int(cn_num)
+
+            if hour:
+                # Convert to 24-hour format
+                if period in ['下午', '晚上'] and hour < 12:
+                    hour += 12
+                elif period == '上午' and hour == 12:
+                    hour = 0
+                elif period == '中午':
+                    hour = 12
+
+                start_time = f"{hour:02d}:00"
+                end_hour = min(hour + 2, 23)
+                end_time = f"{end_hour:02d}:00"
+
+                # Remove matched text
+                text = text[:cn_time_match.start()] + text[cn_time_match.end():]
+                return text, start_time, end_time
+
+        # Chinese time patterns with Arabic numerals: 上午11点, 3点
+        time_match = re.search(r'(上午|下午|晚上|早上|中午)?(\d{1,2})[点點時:：](\d{2})?', text)
         if time_match:
             period = time_match.group(1) or ""
             hour = int(time_match.group(2))
