@@ -48,6 +48,11 @@ class TaskParser:
         result["start_time"] = start_time
         result["end_time"] = end_time
 
+        # Debug logging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"TaskParser extracted: date='{date}', start_time='{start_time}', end_time='{end_time}'")
+
         # Clean up the task text
         result["task"] = self._clean_task_text(text)
 

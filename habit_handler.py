@@ -453,16 +453,44 @@ class HabitHandler:
         try:
             db = self.client.databases.retrieve(database_id=self.reminders_db_id)
             db_properties = db.get("properties", {})
-            # Create mapping: lowercase name -> (actual name, property type)
+            # Create mapping: lowercase name -> actual name
             available_props = {}
-            date_prop_name = "Date"  # default
+            date_prop_name = None
+            date_props_found = []
+
+            # Log all properties for debugging
+            logger.info(f"Database has {len(db_properties)} properties:")
             for name, config in db_properties.items():
                 prop_type = config.get("type", "")
+                logger.info(f"  - '{name}' (type: {prop_type})")
                 available_props[name.lower()] = name
-                # Find the actual date property (type="date", not "created_time")
-                if prop_type == "date" and "date" in name.lower():
-                    date_prop_name = name
-                    logger.info(f"Found date property: '{name}' (type: {prop_type})")
+                # Collect all date-type properties
+                if prop_type == "date":
+                    date_props_found.append(name)
+            logger.info(f"Date-type properties found: {date_props_found}")
+
+            # Find the best date property:
+            # 1. Prefer exact match "Date" (case-insensitive)
+            # 2. Fall back to any property containing "date" in name
+            # 3. Fall back to any date-type property
+            for prop in date_props_found:
+                if prop.strip().lower() == "date":
+                    date_prop_name = prop
+                    break
+            if not date_prop_name:
+                for prop in date_props_found:
+                    if "date" in prop.lower():
+                        date_prop_name = prop
+                        break
+            if not date_prop_name and date_props_found:
+                date_prop_name = date_props_found[0]
+
+            if not date_prop_name:
+                date_prop_name = "Date"  # fallback default
+                logger.warning(f"No date property found, using default 'Date'")
+            else:
+                logger.info(f"Using date property: '{date_prop_name}'")
+
         except Exception as e:
             logger.error(f"Error getting database schema: {e}")
             available_props = {}
@@ -476,18 +504,26 @@ class HabitHandler:
 
             # Add date with optional time
             if date:
+                logger.info(f"Input date='{date}', start_time='{start_time}', end_time='{end_time}'")
                 if start_time:
-                    # Include time in the date
+                    # Include time in the date (Notion requires full ISO format)
                     date_str = f"{date}T{start_time}:00"
                     date_value = {"start": date_str}
                     if end_time:
                         date_value["end"] = f"{date}T{end_time}:00"
                 else:
-                    # Date only, no time
+                    # Date only, no time - use just the date string
                     date_value = {"start": date}
 
-                properties[date_prop_name] = {"date": date_value}
-                logger.info(f"Setting '{date_prop_name}' = {date_value}")
+                # Set the date property
+                if date_prop_name:
+                    properties[date_prop_name] = {"date": date_value}
+                    logger.info(f"Setting property '{date_prop_name}' to date value: {date_value}")
+                    logger.info(f"Full properties being set: {list(properties.keys())}")
+                else:
+                    logger.error("No date property name found, cannot set date!")
+            else:
+                logger.info(f"No date provided (date='{date}')")
 
             # Add priority only if property exists in database
             if priority and "priority" in available_props:
@@ -499,11 +535,15 @@ class HabitHandler:
                 prop_name = available_props["category"]
                 properties[prop_name] = {"select": {"name": category}}
 
+            logger.info(f"Creating page with properties: {properties}")
             new_page = self.client.pages.create(
                 parent={"database_id": self.reminders_db_id},
                 properties=properties
             )
-            logger.info(f"Created reminder: {text} (date: {date}, time: {start_time}-{end_time})")
+            # Log the response to verify what was actually saved
+            saved_date = new_page.get("properties", {}).get(date_prop_name, {})
+            logger.info(f"Created reminder: {text}")
+            logger.info(f"Saved date property: {saved_date}")
             return {"success": True, "page_id": new_page["id"]}
 
         except Exception as e:
