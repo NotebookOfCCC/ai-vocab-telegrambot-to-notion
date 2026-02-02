@@ -59,7 +59,6 @@ TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 # Global state
 habit_handler = None
 youtube_handler = None
-task_ai_handler = None
 scheduler = None
 application = None
 is_paused = False
@@ -448,26 +447,17 @@ Commands: /habits /video /week /stop /resume"""
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle natural language task input."""
+    """Handle natural language task input using FREE regex parser."""
     if str(update.effective_user.id) != HABITS_USER_ID:
         await update.message.reply_text("Sorry, this bot is private.")
         return
 
-    if not task_ai_handler:
-        await update.message.reply_text("AI handler not configured. Use /add <task> instead.")
-        return
-
     text = update.message.text.strip()
 
-    # Send processing message
-    await update.message.reply_text("好的，让我帮你安排这个任务。让我先处理一下...")
-
-    # Parse the task using AI
-    parsed = task_ai_handler.parse_task(text, TIMEZONE)
-
-    if not parsed.get("success"):
-        await update.message.reply_text(f"抱歉，无法理解这个任务: {parsed.get('error', 'Unknown error')}\n\n请使用 /add <任务> 手动添加。")
-        return
+    # Use FREE regex-based parser (no API cost!)
+    from task_parser import TaskParser
+    parser = TaskParser(TIMEZONE)
+    parsed = parser.parse(text)
 
     # Create the reminder in Notion
     result = habit_handler.create_reminder(
@@ -481,10 +471,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if result["success"]:
         # Send confirmation message
-        confirmation = task_ai_handler.format_task_confirmation(parsed)
+        confirmation = parser.format_confirmation(parsed)
         await update.message.reply_text(confirmation)
     else:
-        await update.message.reply_text(f"任务已解析但保存失败: {result.get('error', 'Unknown error')}")
+        await update.message.reply_text(f"保存失败: {result.get('error', 'Unknown error')}")
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -601,7 +591,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 def main():
     """Main function to run the habit bot."""
-    global habit_handler, youtube_handler, task_ai_handler, application
+    global habit_handler, youtube_handler, application
 
     # Validate configuration
     if not HABITS_BOT_TOKEN:
@@ -630,13 +620,8 @@ def main():
     else:
         print("YouTube API key not configured - video features disabled")
 
-    # Initialize Task AI handler (optional, for natural language task parsing)
-    if ANTHROPIC_API_KEY and ANTHROPIC_API_KEY != "your_anthropic_api_key_here":
-        from task_ai_handler import TaskAIHandler
-        task_ai_handler = TaskAIHandler(ANTHROPIC_API_KEY)
-        print("Task AI handler initialized - natural language task parsing enabled")
-    else:
-        print("Anthropic API key not configured - use /add <task> for manual task creation")
+    # Task parsing uses FREE regex-based parser (no API cost)
+    print("Task parser ready - natural language task parsing enabled (FREE)")
 
     # Test Notion connection
     notion_test = habit_handler.test_connection()
