@@ -43,7 +43,7 @@ main.py (Entry Point)
 |------|---------|----------|
 | `ai_handler.py` | Claude API for vocab analysis | ~$0.01/word |
 | `task_parser.py` | Regex task parsing | **FREE** |
-| `notion_handler.py` | Notion database operations | FREE |
+| `notion_handler.py` | Notion database operations (with retry) | FREE |
 | `habit_handler.py` | Habit tracking, task management | FREE |
 | `youtube_handler.py` | YouTube video fetching | FREE |
 | `video_config.json` | YouTube sources configuration | - |
@@ -210,3 +210,4 @@ python main.py        # Run all bots together
 5. **FREE task parsing**: Regex-based, no API cost
 6. **Cost optimization**: Skip common words, dynamic token limits
 7. **Total word count**: Shown in `/due` command
+8. **Notion API retry**: Auto-retry (3x with backoff) for transient API errors

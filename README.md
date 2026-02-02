@@ -20,6 +20,7 @@ A Telegram bot system that helps you learn English vocabulary with AI-powered ex
 - **3-Button System**: Again (review tomorrow), Good (normal interval), Easy (longer interval)
 - **Equal Priority**: New words and due words have same priority (mixed reviews)
 - **Total Count**: Shows total words in database with `/due` command
+- **Reliable Fetching**: Auto-retry (3x with exponential backoff) for Notion API errors
 
 ### Habit Bot (`habit_bot.py`)
 - **Natural Language Tasks**: Just type "明天下午3点开会" - automatically parses time, priority, category (FREE - no API cost!)
@@ -215,7 +216,7 @@ ai-vocab-telegram-bot/
 ├── habit_bot.py        # Habit bot - daily reminders and tracking
 ├── main.py             # Entry point - runs all bots together
 ├── ai_handler.py       # Claude AI integration for vocab analysis
-├── notion_handler.py   # Notion API for vocab database
+├── notion_handler.py   # Notion API for vocab database (with retry)
 ├── habit_handler.py    # Notion API for habit/reminder databases
 ├── youtube_handler.py  # YouTube API for fetching videos
 ├── task_parser.py      # FREE regex-based task parser (no API)

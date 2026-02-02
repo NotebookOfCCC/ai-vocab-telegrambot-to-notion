@@ -2,8 +2,12 @@
 Notion Handler - Saves vocabulary entries to Notion database
 """
 import random
+import logging
+import time
 from datetime import datetime, date
 from notion_client import Client
+
+logger = logging.getLogger(__name__)
 
 
 class NotionHandler:
@@ -225,7 +229,7 @@ class NotionHandler:
         """Fetch random entries from the database (no smart selection)."""
         return self.fetch_entries_for_review(count, smart=False)
 
-    def fetch_entries_for_review(self, count: int = 10, smart: bool = True) -> list:
+    def fetch_entries_for_review(self, count: int = 10, smart: bool = True, max_retries: int = 3) -> list:
         """
         Fetch entries for review with optional spaced repetition.
 
@@ -235,54 +239,68 @@ class NotionHandler:
         3. Entries with lower review count
         4. Newer entries (by Date added) get slight priority
         """
-        try:
-            # Query all entries from the database
-            all_entries = []
-            has_more = True
-            start_cursor = None
+        last_error = None
 
-            while has_more:
-                query_params = {"database_id": self.database_id, "page_size": 100}
-                if start_cursor:
-                    query_params["start_cursor"] = start_cursor
+        for attempt in range(max_retries):
+            try:
+                # Query all entries from the database
+                all_entries = []
+                has_more = True
+                start_cursor = None
 
-                response = self.client.databases.query(**query_params)
-                all_entries.extend(response.get("results", []))
-                has_more = response.get("has_more", False)
-                start_cursor = response.get("next_cursor")
+                while has_more:
+                    query_params = {"database_id": self.database_id, "page_size": 100}
+                    if start_cursor:
+                        query_params["start_cursor"] = start_cursor
 
-            if not all_entries:
-                return []
+                    response = self.client.databases.query(**query_params)
+                    all_entries.extend(response.get("results", []))
+                    has_more = response.get("has_more", False)
+                    start_cursor = response.get("next_cursor")
 
-            # Parse all entries
-            parsed_entries = []
-            for page in all_entries:
-                entry = self._parse_page_to_entry(page)
-                if entry:
-                    parsed_entries.append(entry)
+                if not all_entries:
+                    logger.warning("Notion query returned no entries")
+                    return []
 
-            if not smart:
-                # Random selection
-                selected = random.sample(parsed_entries, min(count, len(parsed_entries)))
+                # Parse all entries
+                parsed_entries = []
+                for page in all_entries:
+                    entry = self._parse_page_to_entry(page)
+                    if entry:
+                        parsed_entries.append(entry)
+
+                if not smart:
+                    # Random selection
+                    selected = random.sample(parsed_entries, min(count, len(parsed_entries)))
+                    return selected
+
+                # Smart selection with spaced repetition scoring
+                today = date.today()
+                scored_entries = []
+
+                for entry in parsed_entries:
+                    score = self._calculate_review_priority(entry, today)
+                    scored_entries.append((score, random.random(), entry))  # random for tie-breaking
+
+                # Sort by score (higher = more urgent to review)
+                scored_entries.sort(key=lambda x: (x[0], x[1]), reverse=True)
+
+                # Select top entries
+                selected = [entry for _, _, entry in scored_entries[:count]]
+                logger.info(f"Successfully fetched {len(selected)} entries for review")
                 return selected
 
-            # Smart selection with spaced repetition scoring
-            today = date.today()
-            scored_entries = []
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Notion API error on attempt {attempt + 1}/{max_retries}: {e}")
+                if attempt < max_retries - 1:
+                    # Wait before retry (exponential backoff: 2s, 4s)
+                    wait_time = 2 ** (attempt + 1)
+                    logger.info(f"Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
 
-            for entry in parsed_entries:
-                score = self._calculate_review_priority(entry, today)
-                scored_entries.append((score, random.random(), entry))  # random for tie-breaking
-
-            # Sort by score (higher = more urgent to review)
-            scored_entries.sort(key=lambda x: (x[0], x[1]), reverse=True)
-
-            # Select top entries
-            selected = [entry for _, _, entry in scored_entries[:count]]
-            return selected
-
-        except Exception as e:
-            return []
+        logger.error(f"Failed to fetch entries after {max_retries} attempts. Last error: {last_error}")
+        return []
 
     def _calculate_review_priority(self, entry: dict, today: date) -> float:
         """
@@ -423,60 +441,70 @@ class NotionHandler:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def get_review_stats(self) -> dict:
+    def get_review_stats(self, max_retries: int = 3) -> dict:
         """Get statistics about pending reviews."""
-        try:
-            # Query all entries
-            all_entries = []
-            has_more = True
-            start_cursor = None
+        last_error = None
 
-            while has_more:
-                query_params = {"database_id": self.database_id, "page_size": 100}
-                if start_cursor:
-                    query_params["start_cursor"] = start_cursor
+        for attempt in range(max_retries):
+            try:
+                # Query all entries
+                all_entries = []
+                has_more = True
+                start_cursor = None
 
-                response = self.client.databases.query(**query_params)
-                all_entries.extend(response.get("results", []))
-                has_more = response.get("has_more", False)
-                start_cursor = response.get("next_cursor")
+                while has_more:
+                    query_params = {"database_id": self.database_id, "page_size": 100}
+                    if start_cursor:
+                        query_params["start_cursor"] = start_cursor
 
-            today = date.today()
-            overdue = 0
-            due_today = 0
-            new_words = 0
-            total = len(all_entries)
+                    response = self.client.databases.query(**query_params)
+                    all_entries.extend(response.get("results", []))
+                    has_more = response.get("has_more", False)
+                    start_cursor = response.get("next_cursor")
 
-            for page in all_entries:
-                entry = self._parse_page_to_entry(page)
-                if not entry:
-                    continue
+                today = date.today()
+                overdue = 0
+                due_today = 0
+                new_words = 0
+                total = len(all_entries)
 
-                next_review = entry.get("next_review")
-                last_reviewed = entry.get("last_reviewed")
+                for page in all_entries:
+                    entry = self._parse_page_to_entry(page)
+                    if not entry:
+                        continue
 
-                if not last_reviewed and not next_review:
-                    # Never reviewed
-                    new_words += 1
-                elif next_review:
-                    try:
-                        next_date = datetime.strptime(next_review, "%Y-%m-%d").date()
-                        if next_date < today:
-                            overdue += 1
-                        elif next_date == today:
-                            due_today += 1
-                    except (ValueError, TypeError):
-                        pass
+                    next_review = entry.get("next_review")
+                    last_reviewed = entry.get("last_reviewed")
 
-            return {
-                "overdue": overdue,
-                "due_today": due_today,
-                "new_words": new_words,
-                "total": total
-            }
+                    if not last_reviewed and not next_review:
+                        # Never reviewed
+                        new_words += 1
+                    elif next_review:
+                        try:
+                            next_date = datetime.strptime(next_review, "%Y-%m-%d").date()
+                            if next_date < today:
+                                overdue += 1
+                            elif next_date == today:
+                                due_today += 1
+                        except (ValueError, TypeError):
+                            pass
 
-        except Exception as e:
-            return {"error": str(e)}
+                return {
+                    "overdue": overdue,
+                    "due_today": due_today,
+                    "new_words": new_words,
+                    "total": total
+                }
+
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Notion API error getting stats on attempt {attempt + 1}/{max_retries}: {e}")
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** (attempt + 1)
+                    time.sleep(wait_time)
+
+        logger.error(f"Failed to get review stats after {max_retries} attempts. Last error: {last_error}")
+        return {"error": str(last_error)}
 
     def _parse_page_to_entry(self, page: dict) -> dict:
         """Parse a Notion page into an entry dictionary."""
