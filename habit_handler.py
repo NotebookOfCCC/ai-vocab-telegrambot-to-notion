@@ -453,9 +453,20 @@ class HabitHandler:
         try:
             db = self.client.databases.retrieve(database_id=self.reminders_db_id)
             db_properties = db.get("properties", {})
-            available_props = {name.lower(): name for name in db_properties.keys()}
-        except Exception:
+            # Create mapping: lowercase name -> (actual name, property type)
             available_props = {}
+            date_prop_name = "Date"  # default
+            for name, config in db_properties.items():
+                prop_type = config.get("type", "")
+                available_props[name.lower()] = name
+                # Find the actual date property (type="date", not "created_time")
+                if prop_type == "date" and "date" in name.lower():
+                    date_prop_name = name
+                    logger.info(f"Found date property: '{name}' (type: {prop_type})")
+        except Exception as e:
+            logger.error(f"Error getting database schema: {e}")
+            available_props = {}
+            date_prop_name = "Date"
 
         try:
             properties = {
@@ -463,17 +474,20 @@ class HabitHandler:
                 "Enabled": {"checkbox": True}
             }
 
-            # Add date with optional time - check actual property name
+            # Add date with optional time
             if date:
-                date_value = {"start": date}
                 if start_time:
-                    date_value["start"] = f"{date}T{start_time}:00"
+                    # Include time in the date
+                    date_str = f"{date}T{start_time}:00"
+                    date_value = {"start": date_str}
                     if end_time:
                         date_value["end"] = f"{date}T{end_time}:00"
-                # Find the actual Date property name in database
-                date_prop_name = available_props.get("date", "Date")
+                else:
+                    # Date only, no time
+                    date_value = {"start": date}
+
                 properties[date_prop_name] = {"date": date_value}
-                logger.info(f"Setting date property '{date_prop_name}' to: {date_value}")
+                logger.info(f"Setting '{date_prop_name}' = {date_value}")
 
             # Add priority only if property exists in database
             if priority and "priority" in available_props:
