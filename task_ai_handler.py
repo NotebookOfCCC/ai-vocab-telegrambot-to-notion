@@ -90,7 +90,7 @@ Parse this into a structured task."""
         try:
             # Use Haiku for cost efficiency - task parsing is simple enough
             message = self.client.messages.create(
-                model="claude-haiku-4-20250514",
+                model="claude-3-5-haiku-20241022",
                 max_tokens=300,
                 system=TASK_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": prompt}]
