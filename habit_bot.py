@@ -459,6 +459,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     parser = TaskParser(TIMEZONE)
     parsed = parser.parse(text)
 
+    # Log parsed result for debugging
+    logger.info(f"Parsed task: {parsed}")
+
     # Create the reminder in Notion
     result = habit_handler.create_reminder(
         text=parsed.get("task", text),

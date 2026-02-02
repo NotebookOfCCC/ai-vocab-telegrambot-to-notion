@@ -463,14 +463,17 @@ class HabitHandler:
                 "Enabled": {"checkbox": True}
             }
 
-            # Add date with optional time
+            # Add date with optional time - check actual property name
             if date:
                 date_value = {"start": date}
                 if start_time:
                     date_value["start"] = f"{date}T{start_time}:00"
                     if end_time:
                         date_value["end"] = f"{date}T{end_time}:00"
-                properties["Date"] = {"date": date_value}
+                # Find the actual Date property name in database
+                date_prop_name = available_props.get("date", "Date")
+                properties[date_prop_name] = {"date": date_value}
+                logger.info(f"Setting date property '{date_prop_name}' to: {date_value}")
 
             # Add priority only if property exists in database
             if priority and "priority" in available_props:
