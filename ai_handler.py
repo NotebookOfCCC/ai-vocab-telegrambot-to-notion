@@ -78,10 +78,12 @@ CRITICAL RULES:
    - Common abbreviations: n. (noun), v. (verb), adj. (adjective), adv. (adverb), phr. v. (phrasal verb), idiom, prep. (preposition)
 
 6. MULTIPLE MEANINGS:
-   - If a word/phrase has MULTIPLE distinct meanings (like "put up"), create SEPARATE entries for each meaning
-   - Each entry should have its own explanation and example
-   - OR list all meanings numbered in the explanation field if they're related:
-     "1. 张贴，悬挂 2. 提供住宿 3. 忍受"
+   - If a word/phrase has MULTIPLE distinct meanings (like "put up", "undershoot"), list ALL meanings numbered
+   - IMPORTANT: For EACH numbered meaning in explanation, provide a CORRESPONDING numbered example
+   - Example format for multi-meaning words:
+     explanation: "1. 未达到目标 2. 射击偏低 3. 飞机降落时未达到预定位置"
+     example_en: "1. The company's revenue undershoots expectations. 2. The archer undershot the target. 3. The pilot undershot the runway."
+     example_zh: "1. 公司收入未达预期。 2. 弓箭手射偏了目标。 3. 飞行员降落时未到达跑道。"
 
 OUTPUT FORMAT (strict JSON):
 {{
@@ -92,9 +94,9 @@ OUTPUT FORMAT (strict JSON):
     {{
       "english": "word /phonetic/ (pos.)",
       "chinese": "中文翻译 (情感标签如适用，如：贬义/褒义/中性)",
-      "explanation": "简洁中文解释，2-3句话概括核心含义和常见用法即可。如有多个含义，请编号列出：1. 含义一 2. 含义二",
-      "example_en": "One clear English example sentence (MUST be grammatically correct - fix any user errors)",
-      "example_zh": "对应的完整中文翻译",
+      "explanation": "简洁中文解释。如有多个含义，编号列出：1. 含义一 2. 含义二 3. 含义三",
+      "example_en": "English example(s). If multiple meanings, number them: 1. Example for meaning 1. 2. Example for meaning 2.",
+      "example_zh": "中文翻译。如有多个例句，同样编号：1. 翻译一 2. 翻译二",
       "category": "one of: {CATEGORY_LIST}"
     }}
   ]
@@ -107,8 +109,16 @@ Respond with valid JSON only, no markdown."""
 
 
 class AIHandler:
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, use_cheap_model: bool = False):
+        """Initialize AI handler.
+
+        Args:
+            api_key: Anthropic API key
+            use_cheap_model: If True, use Haiku for all requests (12x cheaper but slightly lower quality)
+        """
         self.client = anthropic.Anthropic(api_key=api_key)
+        # Sonnet for quality, Haiku for cost savings
+        self.main_model = "claude-haiku-4-20250514" if use_cheap_model else "claude-sonnet-4-20250514"
 
     def _sanitize_json_response(self, text: str) -> str:
         """Fix special characters that break JSON parsing."""
@@ -294,8 +304,8 @@ class AIHandler:
     def analyze_input(self, user_input: str) -> dict:
         """Analyze user input and generate learning entries."""
         message = self.client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
+            model=self.main_model,
+            max_tokens=1200,  # Reduced from 2000 - most entries need <800 tokens
             system=SYSTEM_PROMPT,
             messages=[
                 {"role": "user", "content": user_input}
@@ -315,8 +325,8 @@ class AIHandler:
             # Retry once with explicit JSON request
             try:
                 retry_message = self.client.messages.create(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=2000,
+                    model=self.main_model,
+                    max_tokens=1200,
                     messages=[
                         {"role": "user", "content": user_input},
                         {"role": "assistant", "content": response_text},
@@ -450,9 +460,10 @@ OUTPUT FORMAT (strict JSON):
 
 Respond with valid JSON only."""
 
+        # Use Haiku for modifications - cheaper and fast enough
         message = self.client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=1500,
+            model="claude-haiku-4-20250514",
+            max_tokens=800,
             messages=[
                 {"role": "user", "content": modify_prompt}
             ]
@@ -540,8 +551,9 @@ Which entry number (1-{len(entries)}) is the user most likely referring to?
 Respond with ONLY the number (1-{len(entries)}), nothing else."""
 
         try:
+            # Use Haiku for simple number detection - much cheaper
             message = self.client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-haiku-4-20250514",
                 max_tokens=10,
                 messages=[{"role": "user", "content": detect_prompt}]
             )

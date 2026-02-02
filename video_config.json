@@ -6,9 +6,29 @@
       "enabled": true
     },
     {
-      "name": "Example Channel",
-      "channel_handle": "@YouTubeChannelHandle",
-      "enabled": false
+      "name": "Bloomberg",
+      "channel_handle": "@business",
+      "enabled": true
+    },
+    {
+      "name": "CNBC Television",
+      "channel_handle": "@CNBCtelevision",
+      "enabled": true
+    },
+    {
+      "name": "Bloomberg Markets",
+      "channel_handle": "@markets",
+      "enabled": true
+    },
+    {
+      "name": "Lenny's Podcast",
+      "channel_handle": "@LennysPodcast",
+      "enabled": true
+    },
+    {
+      "name": "The Knowledge Project",
+      "channel_handle": "@tkppodcast",
+      "enabled": true
     }
   ]
 }

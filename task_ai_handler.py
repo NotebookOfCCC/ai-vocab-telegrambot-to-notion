@@ -88,9 +88,10 @@ User input: {user_input}
 Parse this into a structured task."""
 
         try:
+            # Use Haiku for cost efficiency - task parsing is simple enough
             message = self.client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=500,
+                model="claude-haiku-4-20250514",
+                max_tokens=300,
                 system=TASK_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": prompt}]
             )

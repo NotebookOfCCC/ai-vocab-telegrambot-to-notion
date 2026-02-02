@@ -443,12 +443,20 @@ class HabitHandler:
             date: Optional date in YYYY-MM-DD format
             start_time: Optional start time in HH:MM format
             end_time: Optional end time in HH:MM format
-            priority: Optional priority (High, Mid, Low)
-            category: Optional category (Work, Life, Health, Study, Other)
+            priority: Optional priority (High, Mid, Low) - ignored if property doesn't exist
+            category: Optional category (Work, Life, Health, Study, Other) - ignored if property doesn't exist
 
         Returns:
             Dictionary with success status and page_id or error
         """
+        # First, get the database schema to check which properties exist
+        try:
+            db = self.client.databases.retrieve(database_id=self.reminders_db_id)
+            db_properties = db.get("properties", {})
+            available_props = {name.lower(): name for name in db_properties.keys()}
+        except Exception:
+            available_props = {}
+
         try:
             properties = {
                 "Reminder": {"title": [{"text": {"content": text}}]},
@@ -464,19 +472,21 @@ class HabitHandler:
                         date_value["end"] = f"{date}T{end_time}:00"
                 properties["Date"] = {"date": date_value}
 
-            # Add priority if specified and property exists
-            if priority:
-                properties["Priority"] = {"select": {"name": priority}}
+            # Add priority only if property exists in database
+            if priority and "priority" in available_props:
+                prop_name = available_props["priority"]
+                properties[prop_name] = {"select": {"name": priority}}
 
-            # Add category if specified and property exists
-            if category:
-                properties["Category"] = {"select": {"name": category}}
+            # Add category only if property exists in database
+            if category and "category" in available_props:
+                prop_name = available_props["category"]
+                properties[prop_name] = {"select": {"name": category}}
 
             new_page = self.client.pages.create(
                 parent={"database_id": self.reminders_db_id},
                 properties=properties
             )
-            logger.info(f"Created reminder: {text} (date: {date}, time: {start_time}-{end_time}, priority: {priority}, category: {category})")
+            logger.info(f"Created reminder: {text} (date: {date}, time: {start_time}-{end_time})")
             return {"success": True, "page_id": new_page["id"]}
 
         except Exception as e:
