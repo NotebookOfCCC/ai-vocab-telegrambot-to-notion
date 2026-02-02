@@ -8,19 +8,39 @@ A Telegram bot system that helps you learn English vocabulary with AI-powered ex
 - **Grammar Check**: Automatically corrects grammar in sentences
 - **Phrase Extraction**: Extracts learnable phrases from sentences
 - **AI Explanations**: Provides Chinese explanations, examples, and categorization
+- **Phonetics**: Adds IPA pronunciation for uncommon words
+- **Part of Speech**: Labels words with (n.), (v.), (adj.), etc.
+- **Multiple Meanings**: Shows numbered meanings with corresponding examples
 - **Notion Integration**: Saves vocabulary entries directly to your Notion database
+- **Cost Optimized**: Skips API for common words, uses dynamic token limits
 
 ### Review Bot (`review_bot.py`)
 - **Spaced Repetition**: Smart scheduling based on review performance
 - **Scheduled Reviews**: Sends vocabulary reviews at 8:00, 13:00, 19:00, 22:00
 - **3-Button System**: Again (review tomorrow), Good (normal interval), Easy (longer interval)
+- **Equal Priority**: New words and due words have same priority (mixed reviews)
+- **Total Count**: Shows total words in database with `/due` command
 
 ### Habit Bot (`habit_bot.py`)
+- **Natural Language Tasks**: Just type "明天下午3点开会" - automatically parses time, priority, category (FREE - no API cost!)
 - **Daily Reminders**: Morning video + tasks, check-ins throughout the day
 - **YouTube Integration**: Random videos from configured channels/playlists
 - **Habit Tracking**: Track listening and speaking practice in Notion
-- **Custom Tasks**: Add your own daily tasks via `/add` command
+- **Custom Tasks**: Add tasks via natural language or `/add` command
 - **Weekly Summary**: Progress report every Sunday
+
+## Cost Optimization
+
+This bot is optimized to minimize API costs:
+
+| Feature | Cost |
+|---------|------|
+| Habit Bot task parsing | **FREE** (regex-based) |
+| Common words (~300) | **FREE** (skipped) |
+| Review Bot | **FREE** (no AI) |
+| Vocab analysis | ~$0.01-0.02 per word |
+
+**Estimated cost**: ~£0.50-0.80/day with normal usage
 
 ## Setup Instructions
 
@@ -45,10 +65,11 @@ Required properties:
 - Chinese (Text)
 - Explanation (Text)
 - Example (Text)
-- Category (Select)
+- Category (Select): 固定词组, 口语, 新闻, 职场, 学术词汇, 写作, 情绪, 科技, 其他
 - Date (Date)
 - Review Count (Number) - for spaced repetition
 - Next Review (Date) - for spaced repetition
+- Last Reviewed (Date) - for tracking
 
 #### Habit Tracking Database
 Required properties:
@@ -63,6 +84,10 @@ Required properties:
 - Reminder (Title) - task description
 - Enabled (Checkbox) - whether task is active
 - Date (Date) - optional, for time-specific reminders
+
+Optional properties (for natural language parsing):
+- Priority (Select): High, Mid, Low
+- Category (Select): Work, Life, Health, Study, Other
 
 ### Step 4: Configure Environment
 
@@ -133,22 +158,37 @@ python habit_bot.py   # Daily habits
 - `/start` - Welcome message
 - `/help` - Show help
 - `/test` - Test Notion connection
+- `/clear` - Clear pending entries
 
 ### Review Bot
 - `/start` - Bot info
 - `/review` - Get review batch now
-- `/due` - See pending reviews count
+- `/due` - See pending reviews count + total words
 - `/stop` / `/resume` - Pause/resume scheduled reviews
 - `/status` - Bot status
 
 ### Habit Bot
 - `/start` - Bot info
 - `/habits` - Today's tasks with Done/Not Yet buttons
-- `/add <task>` - Add a new task
+- `/add <task>` - Add a new task manually
+- `/tmr <task>` - Add task for tomorrow
 - `/video` - Get a random practice video
 - `/week` - Weekly progress summary
 - `/stop` / `/resume` - Pause/resume reminders
 - `/status` - Bot status
+- **Or just type naturally**: "明天下午3点开会" → auto-parsed!
+
+## Spaced Repetition Algorithm
+
+The review bot uses a modified SM-2 algorithm:
+
+| Response | Next Review | Count Change |
+|----------|-------------|--------------|
+| Again (🔴) | Tomorrow | Reset to 0 |
+| Good (🟡) | 2^count days (1→2→4→8→16→32→60 max) | +1 |
+| Easy (🟢) | 2^(count+1) days | +2 |
+
+Priority scoring ensures new words and due words are mixed equally.
 
 ## Deployment
 
@@ -178,9 +218,11 @@ ai-vocab-telegram-bot/
 ├── notion_handler.py   # Notion API for vocab database
 ├── habit_handler.py    # Notion API for habit/reminder databases
 ├── youtube_handler.py  # YouTube API for fetching videos
+├── task_parser.py      # FREE regex-based task parser (no API)
 ├── video_config.json   # YouTube channels/playlists configuration
 ├── requirements.txt    # Python dependencies
 ├── .env.example        # Environment template
+├── CLAUDE.md           # AI assistant documentation
 └── README.md           # This file
 ```
 
