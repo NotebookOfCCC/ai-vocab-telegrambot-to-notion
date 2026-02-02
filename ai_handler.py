@@ -213,9 +213,14 @@ CRITICAL RULES:
    - Examples that NEED phonetics: unrelenting /ˌʌnrɪˈlentɪŋ/, albeit /ɔːlˈbiːɪt/, facade /fəˈsɑːd/, niche /niːʃ/
    - Format: "word /phonetic/" e.g., "ubiquitous /juːˈbɪkwɪtəs/"
 
-5. PART OF SPEECH (词性) - ALWAYS INCLUDE:
-   - Add part of speech abbreviation after the word/phrase in the "english" field
-   - Format: "word (pos.)" e.g., "priority (n.)", "ubiquitous (adj.)", "procrastinate (v.)"
+5. PART OF SPEECH (词性) - LIST ALL:
+   - Add ALL parts of speech the word can be used as
+   - Format: "word (pos1./pos2.)" e.g., "time (n./v.)", "empty (adj./v.)", "run (v./n.)"
+   - If word has multiple parts of speech, list them all separated by /
+   - Examples:
+     * "time (n./v.)" - 时间(n.) / 计时(v.)
+     * "empty (adj./v.)" - 空的(adj.) / 清空(v.)
+     * "record (n./v.)" - 记录(n.) / 录制(v.)
    - For phrasal verbs: "put off (phr. v.)"
    - For idioms: "break the ice (idiom)"
    - Common abbreviations: n. (noun), v. (verb), adj. (adjective), adv. (adverb), phr. v. (phrasal verb), idiom, prep. (preposition)
