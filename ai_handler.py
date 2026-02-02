@@ -1,10 +1,153 @@
 """
 AI Handler - Uses Claude API for vocabulary learning
+
+Cost optimization:
+- Skip AI for very common words (free response)
+- Use shorter max_tokens for simple words vs sentences
+- Reduced system prompt size
 """
 import anthropic
 from datetime import date
 import json
 import re
+
+
+# =============================================================================
+# COMMON WORDS - Skip AI for these (FREE, no API call)
+# =============================================================================
+COMMON_WORDS = {
+    # Basic verbs
+    "be", "is", "am", "are", "was", "were", "been", "being",
+    "have", "has", "had", "do", "does", "did", "done",
+    "go", "goes", "went", "gone", "going",
+    "get", "gets", "got", "getting",
+    "make", "makes", "made", "making",
+    "take", "takes", "took", "taken", "taking",
+    "come", "comes", "came", "coming",
+    "see", "sees", "saw", "seen", "seeing",
+    "know", "knows", "knew", "known",
+    "think", "thinks", "thought",
+    "say", "says", "said", "want", "wants", "wanted",
+    "give", "gives", "gave", "given",
+    "use", "uses", "used", "using",
+    "find", "finds", "found",
+    "tell", "tells", "told",
+    "ask", "asks", "asked",
+    "work", "works", "worked", "working",
+    "try", "tries", "tried",
+    "leave", "leaves", "left",
+    "call", "calls", "called",
+    "put", "puts",  # but "put up", "put off" etc are worth learning
+    "keep", "keeps", "kept",
+    "let", "lets",
+    "begin", "begins", "began", "begun",
+    "seem", "seems", "seemed",
+    "help", "helps", "helped",
+    "show", "shows", "showed", "shown",
+    "hear", "hears", "heard",
+    "play", "plays", "played",
+    "run", "runs", "ran", "running",
+    "move", "moves", "moved",
+    "live", "lives", "lived",
+    "believe", "believes", "believed",
+    "bring", "brings", "brought",
+    "happen", "happens", "happened",
+    "write", "writes", "wrote", "written",
+    "sit", "sits", "sat",
+    "stand", "stands", "stood",
+    "lose", "loses", "lost",
+    "pay", "pays", "paid",
+    "meet", "meets", "met",
+    "include", "includes", "included",
+    "continue", "continues", "continued",
+    "set", "sets",
+    "learn", "learns", "learned",
+    "change", "changes", "changed",
+    "lead", "leads", "led",
+    "understand", "understands", "understood",
+    "watch", "watches", "watched",
+    "follow", "follows", "followed",
+    "stop", "stops", "stopped",
+    "create", "creates", "created",
+    "speak", "speaks", "spoke", "spoken",
+    "read", "reads",
+    "spend", "spends", "spent",
+    "grow", "grows", "grew", "grown",
+    "open", "opens", "opened",
+    "walk", "walks", "walked",
+    "win", "wins", "won",
+    "offer", "offers", "offered",
+    "remember", "remembers", "remembered",
+    "love", "loves", "loved",
+    "consider", "considers", "considered",
+    "appear", "appears", "appeared",
+    "buy", "buys", "bought",
+    "wait", "waits", "waited",
+    "serve", "serves", "served",
+    "die", "dies", "died",
+    "send", "sends", "sent",
+    "expect", "expects", "expected",
+    "build", "builds", "built",
+    "stay", "stays", "stayed",
+    "fall", "falls", "fell", "fallen",
+    "cut", "cuts",
+    "reach", "reaches", "reached",
+    "kill", "kills", "killed",
+    "remain", "remains", "remained",
+
+    # Basic nouns
+    "time", "year", "people", "way", "day", "man", "woman",
+    "thing", "child", "children", "world", "life", "hand",
+    "part", "place", "case", "week", "company", "system",
+    "program", "question", "work", "government", "number",
+    "night", "point", "home", "water", "room", "mother",
+    "area", "money", "story", "fact", "month", "lot",
+    "right", "study", "book", "eye", "job", "word",
+    "business", "issue", "side", "kind", "head", "house",
+    "service", "friend", "father", "power", "hour", "game",
+    "line", "end", "member", "law", "car", "city",
+    "community", "name", "president", "team", "minute",
+    "idea", "kid", "body", "information", "back", "parent",
+    "face", "others", "level", "office", "door", "health",
+    "person", "art", "war", "history", "party", "result",
+    "morning", "reason", "research", "girl", "guy", "moment",
+    "air", "teacher", "force", "education",
+
+    # Basic adjectives
+    "good", "new", "first", "last", "long", "great", "little",
+    "own", "other", "old", "right", "big", "high", "different",
+    "small", "large", "next", "early", "young", "important",
+    "few", "public", "bad", "same", "able",
+
+    # Basic adverbs
+    "up", "so", "out", "just", "now", "how", "then", "more",
+    "also", "here", "well", "only", "very", "even", "back",
+    "there", "down", "still", "in", "as", "too", "when",
+    "never", "really", "most", "about",
+
+    # Pronouns & determiners
+    "i", "you", "he", "she", "it", "we", "they", "me", "him",
+    "her", "us", "them", "my", "your", "his", "its", "our",
+    "their", "this", "that", "these", "those", "what", "which",
+    "who", "whom", "whose", "where", "why",
+
+    # Prepositions & conjunctions
+    "to", "of", "in", "for", "on", "with", "at", "by", "from",
+    "or", "an", "be", "but", "not", "are", "if", "into",
+    "through", "during", "before", "after", "above", "below",
+    "between", "under", "again", "further", "once",
+
+    # Articles & others
+    "a", "the", "and", "but", "or", "because", "as", "until",
+    "while", "of", "at", "by", "for", "with", "about", "against",
+    "between", "into", "through", "during", "before", "after",
+    "above", "below", "to", "from", "in", "out", "on", "off",
+    "over", "under", "again", "further", "then", "once",
+
+    # Numbers
+    "one", "two", "three", "four", "five", "six", "seven",
+    "eight", "nine", "ten", "hundred", "thousand", "million",
+}
 
 
 # =============================================================================
@@ -301,11 +444,47 @@ class AIHandler:
         # All strategies failed - raise the last error for debugging
         raise last_error if last_error else json.JSONDecodeError("No valid JSON found", text, 0)
 
+    def _is_common_word(self, text: str) -> bool:
+        """Check if input is a single common word (skip AI)."""
+        words = text.lower().strip().split()
+        # Only skip for single common words, not phrases or sentences
+        return len(words) == 1 and words[0] in COMMON_WORDS
+
+    def _common_word_response(self, word: str) -> dict:
+        """Return a simple response for common words (FREE - no API call)."""
+        return {
+            "is_sentence": False,
+            "grammar_correction": None,
+            "grammar_note": None,
+            "entries": [{
+                "english": f"{word} (basic)",
+                "chinese": "基础词汇",
+                "explanation": f"'{word}' 是非常基础的英语词汇，建议学习更高级的表达。",
+                "example_en": f"This is a basic word.",
+                "example_zh": "这是一个基础词汇。",
+                "category": "其他",
+                "date": date.today().isoformat()
+            }],
+            "skipped_ai": True  # Flag to indicate no API was called
+        }
+
     def analyze_input(self, user_input: str) -> dict:
         """Analyze user input and generate learning entries."""
+        # Skip AI for common single words (FREE!)
+        if self._is_common_word(user_input):
+            return self._common_word_response(user_input.lower().strip())
+
+        # Determine max_tokens based on input type
+        # Single word/short phrase = less tokens needed
+        word_count = len(user_input.split())
+        if word_count <= 3:
+            max_tokens = 800  # Single word or short phrase
+        else:
+            max_tokens = 1000  # Sentence needs more
+
         message = self.client.messages.create(
             model=self.main_model,
-            max_tokens=1200,  # Reduced from 2000 - most entries need <800 tokens
+            max_tokens=max_tokens,
             system=SYSTEM_PROMPT,
             messages=[
                 {"role": "user", "content": user_input}
@@ -326,7 +505,7 @@ class AIHandler:
             try:
                 retry_message = self.client.messages.create(
                     model=self.main_model,
-                    max_tokens=1200,
+                    max_tokens=max_tokens,  # Use same limit as original
                     messages=[
                         {"role": "user", "content": user_input},
                         {"role": "assistant", "content": response_text},
