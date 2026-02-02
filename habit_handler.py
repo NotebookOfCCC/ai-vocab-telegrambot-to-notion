@@ -381,6 +381,37 @@ class HabitHandler:
             logger.error(f"Error fetching reminders: {e}")
             return []
 
+    def _get_date_property_name(self) -> str:
+        """Get the date property name from database schema.
+
+        Returns:
+            The name of the date property to use
+        """
+        try:
+            db = self.client.databases.retrieve(database_id=self.reminders_db_id)
+            db_properties = db.get("properties", {})
+
+            date_props_found = []
+            for name, config in db_properties.items():
+                prop_type = config.get("type", "")
+                if prop_type == "date":
+                    date_props_found.append(name)
+
+            # Find the best date property (same logic as create_reminder)
+            for prop in date_props_found:
+                if prop.strip().lower() == "date":
+                    return prop
+            for prop in date_props_found:
+                if "date" in prop.lower():
+                    return prop
+            if date_props_found:
+                return date_props_found[0]
+
+            return "Date"  # fallback
+        except Exception as e:
+            logger.error(f"Error getting date property name: {e}")
+            return "Date"
+
     def get_all_reminders(self, for_today: bool = True) -> list:
         """Get enabled reminders.
 
@@ -392,6 +423,10 @@ class HabitHandler:
             List of reminder dictionaries with id, text, and date
         """
         try:
+            # Get the correct date property name
+            date_prop_name = self._get_date_property_name()
+            logger.info(f"Reading reminders using date property: '{date_prop_name}'")
+
             response = self.client.databases.query(
                 database_id=self.reminders_db_id,
                 filter={"property": "Enabled", "checkbox": {"equals": True}}
@@ -408,8 +443,8 @@ class HabitHandler:
                 reminder_title = reminder_prop.get("title", [])
                 text = reminder_title[0]["text"]["content"] if reminder_title else ""
 
-                # Get Date
-                date_prop = props.get("Date", {})
+                # Get Date using detected property name
+                date_prop = props.get(date_prop_name, {})
                 date_value = date_prop.get("date", {})
                 date_str = date_value.get("start", "") if date_value else ""
 
@@ -449,47 +484,15 @@ class HabitHandler:
         Returns:
             Dictionary with success status and page_id or error
         """
-        # First, get the database schema to check which properties exist
+        # Get the date property name using shared method
+        date_prop_name = self._get_date_property_name()
+        logger.info(f"Using date property: '{date_prop_name}'")
+
+        # Get database schema for other properties (priority, category)
         try:
             db = self.client.databases.retrieve(database_id=self.reminders_db_id)
             db_properties = db.get("properties", {})
-            # Create mapping: lowercase name -> actual name
-            available_props = {}
-            date_prop_name = None
-            date_props_found = []
-
-            # Log all properties for debugging
-            logger.info(f"Database has {len(db_properties)} properties:")
-            for name, config in db_properties.items():
-                prop_type = config.get("type", "")
-                logger.info(f"  - '{name}' (type: {prop_type})")
-                available_props[name.lower()] = name
-                # Collect all date-type properties
-                if prop_type == "date":
-                    date_props_found.append(name)
-            logger.info(f"Date-type properties found: {date_props_found}")
-
-            # Find the best date property:
-            # 1. Prefer exact match "Date" (case-insensitive)
-            # 2. Fall back to any property containing "date" in name
-            # 3. Fall back to any date-type property
-            for prop in date_props_found:
-                if prop.strip().lower() == "date":
-                    date_prop_name = prop
-                    break
-            if not date_prop_name:
-                for prop in date_props_found:
-                    if "date" in prop.lower():
-                        date_prop_name = prop
-                        break
-            if not date_prop_name and date_props_found:
-                date_prop_name = date_props_found[0]
-
-            if not date_prop_name:
-                date_prop_name = "Date"  # fallback default
-                logger.warning(f"No date property found, using default 'Date'")
-            else:
-                logger.info(f"Using date property: '{date_prop_name}'")
+            available_props = {name.lower(): name for name in db_properties.keys()}
 
         except Exception as e:
             logger.error(f"Error getting database schema: {e}")
