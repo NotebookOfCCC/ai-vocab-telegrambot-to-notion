@@ -40,6 +40,7 @@ CRITICAL RULES:
    - Past participles → Base form: "broken" → "break" (unless used as adjective with different meaning)
    - Exception: Keep the original form if it has a distinct meaning (e.g., "broken" as adjective meaning 损坏的)
    - For phrasal verbs and fixed expressions, use the base verb form: "putting off" → "put off"
+   - For "adj + to" patterns (e.g., "analogous to", "akin to", "prone to"), ALWAYS save as "be + adj + to" form: "be analogous to"
 
 1. SENTENCE INPUT - Process in this order:
    a) GRAMMAR CHECK: Check for grammar errors. If found, correct them (keep original meaning).
@@ -52,6 +53,7 @@ CRITICAL RULES:
       - Advanced/uncommon vocabulary
       - DO NOT extract common basic words like: existing, structure, important, people, thing, make, take, get, have, etc.
    e) USE THE USER'S SENTENCE: When creating examples, use the user's original/corrected sentence as the example when relevant.
+   f) CHECK EXAMPLE GRAMMAR: If the user's sentence has grammar errors, use the CORRECTED version as the example, not the original.
 
 2. WORD/PHRASE INPUT:
    - Create one complete learning entry.
@@ -62,6 +64,25 @@ CRITICAL RULES:
    - "existing" and "structure" are basic words - DO NOT include them.
    - Quality over quantity: 1 good entry is better than 3 mediocre ones.
 
+4. PHONETICS - ADD LIBERALLY:
+   - Add phonetic notation /IPA/ for ANY word that is NOT in the 3000 most common English words
+   - ALWAYS add phonetics for: multi-syllable words, words with unusual stress, silent letters, or non-obvious pronunciation
+   - Examples that NEED phonetics: unrelenting /ˌʌnrɪˈlentɪŋ/, albeit /ɔːlˈbiːɪt/, facade /fəˈsɑːd/, niche /niːʃ/
+   - Format: "word /phonetic/" e.g., "ubiquitous /juːˈbɪkwɪtəs/"
+
+5. PART OF SPEECH (词性) - ALWAYS INCLUDE:
+   - Add part of speech abbreviation after the word/phrase in the "english" field
+   - Format: "word (pos.)" e.g., "priority (n.)", "ubiquitous (adj.)", "procrastinate (v.)"
+   - For phrasal verbs: "put off (phr. v.)"
+   - For idioms: "break the ice (idiom)"
+   - Common abbreviations: n. (noun), v. (verb), adj. (adjective), adv. (adverb), phr. v. (phrasal verb), idiom, prep. (preposition)
+
+6. MULTIPLE MEANINGS:
+   - If a word/phrase has MULTIPLE distinct meanings (like "put up"), create SEPARATE entries for each meaning
+   - Each entry should have its own explanation and example
+   - OR list all meanings numbered in the explanation field if they're related:
+     "1. 张贴，悬挂 2. 提供住宿 3. 忍受"
+
 OUTPUT FORMAT (strict JSON):
 {{
   "is_sentence": true/false,
@@ -69,10 +90,10 @@ OUTPUT FORMAT (strict JSON):
   "grammar_note": "brief explanation of what was corrected, OR null",
   "entries": [
     {{
-      "english": "the phrase (add /phonetic/ for uncommon pronunciation)",
+      "english": "word /phonetic/ (pos.)",
       "chinese": "中文翻译 (情感标签如适用，如：贬义/褒义/中性)",
-      "explanation": "简洁中文解释，2-3句话概括核心含义和常见用法即可。",
-      "example_en": "One clear English example sentence (prefer using the user's input sentence if it's a sentence)",
+      "explanation": "简洁中文解释，2-3句话概括核心含义和常见用法即可。如有多个含义，请编号列出：1. 含义一 2. 含义二",
+      "example_en": "One clear English example sentence (MUST be grammatically correct - fix any user errors)",
       "example_zh": "对应的完整中文翻译",
       "category": "one of: {CATEGORY_LIST}"
     }}

@@ -290,7 +290,7 @@ class NotionHandler:
 
         Factors:
         - Next Review date: due/overdue = highest priority
-        - Never reviewed: high priority
+        - Never reviewed: EQUAL priority to due words (so new words get mixed in)
         - Days since last review: more days = higher score
         - Review count: lower count = higher score
         """
@@ -315,8 +315,9 @@ class NotionHandler:
             except (ValueError, TypeError):
                 score += 50  # If can't parse, moderate priority
         elif not last_reviewed:
-            # Never reviewed and no next_review set = new word, high priority
-            score += 120
+            # Never reviewed and no next_review set = new word
+            # SAME priority as due words so new words get mixed in with reviews
+            score += 150
         else:
             # Has been reviewed but no next_review set (legacy entries)
             # Fall back to old algorithm

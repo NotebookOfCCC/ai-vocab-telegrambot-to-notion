@@ -434,12 +434,17 @@ class HabitHandler:
             logger.error(f"Error fetching all reminders: {e}")
             return []
 
-    def create_reminder(self, text: str, date: str = None) -> dict:
+    def create_reminder(self, text: str, date: str = None, start_time: str = None,
+                        end_time: str = None, priority: str = None, category: str = None) -> dict:
         """Create a new reminder in the Reminders database.
 
         Args:
             text: The reminder text
-            date: Optional date in YYYY-MM-DD format (for future tasks)
+            date: Optional date in YYYY-MM-DD format
+            start_time: Optional start time in HH:MM format
+            end_time: Optional end time in HH:MM format
+            priority: Optional priority (High, Mid, Low)
+            category: Optional category (Work, Life, Health, Study, Other)
 
         Returns:
             Dictionary with success status and page_id or error
@@ -450,15 +455,28 @@ class HabitHandler:
                 "Enabled": {"checkbox": True}
             }
 
-            # Add date if specified
+            # Add date with optional time
             if date:
-                properties["Date"] = {"date": {"start": date}}
+                date_value = {"start": date}
+                if start_time:
+                    date_value["start"] = f"{date}T{start_time}:00"
+                    if end_time:
+                        date_value["end"] = f"{date}T{end_time}:00"
+                properties["Date"] = {"date": date_value}
+
+            # Add priority if specified and property exists
+            if priority:
+                properties["Priority"] = {"select": {"name": priority}}
+
+            # Add category if specified and property exists
+            if category:
+                properties["Category"] = {"select": {"name": category}}
 
             new_page = self.client.pages.create(
                 parent={"database_id": self.reminders_db_id},
                 properties=properties
             )
-            logger.info(f"Created reminder: {text} (date: {date})")
+            logger.info(f"Created reminder: {text} (date: {date}, time: {start_time}-{end_time}, priority: {priority}, category: {category})")
             return {"success": True, "page_id": new_page["id"]}
 
         except Exception as e:

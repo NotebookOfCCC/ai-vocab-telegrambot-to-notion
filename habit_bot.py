@@ -34,6 +34,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from habit_handler import HabitHandler
 from youtube_handler import YouTubeHandler
+from telegram.ext import MessageHandler, filters
 
 # Load environment variables
 load_dotenv()
@@ -52,11 +53,13 @@ NOTION_KEY = os.getenv("NOTION_API_KEY")
 TRACKING_DB_ID = os.getenv("HABITS_TRACKING_DB_ID")
 REMINDERS_DB_ID = os.getenv("HABITS_REMINDERS_DB_ID")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 
 # Global state
 habit_handler = None
 youtube_handler = None
+task_ai_handler = None
 scheduler = None
 application = None
 is_paused = False
@@ -283,9 +286,13 @@ Schedule ({TIMEZONE}):
 • 10:00 PM - Check-in
 • Sunday 8 PM - Weekly summary
 
+💬 Natural Language Tasks:
+Just send a message like "今晚6点和Justin约饭" and I'll automatically parse time, priority, and category!
+
 Commands:
 /habits - Today's tasks status
-/add <task> - Add a new task
+/add <task> - Add a new task manually
+/tmr <task> - Add task for tomorrow
 /video - Get a random practice video
 /week - Weekly progress summary
 /stop - Pause reminders
@@ -306,57 +313,42 @@ async def habits_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /add command - add a new task.
-
-    Supports date prefixes:
-    - /add task description (today)
-    - /add today task description
-    - /add tmr task description (tomorrow)
-    - /add tomorrow task description
-    """
+    """Handle /add command - add a task for today."""
     if str(update.effective_user.id) != HABITS_USER_ID:
         await update.message.reply_text("Sorry, this bot is private.")
         return
 
     if not context.args:
-        await update.message.reply_text(
-            "Usage: /add [date] <task>\n\n"
-            "Examples:\n"
-            "/add Practice speaking\n"
-            "/add tmr Do taxes\n"
-            "/add tomorrow Call mom"
-        )
+        await update.message.reply_text("Usage: /add <task>\n\nExample: /add Practice speaking")
+        return
+
+    task_text = " ".join(context.args)
+    result = habit_handler.create_reminder(task_text)
+
+    if result["success"]:
+        await update.message.reply_text(f"✅ Added task:\n📌 {task_text}")
+    else:
+        await update.message.reply_text(f"❌ Failed to add task: {result.get('error', 'Unknown error')}")
+
+
+async def tmr_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /tmr command - add a task for tomorrow."""
+    if str(update.effective_user.id) != HABITS_USER_ID:
+        await update.message.reply_text("Sorry, this bot is private.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Usage: /tmr <task>\n\nExample: /tmr Do taxes")
         return
 
     from datetime import datetime, timedelta
+    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    args = list(context.args)
-    target_date = None
-    date_label = "today"
-
-    # Check for date prefix
-    first_word = args[0].lower()
-    if first_word in ["today"]:
-        args.pop(0)
-        target_date = datetime.now().strftime("%Y-%m-%d")
-        date_label = "today"
-    elif first_word in ["tmr", "tomorrow"]:
-        args.pop(0)
-        target_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-        date_label = "tomorrow"
-
-    if not args:
-        await update.message.reply_text("Please provide a task description.")
-        return
-
-    task_text = " ".join(args)
-    result = habit_handler.create_reminder(task_text, target_date)
+    task_text = " ".join(context.args)
+    result = habit_handler.create_reminder(task_text, tomorrow)
 
     if result["success"]:
-        if date_label == "today":
-            await update.message.reply_text(f"✅ Added task:\n📌 {task_text}")
-        else:
-            await update.message.reply_text(f"✅ Added task for {date_label}:\n📌 {task_text}")
+        await update.message.reply_text(f"✅ Added task for tomorrow:\n📌 {task_text}")
     else:
         await update.message.reply_text(f"❌ Failed to add task: {result.get('error', 'Unknown error')}")
 
@@ -453,6 +445,46 @@ YouTube: {yt_status}
 Commands: /habits /video /week /stop /resume"""
 
     await update.message.reply_text(message)
+
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle natural language task input."""
+    if str(update.effective_user.id) != HABITS_USER_ID:
+        await update.message.reply_text("Sorry, this bot is private.")
+        return
+
+    if not task_ai_handler:
+        await update.message.reply_text("AI handler not configured. Use /add <task> instead.")
+        return
+
+    text = update.message.text.strip()
+
+    # Send processing message
+    await update.message.reply_text("好的，让我帮你安排这个任务。让我先处理一下...")
+
+    # Parse the task using AI
+    parsed = task_ai_handler.parse_task(text, TIMEZONE)
+
+    if not parsed.get("success"):
+        await update.message.reply_text(f"抱歉，无法理解这个任务: {parsed.get('error', 'Unknown error')}\n\n请使用 /add <任务> 手动添加。")
+        return
+
+    # Create the reminder in Notion
+    result = habit_handler.create_reminder(
+        text=parsed.get("task", text),
+        date=parsed.get("date"),
+        start_time=parsed.get("start_time"),
+        end_time=parsed.get("end_time"),
+        priority=parsed.get("priority"),
+        category=parsed.get("category")
+    )
+
+    if result["success"]:
+        # Send confirmation message
+        confirmation = task_ai_handler.format_task_confirmation(parsed)
+        await update.message.reply_text(confirmation)
+    else:
+        await update.message.reply_text(f"任务已解析但保存失败: {result.get('error', 'Unknown error')}")
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -569,7 +601,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 def main():
     """Main function to run the habit bot."""
-    global habit_handler, youtube_handler, application
+    global habit_handler, youtube_handler, task_ai_handler, application
 
     # Validate configuration
     if not HABITS_BOT_TOKEN:
@@ -598,6 +630,14 @@ def main():
     else:
         print("YouTube API key not configured - video features disabled")
 
+    # Initialize Task AI handler (optional, for natural language task parsing)
+    if ANTHROPIC_API_KEY and ANTHROPIC_API_KEY != "your_anthropic_api_key_here":
+        from task_ai_handler import TaskAIHandler
+        task_ai_handler = TaskAIHandler(ANTHROPIC_API_KEY)
+        print("Task AI handler initialized - natural language task parsing enabled")
+    else:
+        print("Anthropic API key not configured - use /add <task> for manual task creation")
+
     # Test Notion connection
     notion_test = habit_handler.test_connection()
     if notion_test["success"]:
@@ -612,6 +652,7 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("habits", habits_command))
     application.add_handler(CommandHandler("add", add_command))
+    application.add_handler(CommandHandler("tmr", tmr_command))
     application.add_handler(CommandHandler("video", video_command))
     application.add_handler(CommandHandler("week", week_command))
     application.add_handler(CommandHandler("stop", stop_command))
@@ -619,12 +660,16 @@ def main():
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CallbackQueryHandler(handle_callback))
 
+    # Add message handler for natural language tasks (must be last)
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
     # Add error handler
     application.add_error_handler(error_handler)
 
     # Start polling
     print(f"Habit bot starting with timezone {TIMEZONE}...")
     print("Schedule: 8:00 (morning), 12:00/19:00/22:00 (check-ins), Sunday 20:00 (weekly)")
+    print("Send any message to add a task using natural language!")
     print("Press Ctrl+C to stop")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
