@@ -19,7 +19,7 @@ A Telegram bot system that helps you learn English vocabulary with AI-powered ex
 - **Scheduled Reviews**: Sends vocabulary reviews at 8:00, 13:00, 19:00, 22:00
 - **3-Button System**: Again (review tomorrow), Good (normal interval), Easy (longer interval)
 - **Equal Priority**: New words and due words have same priority (mixed reviews)
-- **Total Count**: Shows total words in database with `/due` command
+- **Multi-Database**: Supports querying from multiple Notion databases
 - **Reliable Fetching**: Auto-retry (3x with exponential backoff) for Notion API errors
 
 ### Habit Bot (`habit_bot.py`)
@@ -105,6 +105,7 @@ ALLOWED_USER_IDS=your_telegram_user_id
 # Review Bot
 REVIEW_BOT_TOKEN=your_review_bot_token
 REVIEW_USER_ID=your_telegram_user_id
+ADDITIONAL_DATABASE_IDS=  # Optional: old_db_1,old_db_2 for multi-database review
 
 # Habit Bot
 HABITS_BOT_TOKEN=your_habit_bot_token
@@ -190,6 +191,24 @@ The review bot uses a modified SM-2 algorithm:
 | Easy (🟢) | 2^(count+1) days | +2 |
 
 Priority scoring ensures new words and due words are mixed equally.
+
+## Multi-Database Support
+
+When your vocabulary database gets large (~2000+ words), you can split across multiple databases:
+
+1. Create a new Notion database with the same structure
+2. Update environment variables:
+   ```bash
+   NOTION_DATABASE_ID=new_database_id
+   ADDITIONAL_DATABASE_IDS=old_database_id
+   ```
+3. New words save to the new database
+4. Review bot queries ALL databases combined
+
+For multiple old databases, use comma-separated IDs:
+```bash
+ADDITIONAL_DATABASE_IDS=old_db_1,old_db_2,old_db_3
+```
 
 ## Deployment
 

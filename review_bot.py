@@ -28,6 +28,11 @@ NOTION_KEY = os.getenv("NOTION_API_KEY")
 NOTION_DB_ID = os.getenv("NOTION_DATABASE_ID")
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 
+# Additional database IDs for review (comma-separated)
+# Example: ADDITIONAL_DATABASE_IDS=db_id_2,db_id_3
+ADDITIONAL_DB_IDS_RAW = os.getenv("ADDITIONAL_DATABASE_IDS", "")
+ADDITIONAL_DB_IDS = [db_id.strip() for db_id in ADDITIONAL_DB_IDS_RAW.split(",") if db_id.strip()]
+
 # Global state
 notion_handler = None
 scheduler = None
@@ -43,9 +48,12 @@ def format_entry_for_review(entry: dict, index: int, total: int) -> str:
     example = entry.get("example", "")
     category = entry.get("category", "")
     review_count = entry.get("review_count", 0) or 0
+    last_reviewed = entry.get("last_reviewed")
 
-    # Show review status
-    if review_count == 0:
+    # Show review status based on whether word has EVER been reviewed
+    # "New" = never reviewed before (last_reviewed is empty)
+    # This is different from review_count==0, which can happen after hitting "Again"
+    if not last_reviewed:
         status = "🆕 New"
     elif review_count <= 3:
         status = f"📖 Review #{review_count + 1}"
@@ -246,8 +254,6 @@ async def due_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 🔴 Overdue: {overdue}
 🟡 Due today: {due_today}
 🆕 New: {new_words}
-
-Total pending: {overdue + due_today + new_words}
 📚 Total words in database: {total_words}"""
         await update.message.reply_text(message)
 
@@ -344,13 +350,15 @@ def main():
         print("ERROR: NOTION_API_KEY not set in .env file")
         return
 
-    # Initialize Notion handler
-    notion_handler = NotionHandler(NOTION_KEY, NOTION_DB_ID)
+    # Initialize Notion handler with additional databases for review
+    notion_handler = NotionHandler(NOTION_KEY, NOTION_DB_ID, additional_database_ids=ADDITIONAL_DB_IDS)
 
     # Test Notion connection
     notion_test = notion_handler.test_connection()
     if notion_test["success"]:
         print(f"Notion connected: {notion_test['database_title']}")
+        if ADDITIONAL_DB_IDS:
+            print(f"Additional databases for review: {len(ADDITIONAL_DB_IDS)} configured")
     else:
         print(f"WARNING: Notion connection issue: {notion_test['error']}")
 

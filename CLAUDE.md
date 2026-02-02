@@ -26,7 +26,7 @@ main.py (Entry Point)
 - Schedule: 8:00, 13:00, 19:00, 22:00
 - Buttons: Again (1 day) / Good (2^n days) / Easy (skip ahead)
 - New words and due words have equal priority
-- Shows total word count in `/due` command
+- **Multi-database support**: Can query from multiple Notion databases
 - **No API cost** (just Notion queries)
 
 ### 3. Habit Bot (`habit_bot.py`)
@@ -119,7 +119,8 @@ NOTION_API_KEY=           # Notion integration token
 YOUTUBE_API_KEY=          # Optional: YouTube API key
 
 # Notion Databases
-NOTION_DATABASE_ID=       # Vocabulary database ID
+NOTION_DATABASE_ID=       # Primary vocabulary database ID (for saving)
+ADDITIONAL_DATABASE_IDS=  # Optional: comma-separated additional DB IDs for review
 HABITS_TRACKING_DB_ID=    # Habit tracking database ID
 HABITS_REMINDERS_DB_ID=   # Reminders database ID
 
@@ -153,7 +154,7 @@ Intervals:
 
 ### Review Bot
 - `/review` - Manual review trigger
-- `/due` - Show pending reviews + total word count
+- `/due` - Show review stats (overdue, due today, new, total)
 - `/stop`, `/resume`, `/status`
 
 ### Habit Bot
@@ -201,6 +202,29 @@ python habit_bot.py   # Test habit bot alone
 python main.py        # Run all bots together
 ```
 
+## Multi-Database Support
+
+For large vocabularies, you can split entries across multiple Notion databases:
+
+1. **Vocab Bot**: Saves to `NOTION_DATABASE_ID` (primary database)
+2. **Review Bot**: Queries from ALL databases (primary + additional)
+
+### Setup
+```bash
+# Primary database (used for saving new words)
+NOTION_DATABASE_ID=your_primary_db_id
+
+# Additional databases for review (comma-separated, optional)
+ADDITIONAL_DATABASE_IDS=second_db_id,third_db_id
+```
+
+### Workflow
+1. When your primary database reaches ~2000 words, create a new Notion database
+2. Copy the new database ID
+3. Move your old `NOTION_DATABASE_ID` to `ADDITIONAL_DATABASE_IDS`
+4. Set the new database ID as `NOTION_DATABASE_ID`
+5. New words save to the new database, reviews pull from all databases
+
 ## Recent Changes
 
 1. **Phonetics**: Added IPA for uncommon words
@@ -211,3 +235,6 @@ python main.py        # Run all bots together
 6. **Cost optimization**: Skip common words, dynamic token limits
 7. **Total word count**: Shown in `/due` command
 8. **Notion API retry**: Auto-retry (3x with backoff) for transient API errors
+9. **Multi-database review**: Review bot can query from multiple Notion databases
+10. **Fixed "New" label**: Now means "never reviewed" (not just review_count=0)
+11. **Phrase override**: When modifying entries, explicit phrases in quotes are preserved exactly

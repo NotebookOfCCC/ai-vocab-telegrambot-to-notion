@@ -11,10 +11,23 @@ logger = logging.getLogger(__name__)
 
 
 class NotionHandler:
-    def __init__(self, api_key: str, database_id: str):
+    def __init__(self, api_key: str, database_id: str, additional_database_ids: list = None):
+        """Initialize Notion handler.
+
+        Args:
+            api_key: Notion API key
+            database_id: Primary database ID (used for saving entries)
+            additional_database_ids: Optional list of additional database IDs for review
+                                    (combined with primary database when fetching)
+        """
         self.client = Client(auth=api_key)
         self.database_id = database_id
         self._category_options = None
+
+        # All database IDs for review (primary + additional)
+        self.all_database_ids = [database_id]
+        if additional_database_ids:
+            self.all_database_ids.extend(additional_database_ids)
 
     def get_category_options(self) -> list:
         """Fetch existing category options from the database."""
@@ -232,6 +245,7 @@ class NotionHandler:
     def fetch_entries_for_review(self, count: int = 10, smart: bool = True, max_retries: int = 3) -> list:
         """
         Fetch entries for review with optional spaced repetition.
+        Queries from ALL configured databases (primary + additional).
 
         Smart selection prioritizes:
         1. Never reviewed entries (Last Reviewed is empty)
@@ -243,20 +257,24 @@ class NotionHandler:
 
         for attempt in range(max_retries):
             try:
-                # Query all entries from the database
+                # Query all entries from ALL databases
                 all_entries = []
-                has_more = True
-                start_cursor = None
 
-                while has_more:
-                    query_params = {"database_id": self.database_id, "page_size": 100}
-                    if start_cursor:
-                        query_params["start_cursor"] = start_cursor
+                for db_id in self.all_database_ids:
+                    has_more = True
+                    start_cursor = None
 
-                    response = self.client.databases.query(**query_params)
-                    all_entries.extend(response.get("results", []))
-                    has_more = response.get("has_more", False)
-                    start_cursor = response.get("next_cursor")
+                    while has_more:
+                        query_params = {"database_id": db_id, "page_size": 100}
+                        if start_cursor:
+                            query_params["start_cursor"] = start_cursor
+
+                        response = self.client.databases.query(**query_params)
+                        all_entries.extend(response.get("results", []))
+                        has_more = response.get("has_more", False)
+                        start_cursor = response.get("next_cursor")
+
+                    logger.info(f"Fetched entries from database {db_id[:8]}...")
 
                 if not all_entries:
                     logger.warning("Notion query returned no entries")
@@ -442,25 +460,27 @@ class NotionHandler:
             return {"success": False, "error": str(e)}
 
     def get_review_stats(self, max_retries: int = 3) -> dict:
-        """Get statistics about pending reviews."""
+        """Get statistics about pending reviews from ALL configured databases."""
         last_error = None
 
         for attempt in range(max_retries):
             try:
-                # Query all entries
+                # Query all entries from ALL databases
                 all_entries = []
-                has_more = True
-                start_cursor = None
 
-                while has_more:
-                    query_params = {"database_id": self.database_id, "page_size": 100}
-                    if start_cursor:
-                        query_params["start_cursor"] = start_cursor
+                for db_id in self.all_database_ids:
+                    has_more = True
+                    start_cursor = None
 
-                    response = self.client.databases.query(**query_params)
-                    all_entries.extend(response.get("results", []))
-                    has_more = response.get("has_more", False)
-                    start_cursor = response.get("next_cursor")
+                    while has_more:
+                        query_params = {"database_id": db_id, "page_size": 100}
+                        if start_cursor:
+                            query_params["start_cursor"] = start_cursor
+
+                        response = self.client.databases.query(**query_params)
+                        all_entries.extend(response.get("results", []))
+                        has_more = response.get("has_more", False)
+                        start_cursor = response.get("next_cursor")
 
                 today = date.today()
                 overdue = 0
