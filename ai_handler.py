@@ -265,9 +265,9 @@ class AIHandler:
             use_cheap_model: If True, use Haiku for all requests (4x cheaper but slightly lower quality)
         """
         self.client = anthropic.Anthropic(api_key=api_key)
-        # Sonnet for main analysis (quality matters), Haiku for secondary tasks (cost savings)
+        # Sonnet 4 for main analysis (quality matters), Sonnet 3.5 for secondary tasks (cost savings)
         self.main_model = "claude-sonnet-4-20250514"  # Main vocab analysis
-        self.cheap_model = "claude-3-5-haiku-20241022"  # For modifications & detection (~4x cheaper)
+        self.cheap_model = "claude-3-5-sonnet-20241022"  # For modifications & detection (~2x cheaper)
 
     def _sanitize_json_response(self, text: str) -> str:
         """Fix special characters that break JSON parsing."""
