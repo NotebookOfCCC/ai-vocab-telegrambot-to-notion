@@ -39,9 +39,13 @@ This bot is optimized to minimize API costs:
 | Habit Bot task parsing | **FREE** (regex-based) |
 | Common words (~300) | **FREE** (skipped) |
 | Review Bot | **FREE** (no AI) |
-| Vocab analysis | ~$0.01-0.02 per word |
+| Vocab analysis (Sonnet) | ~$0.01-0.02 per word |
+| Modifications (Haiku) | ~$0.003 per call |
+| Entry detection (Haiku) | ~$0.001 per call |
 
-**Estimated cost**: ~£0.50-0.80/day with normal usage
+**Model selection**: Main analysis uses Sonnet for quality, secondary tasks use Haiku (~4x cheaper).
+
+**Estimated cost**: ~£0.35-0.60/day with normal usage
 
 ## Setup Instructions
 

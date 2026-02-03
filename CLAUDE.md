@@ -55,7 +55,10 @@ main.py (Entry Point)
 - **Dynamic max_tokens**:
   - Short phrases (1-3 words): 800 tokens
   - Sentences: 1000 tokens
-- Model: Claude Sonnet 4 (`claude-sonnet-4-20250514`)
+- **Model selection by task**:
+  - Main analysis: Claude Sonnet 4 (`claude-sonnet-4-20250514`) - quality matters
+  - Modifications: Claude Haiku 3.5 (`claude-3-5-haiku-20241022`) - ~4x cheaper
+  - Entry detection: Claude Haiku 3.5 - ~4x cheaper
 
 ### Habit Bot (task_parser.py)
 - **100% FREE** - uses regex patterns, no API
@@ -238,3 +241,4 @@ ADDITIONAL_DATABASE_IDS=second_db_id,third_db_id
 9. **Multi-database review**: Review bot can query from multiple Notion databases
 10. **Fixed "New" label**: Now means "never reviewed" (not just review_count=0)
 11. **Phrase override**: When modifying entries, explicit phrases in quotes are preserved exactly
+12. **Haiku for secondary tasks**: Modifications and detection use Haiku (~4x cheaper), main analysis uses Sonnet
