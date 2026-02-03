@@ -262,11 +262,12 @@ class AIHandler:
 
         Args:
             api_key: Anthropic API key
-            use_cheap_model: If True, use Haiku for all requests (12x cheaper but slightly lower quality)
+            use_cheap_model: If True, use Haiku for all requests (4x cheaper but slightly lower quality)
         """
         self.client = anthropic.Anthropic(api_key=api_key)
-        # Sonnet for quality, Haiku for cost savings
-        self.main_model = "claude-sonnet-4-20250514"  # Always use Sonnet for reliability
+        # Sonnet for main analysis (quality matters), Haiku for secondary tasks (cost savings)
+        self.main_model = "claude-sonnet-4-20250514"  # Main vocab analysis
+        self.cheap_model = "claude-3-5-haiku-20241022"  # For modifications & detection (~4x cheaper)
 
     def _sanitize_json_response(self, text: str) -> str:
         """Fix special characters that break JSON parsing."""
@@ -652,9 +653,9 @@ OUTPUT FORMAT (strict JSON):
 
 Respond with valid JSON only."""
 
-        # Use Haiku for modifications - cheaper and fast enough
+        # Use Haiku for modifications - 4x cheaper and fast enough
         message = self.client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=self.cheap_model,
             max_tokens=800,
             messages=[
                 {"role": "user", "content": modify_prompt}
@@ -743,9 +744,9 @@ Which entry number (1-{len(entries)}) is the user most likely referring to?
 Respond with ONLY the number (1-{len(entries)}), nothing else."""
 
         try:
-            # Use Haiku for simple number detection - much cheaper
+            # Use Haiku for simple number detection - 4x cheaper
             message = self.client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model=self.cheap_model,
                 max_tokens=10,
                 messages=[{"role": "user", "content": detect_prompt}]
             )
