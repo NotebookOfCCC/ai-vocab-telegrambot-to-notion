@@ -653,16 +653,21 @@ OUTPUT FORMAT (strict JSON):
 
 Respond with valid JSON only."""
 
-        # Use Haiku for modifications - 4x cheaper and fast enough
-        message = self.client.messages.create(
-            model=self.cheap_model,
-            max_tokens=800,
-            messages=[
-                {"role": "user", "content": modify_prompt}
-            ]
-        )
-
-        response_text = message.content[0].text
+        try:
+            # Use cheaper model for modifications
+            message = self.client.messages.create(
+                model=self.cheap_model,
+                max_tokens=800,
+                messages=[
+                    {"role": "user", "content": modify_prompt}
+                ]
+            )
+            response_text = message.content[0].text
+        except Exception as e:
+            # Log and return error if API call fails
+            import logging
+            logging.error(f"API error in modify_entry: {e}")
+            return {"success": False, "error": f"API error: {str(e)}"}
 
         try:
             result = self._try_parse_json(response_text)
@@ -675,7 +680,9 @@ Respond with valid JSON only."""
                 "question_answer": result.get("question_answer")
             }
         except json.JSONDecodeError as e:
-            return {"success": False, "error": str(e)}
+            import logging
+            logging.error(f"JSON parse error in modify_entry: {e}, response: {response_text[:200]}")
+            return {"success": False, "error": f"JSON parse error: {str(e)}"}
 
     def detect_target_entry(self, entries: list, user_feedback: str) -> int:
         """
@@ -744,7 +751,7 @@ Which entry number (1-{len(entries)}) is the user most likely referring to?
 Respond with ONLY the number (1-{len(entries)}), nothing else."""
 
         try:
-            # Use Haiku for simple number detection - 4x cheaper
+            # Use cheaper model for simple number detection
             message = self.client.messages.create(
                 model=self.cheap_model,
                 max_tokens=10,
@@ -757,8 +764,9 @@ Respond with ONLY the number (1-{len(entries)}), nothing else."""
                 num = int(num_match.group(1))
                 if 1 <= num <= len(entries):
                     return num - 1
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.error(f"Error in detect_target_entry: {e}")
 
         # Default to first entry
         return 0
