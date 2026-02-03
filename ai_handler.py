@@ -616,41 +616,46 @@ CURRENT ENTRY:
 
 USER MESSAGE: {user_request}
 
-INSTRUCTIONS:
-1. First, determine if the user is asking a QUESTION (contains ?, 吗, 呢, 什么, 为什么, 怎么, 是不是, 是否, 音标, pronunciation, etc.)
-2. If the user is asking a question:
-   - Provide a clear, helpful answer to their question in "question_answer"
-   - IMPORTANT: Always update the entry to incorporate the answer when relevant:
-     * If asking about pronunciation/音标: Add phonetic notation to the "english" field (e.g., "word /wɜːrd/")
-     * If asking about meaning: Update "chinese" or "explanation" if needed
-     * If asking about usage: Update "example_en"/"example_zh" if a better example is given
-3. If the user is giving feedback/instructions (not a question):
-   - Set "question_answer" to null
-   - Modify the entry according to their request
+IDENTIFY THE REQUEST TYPE AND FOLLOW THE MATCHING RULE:
 
-CRITICAL - PHRASE CHANGE:
-If the user wants to change the phrase to a DIFFERENT phrase (using "change to", "change phrase to", "use", "save as", etc.):
-1. Update "english" to the NEW phrase
-2. REGENERATE ALL OTHER FIELDS for the NEW phrase:
-   - "chinese": New Chinese translation for the NEW phrase
-   - "explanation": New explanation for the NEW phrase
-   - "example_en": New example sentence using the NEW phrase
-   - "example_zh": Chinese translation of the new example
-   - "category": Appropriate category for the NEW phrase
-DO NOT keep the old chinese/explanation/example - they are for the OLD phrase!
+=== TYPE 1: CHANGE PHRASE (regenerate everything) ===
+Keywords: "change phrase to", "change to", "use phrase", "save as", "I want to save"
+Action: Change english AND regenerate ALL other fields for the NEW phrase.
+- english: The new phrase
+- chinese: NEW translation for the new phrase
+- explanation: NEW explanation for the new phrase
+- example_en: NEW example using the new phrase
+- example_zh: NEW Chinese translation of new example
+- category: Appropriate for the new phrase
+DO NOT keep old chinese/explanation/example!
 
-Example: User says "change phrase to 'have a hard time'"
-- english: "have a hard time"
-- chinese: "感到困难，经历艰难" (NOT the old phrase's translation!)
-- explanation: About "have a hard time" (NOT the old phrase!)
-- example_en: New sentence with "have a hard time"
-- example_zh: Translation of the new example
+=== TYPE 2: CHANGE CATEGORY ONLY ===
+Keywords: "change category", "category to", "分类改成"
+Action: ONLY change category. Keep ALL other fields exactly the same.
 
-DEFAULT RULE: Use the base/dictionary form for the "english" field (plurals → singular, conjugated → base form).
+=== TYPE 3: CHANGE EXAMPLE ONLY ===
+Keywords: "change example", "different example", "better example", "换个例子"
+Action: ONLY change example_en and example_zh. Keep english, chinese, explanation, category the same.
 
-OUTPUT FORMAT (strict JSON):
+=== TYPE 4: FIX CHINESE/EXPLANATION ===
+Keywords: "Chinese should be", "翻译改成", "explanation should", "解释改成"
+Action: ONLY change the specific field mentioned. Keep all other fields the same.
+
+=== TYPE 5: ADD PHONETICS ===
+Keywords: "add pronunciation", "音标", "phonetic", "how to pronounce"
+Action: Add /IPA/ to english field. Keep all other fields the same.
+Example: "word" → "word /wɜːrd/"
+
+=== TYPE 6: QUESTION ===
+Keywords: ?, 吗, 呢, 什么, 为什么, 怎么, 是不是
+Action: Answer in "question_answer" field. Update entry only if answer is relevant to a field.
+
+=== DEFAULT ===
+If unclear, make minimal changes based on user's request. Don't change fields unnecessarily.
+
+OUTPUT FORMAT (strict JSON, no extra text):
 {{
-  "question_answer": "Answer to the user's question in the same language they asked (Chinese or English), OR null if not a question",
+  "question_answer": "Answer if question, otherwise null",
   "entry": {{
     "english": "...",
     "chinese": "...",
@@ -659,9 +664,7 @@ OUTPUT FORMAT (strict JSON):
     "example_zh": "...",
     "category": "one of: {CATEGORY_LIST}"
   }}
-}}
-
-Respond with valid JSON only."""
+}}"""
 
         try:
             # Use cheaper model for modifications
