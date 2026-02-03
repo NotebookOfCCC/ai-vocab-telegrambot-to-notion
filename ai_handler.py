@@ -628,15 +628,25 @@ INSTRUCTIONS:
    - Set "question_answer" to null
    - Modify the entry according to their request
 
-CRITICAL - PHRASE OVERRIDE:
-If the user explicitly specifies a phrase they want to save (using quotes, "say the phrase", "change to", "use", "save as", "I want", etc.), use their EXACT phrase in the "english" field.
-Examples:
-- User says: 'Say the phrase, "it's not coming together"' → english: "it's not coming together"
-- User says: 'Change to "breaking point"' → english: "breaking point"
-- User says: 'I want to save "keep it up"' → english: "keep it up"
-Do NOT reduce their specified phrase to a base form. The user's explicit request overrides the base form rule.
+CRITICAL - PHRASE CHANGE:
+If the user wants to change the phrase to a DIFFERENT phrase (using "change to", "change phrase to", "use", "save as", etc.):
+1. Update "english" to the NEW phrase
+2. REGENERATE ALL OTHER FIELDS for the NEW phrase:
+   - "chinese": New Chinese translation for the NEW phrase
+   - "explanation": New explanation for the NEW phrase
+   - "example_en": New example sentence using the NEW phrase
+   - "example_zh": Chinese translation of the new example
+   - "category": Appropriate category for the NEW phrase
+DO NOT keep the old chinese/explanation/example - they are for the OLD phrase!
 
-DEFAULT RULE (only when user doesn't specify exact phrase): Use the base/dictionary form for the "english" field (plurals → singular, conjugated → base form).
+Example: User says "change phrase to 'have a hard time'"
+- english: "have a hard time"
+- chinese: "感到困难，经历艰难" (NOT the old phrase's translation!)
+- explanation: About "have a hard time" (NOT the old phrase!)
+- example_en: New sentence with "have a hard time"
+- example_zh: Translation of the new example
+
+DEFAULT RULE: Use the base/dictionary form for the "english" field (plurals → singular, conjugated → base form).
 
 OUTPUT FORMAT (strict JSON):
 {{
