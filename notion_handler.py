@@ -1,6 +1,7 @@
 """
 Notion Handler - Saves vocabulary entries to Notion database
 """
+import re
 import random
 import logging
 import time
@@ -237,6 +238,56 @@ class NotionHandler:
                 "success": False,
                 "error": str(e)
             }
+
+    def find_entry_by_english(self, text: str) -> dict | None:
+        """Search Notion database for an existing entry matching the English text.
+
+        Returns the entry dict with english, chinese, date fields, or None if not found.
+        """
+        try:
+            # Normalize: strip phonetics/part-of-speech for search
+            search_text = re.sub(r'/[^/]+/', '', text).strip()  # Remove /IPA/
+            search_text = re.sub(r'\([^)]*\)', '', search_text).strip()  # Remove (pos.)
+
+            response = self.client.databases.query(
+                database_id=self.database_id,
+                filter={
+                    "property": "English",
+                    "title": {
+                        "contains": search_text
+                    }
+                },
+                page_size=1
+            )
+
+            if response["results"]:
+                page = response["results"][0]
+                props = page["properties"]
+
+                # Extract English title
+                english = ""
+                if props.get("English", {}).get("title"):
+                    english = props["English"]["title"][0]["plain_text"]
+
+                # Extract date
+                date_val = ""
+                if props.get("Date", {}).get("date"):
+                    date_val = props["Date"]["date"].get("start", "")
+
+                # Extract Chinese
+                chinese = ""
+                if props.get("Chinese", {}).get("rich_text"):
+                    chinese = props["Chinese"]["rich_text"][0]["plain_text"]
+
+                return {
+                    "english": english,
+                    "chinese": chinese,
+                    "date": date_val,
+                }
+        except Exception as e:
+            logger.error(f"Error checking for duplicate in Notion: {e}")
+
+        return None
 
     def fetch_random_entries(self, count: int = 10) -> list:
         """Fetch random entries from the database (no smart selection)."""
