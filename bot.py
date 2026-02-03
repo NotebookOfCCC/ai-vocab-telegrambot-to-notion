@@ -16,6 +16,7 @@ from telegram.ext import (
 )
 from ai_handler import AIHandler, CATEGORIES, CATEGORY_LIST
 from notion_handler import NotionHandler
+from cache_handler import CacheHandler
 
 # Load environment variables
 load_dotenv()
@@ -38,6 +39,7 @@ ALLOWED_USERS = [uid.strip() for uid in ALLOWED_USERS if uid.strip()]
 
 ai_handler = None
 notion_handler = None
+cache_handler = None
 
 # Store user session data (pending entries to save)
 user_sessions = {}
@@ -139,6 +141,14 @@ async def clear_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_text("Session cleared. Send me new text to analyze.")
 
 
+async def clear_cache(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /clearcache command - clear the analysis cache."""
+    if not is_user_allowed(update.effective_user.id):
+        return
+    count = cache_handler.clear()
+    await update.message.reply_text(f"Cache cleared. Removed {count} entries.")
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming text messages."""
     logger.info(f"Received message: {update.message.text} from user {update.effective_user.id}")
@@ -174,7 +184,73 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await handle_edit_request(update, context, text)
         return
 
-    # New input - analyze it
+    # New input - check cache and duplicates before API call
+
+    # Step 1: Check local cache
+    cached_result = cache_handler.get(text)
+    if cached_result and "entries" in cached_result:
+        # Cache hit - free!
+        user_sessions[user_id] = {
+            "pending_entries": cached_result.get("entries", []),
+            "original_input": text,
+            "from_cache": True,
+        }
+
+        response = ai_handler.format_entries_for_display(cached_result)
+        entries = cached_result.get("entries", [])
+
+        keyboard = []
+        if len(entries) == 1:
+            keyboard.append([
+                InlineKeyboardButton("Save", callback_data="save_1"),
+                InlineKeyboardButton("Cancel", callback_data="cancel")
+            ])
+        else:
+            row = []
+            for i in range(len(entries)):
+                row.append(InlineKeyboardButton(f"Save {i+1}", callback_data=f"save_{i+1}"))
+                if len(row) == 3:
+                    keyboard.append(row)
+                    row = []
+            if row:
+                keyboard.append(row)
+            keyboard.append([
+                InlineKeyboardButton("Save All", callback_data="save_all"),
+                InlineKeyboardButton("Cancel", callback_data="cancel")
+            ])
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        sent_message = await update.message.reply_text(
+            f"(cached)\n{response}", reply_markup=reply_markup
+        )
+
+        user_sessions[user_id]["last_button_message_id"] = sent_message.message_id
+        user_sessions[user_id]["last_button_message_chat_id"] = sent_message.chat_id
+        return
+
+    # Step 2: Check Notion for duplicates
+    duplicate = notion_handler.find_entry_by_english(text)
+    if duplicate:
+        user_sessions[user_id] = {
+            "duplicate_text": text,
+        }
+        keyboard = [[
+            InlineKeyboardButton("Re-analyze", callback_data="reanalyze"),
+            InlineKeyboardButton("Cancel", callback_data="cancel")
+        ]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        date_str = f" (saved: {duplicate['date']})" if duplicate.get('date') else ""
+        sent_message = await update.message.reply_text(
+            f"Already in Notion{date_str}:\n\n"
+            f"{duplicate['english']}\n{duplicate['chinese']}\n\n"
+            f"Re-analyze anyway?",
+            reply_markup=reply_markup,
+        )
+        user_sessions[user_id]["last_button_message_id"] = sent_message.message_id
+        user_sessions[user_id]["last_button_message_chat_id"] = sent_message.chat_id
+        return
+
+    # Step 3: No cache hit, no duplicate - call AI
     await update.message.reply_text("Analyzing...")
 
     try:
@@ -183,6 +259,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if "error" in analysis:
             await update.message.reply_text(f"Error: {analysis['error']}")
             return
+
+        # Cache the result for future lookups
+        if not analysis.get("skipped_ai") and "error" not in analysis:
+            cache_handler.put(text, analysis)
 
         # Store pending entries in session
         user_sessions[user_id] = {
@@ -421,8 +501,62 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     session = user_sessions.get(user_id, {})
     pending_entries = session.get("pending_entries", [])
 
-    if not pending_entries:
-        await query.edit_message_text("Session expired. Send new text to analyze.", reply_markup=None)
+    # Handle re-analyze (duplicate override)
+    if data == "reanalyze":
+        text = session.get("duplicate_text", "")
+        if not text:
+            await query.edit_message_text("Session expired. Send new text.", reply_markup=None)
+            return
+
+        await query.edit_message_text("Re-analyzing...", reply_markup=None)
+
+        try:
+            analysis = ai_handler.analyze_input(text)
+            if "error" in analysis:
+                await query.message.reply_text(f"Error: {analysis['error']}")
+                return
+
+            # Cache the new result
+            if not analysis.get("skipped_ai"):
+                cache_handler.put(text, analysis)
+
+            user_sessions[user_id] = {
+                "pending_entries": analysis.get("entries", []),
+                "original_input": text,
+            }
+
+            response = ai_handler.format_entries_for_display(analysis)
+            entries = analysis.get("entries", [])
+
+            keyboard = []
+            if len(entries) == 1:
+                keyboard.append([
+                    InlineKeyboardButton("Save", callback_data="save_1"),
+                    InlineKeyboardButton("Cancel", callback_data="cancel")
+                ])
+            else:
+                row = []
+                for i in range(len(entries)):
+                    row.append(InlineKeyboardButton(f"Save {i+1}", callback_data=f"save_{i+1}"))
+                    if len(row) == 3:
+                        keyboard.append(row)
+                        row = []
+                if row:
+                    keyboard.append(row)
+                keyboard.append([
+                    InlineKeyboardButton("Save All", callback_data="save_all"),
+                    InlineKeyboardButton("Cancel", callback_data="cancel")
+                ])
+
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            sent_message = await query.message.reply_text(response, reply_markup=reply_markup)
+
+            user_sessions[user_id]["last_button_message_id"] = sent_message.message_id
+            user_sessions[user_id]["last_button_message_chat_id"] = sent_message.chat_id
+
+        except Exception as e:
+            logger.error(f"Error in re-analyze: {e}")
+            await query.message.reply_text(f"Error: {str(e)}")
         return
 
     # Handle cancel - clear session, keep content, remove buttons
@@ -430,6 +564,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         user_sessions[user_id] = {}
         await query.edit_message_text(query.message.text, reply_markup=None)
         await query.message.reply_text("— Cancelled the saving.")
+        return
+
+    if not pending_entries:
+        await query.edit_message_text("Session expired. Send new text to analyze.", reply_markup=None)
         return
 
     # Handle category selection (from category buttons)
@@ -500,7 +638,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 def main():
     """Main function to run the bot."""
-    global ai_handler, notion_handler
+    global ai_handler, notion_handler, cache_handler
 
     # Validate configuration
     if not TELEGRAM_TOKEN:
@@ -521,6 +659,8 @@ def main():
     if USE_CHEAP_MODEL:
         print("Using Haiku model (cheap mode) - ~90% cost savings")
     notion_handler = NotionHandler(NOTION_KEY, NOTION_DB_ID)
+    cache_handler = CacheHandler()
+    print(f"Cache loaded: {len(cache_handler.cache)} entries")
 
     # Test Notion connection on startup
     notion_test = notion_handler.test_connection()
@@ -537,6 +677,7 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("test", test_notion))
     application.add_handler(CommandHandler("clear", clear_session))
+    application.add_handler(CommandHandler("clearcache", clear_cache))
     application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
