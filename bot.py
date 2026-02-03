@@ -199,27 +199,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         response = ai_handler.format_entries_for_display(cached_result)
         entries = cached_result.get("entries", [])
 
-        keyboard = []
-        if len(entries) == 1:
-            keyboard.append([
-                InlineKeyboardButton("Save", callback_data="save_1"),
-                InlineKeyboardButton("Cancel", callback_data="cancel")
-            ])
-        else:
-            row = []
-            for i in range(len(entries)):
-                row.append(InlineKeyboardButton(f"Save {i+1}", callback_data=f"save_{i+1}"))
-                if len(row) == 3:
-                    keyboard.append(row)
-                    row = []
-            if row:
-                keyboard.append(row)
-            keyboard.append([
-                InlineKeyboardButton("Save All", callback_data="save_all"),
-                InlineKeyboardButton("Cancel", callback_data="cancel")
-            ])
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        reply_markup = _build_save_keyboard(entries)
         sent_message = await update.message.reply_text(
             f"(cached)\n{response}", reply_markup=reply_markup
         )
@@ -274,30 +254,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         response = ai_handler.format_entries_for_display(analysis)
         entries = analysis.get("entries", [])
 
-        # Create inline keyboard buttons
-        keyboard = []
-        if len(entries) == 1:
-            # Single entry - Save and Cancel buttons
-            keyboard.append([
-                InlineKeyboardButton("Save", callback_data="save_1"),
-                InlineKeyboardButton("Cancel", callback_data="cancel")
-            ])
-        else:
-            # Multiple entries - show numbered save buttons
-            row = []
-            for i in range(len(entries)):
-                row.append(InlineKeyboardButton(f"Save {i+1}", callback_data=f"save_{i+1}"))
-                if len(row) == 3:  # Max 3 buttons per row
-                    keyboard.append(row)
-                    row = []
-            if row:
-                keyboard.append(row)
-            keyboard.append([
-                InlineKeyboardButton("Save All", callback_data="save_all"),
-                InlineKeyboardButton("Cancel", callback_data="cancel")
-            ])
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        reply_markup = _build_save_keyboard(entries)
         sent_message = await update.message.reply_text(response, reply_markup=reply_markup)
 
         # Store message info so we can remove buttons later
@@ -473,6 +430,30 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
         user_sessions[user_id]["last_button_message_chat_id"] = sent_message.chat_id
 
 
+def _build_save_keyboard(entries: list) -> InlineKeyboardMarkup:
+    """Build inline keyboard for save/cancel after analysis."""
+    keyboard = []
+    if len(entries) == 1:
+        keyboard.append([
+            InlineKeyboardButton("Save", callback_data="save_1"),
+            InlineKeyboardButton("Cancel", callback_data="cancel")
+        ])
+    else:
+        row = []
+        for i in range(len(entries)):
+            row.append(InlineKeyboardButton(f"Save {i+1}", callback_data=f"save_{i+1}"))
+            if len(row) == 3:
+                keyboard.append(row)
+                row = []
+        if row:
+            keyboard.append(row)
+        keyboard.append([
+            InlineKeyboardButton("Save All", callback_data="save_all"),
+            InlineKeyboardButton("Cancel", callback_data="cancel")
+        ])
+    return InlineKeyboardMarkup(keyboard)
+
+
 def _build_edit_keyboard(num_entries: int, current_idx: int) -> list:
     """Build inline keyboard for edit mode based on number of entries."""
     if num_entries == 1:
@@ -517,7 +498,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 return
 
             # Cache the new result
-            if not analysis.get("skipped_ai"):
+            if not analysis.get("skipped_ai") and "error" not in analysis:
                 cache_handler.put(text, analysis)
 
             user_sessions[user_id] = {
@@ -528,27 +509,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             response = ai_handler.format_entries_for_display(analysis)
             entries = analysis.get("entries", [])
 
-            keyboard = []
-            if len(entries) == 1:
-                keyboard.append([
-                    InlineKeyboardButton("Save", callback_data="save_1"),
-                    InlineKeyboardButton("Cancel", callback_data="cancel")
-                ])
-            else:
-                row = []
-                for i in range(len(entries)):
-                    row.append(InlineKeyboardButton(f"Save {i+1}", callback_data=f"save_{i+1}"))
-                    if len(row) == 3:
-                        keyboard.append(row)
-                        row = []
-                if row:
-                    keyboard.append(row)
-                keyboard.append([
-                    InlineKeyboardButton("Save All", callback_data="save_all"),
-                    InlineKeyboardButton("Cancel", callback_data="cancel")
-                ])
-
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            reply_markup = _build_save_keyboard(entries)
             sent_message = await query.message.reply_text(response, reply_markup=reply_markup)
 
             user_sessions[user_id]["last_button_message_id"] = sent_message.message_id
