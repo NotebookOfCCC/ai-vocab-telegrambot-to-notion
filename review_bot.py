@@ -205,7 +205,7 @@ Buttons:
 async def review_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /review command - manual trigger (works even when paused)."""
     user_id = str(update.effective_user.id)
-    logger.info(f"/review from user {user_id}")
+    logger.info(f"/review from user {user_id}, expected {REVIEW_USER_ID}")
     if user_id != REVIEW_USER_ID:
         await update.message.reply_text(f"Sorry, this bot is private. Your ID: {user_id}")
         return
@@ -296,8 +296,12 @@ async def due_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 def format_schedule_text(config: dict) -> str:
     """Format current schedule config as a display string."""
-    hours_str = ", ".join(f"{h:02d}:00" for h in config["review_hours"])
-    return f"Schedule: {hours_str} ({TIMEZONE})\nWords per batch: {config['words_per_batch']}"
+    if not config:
+        config = DEFAULT_CONFIG
+    hours = config.get("review_hours", DEFAULT_CONFIG["review_hours"])
+    words = config.get("words_per_batch", DEFAULT_CONFIG["words_per_batch"])
+    hours_str = ", ".join(f"{h:02d}:00" for h in hours)
+    return f"Schedule: {hours_str} ({TIMEZONE})\nWords per batch: {words}"
 
 
 def get_next_review_time() -> str:
@@ -377,6 +381,8 @@ def parse_schedule_text(text: str):
 async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /schedule command - view or update review schedule."""
     global review_config
+
+    logger.info(f"/schedule from user {update.effective_user.id}")
 
     if str(update.effective_user.id) != REVIEW_USER_ID:
         await update.message.reply_text("Sorry, this bot is private.")
