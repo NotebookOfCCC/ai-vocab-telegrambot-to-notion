@@ -355,7 +355,7 @@ def build_word_options(current: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([row, [InlineKeyboardButton("Back", callback_data="sched_back")]])
 
 
-def parse_schedule_text(text: str) -> dict | None:
+def parse_schedule_text(text: str):
     """Parse free-form schedule text like '20 words at 8 13 17 19 22'."""
     result = {}
     # Match words count
