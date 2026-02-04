@@ -265,6 +265,7 @@ class AIHandler:
             use_cheap_model: If True, use Haiku for all requests (4x cheaper but slightly lower quality)
         """
         self.client = anthropic.Anthropic(api_key=api_key)
+        self.use_cheap_model = use_cheap_model
         # Sonnet 4 for main analysis (quality matters), Haiku for secondary tasks (cost savings)
         self.main_model = "claude-sonnet-4-20250514"  # Main vocab analysis
         self.cheap_model = "claude-haiku-4-5-20251001"  # For modifications & detection (~4x cheaper)
@@ -488,8 +489,11 @@ class AIHandler:
         else:
             max_tokens = 1000  # Sentence needs more
 
+        # Use cheap model (Haiku) if enabled, otherwise main model (Sonnet)
+        model = self.cheap_model if self.use_cheap_model else self.main_model
+
         message = self.client.messages.create(
-            model=self.main_model,
+            model=model,
             max_tokens=max_tokens,
             system=SYSTEM_PROMPT,
             messages=[
@@ -510,7 +514,7 @@ class AIHandler:
             # Retry once with explicit JSON request
             try:
                 retry_message = self.client.messages.create(
-                    model=self.main_model,
+                    model=model,
                     max_tokens=max_tokens,  # Use same limit as original
                     messages=[
                         {"role": "user", "content": user_input},
