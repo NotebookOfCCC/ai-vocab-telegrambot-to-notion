@@ -2,7 +2,6 @@
 Vocabulary Review Bot
 Sends scheduled vocabulary review messages from Notion database.
 """
-print("DEBUG: review_bot.py starting import...")
 import os
 import json
 import re
@@ -13,11 +12,9 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from notion_handler import NotionHandler
-print("DEBUG: review_bot.py imports complete")
 
 # Load environment variables
 load_dotenv()
-print("DEBUG: review_bot.py dotenv loaded")
 
 # Configure logging
 logging.basicConfig(
@@ -312,7 +309,8 @@ def get_next_review_time() -> str:
     if not scheduler:
         return ""
     review_jobs = [j for j in scheduler.get_jobs() if j.id.startswith("review_")]
-    next_times = [j.next_run_time for j in review_jobs if j.next_run_time]
+    next_times = [getattr(j, 'next_run_time', None) for j in review_jobs]
+    next_times = [t for t in next_times if t]
     if not next_times:
         return ""
     next_time = min(next_times)
@@ -513,8 +511,10 @@ def apply_schedule(sched, config: dict) -> None:
 
     # Log next run times for debugging
     for job in sched.get_jobs():
-        if job.id.startswith("review_") and job.next_run_time:
-            logger.info(f"Job '{job.name}' next run: {job.next_run_time}")
+        if job.id.startswith("review_"):
+            next_time = getattr(job, 'next_run_time', None)
+            if next_time:
+                logger.info(f"Job '{job.name}' next run: {next_time}")
 
 
 async def post_init(app: Application) -> None:
@@ -528,8 +528,9 @@ async def post_init(app: Application) -> None:
 
     # Log next run times for debugging
     for job in scheduler.get_jobs():
-        next_run = job.next_run_time
-        logger.info(f"Job '{job.name}' next run: {next_run}")
+        next_run = getattr(job, 'next_run_time', None)
+        if next_run:
+            logger.info(f"Job '{job.name}' next run: {next_run}")
 
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
