@@ -2,6 +2,7 @@
 Vocabulary Review Bot
 Sends scheduled vocabulary review messages from Notion database.
 """
+print("DEBUG: review_bot.py starting import...")
 import os
 import json
 import re
@@ -12,9 +13,11 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from notion_handler import NotionHandler
+print("DEBUG: review_bot.py imports complete")
 
 # Load environment variables
 load_dotenv()
+print("DEBUG: review_bot.py dotenv loaded")
 
 # Configure logging
 logging.basicConfig(
