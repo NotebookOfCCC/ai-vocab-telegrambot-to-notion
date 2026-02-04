@@ -300,9 +300,24 @@ def format_schedule_text(config: dict) -> str:
     return f"Schedule: {hours_str} ({TIMEZONE})\nWords per batch: {config['words_per_batch']}"
 
 
+def get_next_review_time() -> str:
+    """Get the next scheduled review time from the scheduler."""
+    if not scheduler:
+        return ""
+    review_jobs = [j for j in scheduler.get_jobs() if j.id.startswith("review_")]
+    next_times = [j.next_run_time for j in review_jobs if j.next_run_time]
+    if not next_times:
+        return ""
+    next_time = min(next_times)
+    return next_time.strftime("%Y-%m-%d %H:%M")
+
+
 async def send_schedule_display(message_or_query, config: dict, edit: bool = False) -> None:
     """Show current schedule with Edit Times / Edit Word Count buttons."""
     text = f"⚙️ Review Schedule\n\n{format_schedule_text(config)}"
+    next_run = get_next_review_time()
+    if next_run:
+        text += f"\n\nNext review: {next_run}"
     keyboard = [[
         InlineKeyboardButton("Edit Times", callback_data="sched_edit_times"),
         InlineKeyboardButton("Edit Word Count", callback_data="sched_edit_words"),
@@ -378,7 +393,11 @@ async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         save_config(review_config)
         if scheduler:
             apply_schedule(scheduler, review_config)
-        await update.message.reply_text(f"✅ Schedule updated!\n\n{format_schedule_text(review_config)}")
+        next_run = get_next_review_time()
+        msg = f"✅ Schedule updated!\n\n{format_schedule_text(review_config)}"
+        if next_run:
+            msg += f"\n\nNext review: {next_run}"
+        await update.message.reply_text(msg)
         return
 
     # No args - show interactive display
@@ -483,12 +502,17 @@ def apply_schedule(sched, config: dict) -> None:
     hours_str = ", ".join(f"{h:02d}:00" for h in config["review_hours"])
     logger.info(f"Schedule applied: {hours_str}, {config['words_per_batch']} words per batch")
 
+    # Log next run times for debugging
+    for job in sched.get_jobs():
+        if job.id.startswith("review_") and job.next_run_time:
+            logger.info(f"Job '{job.name}' next run: {job.next_run_time}")
+
 
 async def post_init(app: Application) -> None:
     """Initialize scheduler after application starts."""
     global scheduler
 
-    scheduler = AsyncIOScheduler(timezone=TIMEZONE)
+    scheduler = AsyncIOScheduler(timezone=TIMEZONE, misfire_grace_time=120)
     apply_schedule(scheduler, review_config)
     scheduler.start()
     logger.info(f"Scheduler started with timezone {TIMEZONE}")
