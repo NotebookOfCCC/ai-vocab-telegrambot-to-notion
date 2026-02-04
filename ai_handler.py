@@ -604,67 +604,33 @@ Date: {entry['date']}
 
         If user asks a question, returns both the answer and modified entry.
         """
-        modify_prompt = f"""You have a vocabulary entry that the user is interacting with.
+        modify_prompt = f"""Modify a vocabulary entry based on the user's request. Respond with ONLY valid JSON.
 
 CURRENT ENTRY:
-- English: {entry.get('english', '')}
-- Chinese: {entry.get('chinese', '')}
-- Explanation: {entry.get('explanation', '')}
-- Example EN: {entry.get('example_en', '')}
-- Example ZH: {entry.get('example_zh', '')}
-- Category: {entry.get('category', '')}
+english: {entry.get('english', '')}
+chinese: {entry.get('chinese', '')}
+explanation: {entry.get('explanation', '')}
+example_en: {entry.get('example_en', '')}
+example_zh: {entry.get('example_zh', '')}
+category: {entry.get('category', '')}
 
-USER MESSAGE: {user_request}
+USER REQUEST: {user_request}
 
-IDENTIFY THE REQUEST TYPE AND FOLLOW THE MATCHING RULE:
+RULES (pick ONE that matches):
+1. CHANGE PHRASE ("change to X", "save as X"): Set english to new phrase, regenerate ALL fields for the new phrase. Do NOT keep old translations.
+2. CHANGE CATEGORY ("category to X", "分类改成X"): ONLY change category. Copy all other fields exactly.
+3. CHANGE EXAMPLE ("换个例子", "different example"): ONLY change example_en and example_zh. Copy all other fields exactly.
+4. FIX FIELD ("翻译改成", "Chinese should be"): ONLY change that one field. Copy all other fields exactly.
+5. ADD PHONETICS ("音标", "pronunciation"): Add /IPA/ to english field only. Copy all other fields exactly.
+6. QUESTION (contains ? or 吗/呢/什么): Put answer in question_answer. Copy all entry fields exactly unless the answer requires a change.
+7. DEFAULT: Make minimal changes. Copy unchanged fields exactly.
 
-=== TYPE 1: CHANGE PHRASE (regenerate everything) ===
-Keywords: "change phrase to", "change to", "use phrase", "save as", "I want to save"
-Action: Change english AND regenerate ALL other fields for the NEW phrase.
-- english: The new phrase
-- chinese: NEW translation for the new phrase
-- explanation: NEW explanation for the new phrase
-- example_en: NEW example using the new phrase
-- example_zh: NEW Chinese translation of new example
-- category: Appropriate for the new phrase
-DO NOT keep old chinese/explanation/example!
+IMPORTANT: For rules 2-7, you MUST copy unchanged fields exactly as shown above. Do NOT rewrite or rephrase them.
 
-=== TYPE 2: CHANGE CATEGORY ONLY ===
-Keywords: "change category", "category to", "分类改成"
-Action: ONLY change category. Keep ALL other fields exactly the same.
+Valid categories: {CATEGORY_LIST}
 
-=== TYPE 3: CHANGE EXAMPLE ONLY ===
-Keywords: "change example", "different example", "better example", "换个例子"
-Action: ONLY change example_en and example_zh. Keep english, chinese, explanation, category the same.
-
-=== TYPE 4: FIX CHINESE/EXPLANATION ===
-Keywords: "Chinese should be", "翻译改成", "explanation should", "解释改成"
-Action: ONLY change the specific field mentioned. Keep all other fields the same.
-
-=== TYPE 5: ADD PHONETICS ===
-Keywords: "add pronunciation", "音标", "phonetic", "how to pronounce"
-Action: Add /IPA/ to english field. Keep all other fields the same.
-Example: "word" → "word /wɜːrd/"
-
-=== TYPE 6: QUESTION ===
-Keywords: ?, 吗, 呢, 什么, 为什么, 怎么, 是不是
-Action: Answer in "question_answer" field. Update entry only if answer is relevant to a field.
-
-=== DEFAULT ===
-If unclear, make minimal changes based on user's request. Don't change fields unnecessarily.
-
-OUTPUT FORMAT (strict JSON, no extra text):
-{{
-  "question_answer": "Answer if question, otherwise null",
-  "entry": {{
-    "english": "...",
-    "chinese": "...",
-    "explanation": "...",
-    "example_en": "...",
-    "example_zh": "...",
-    "category": "one of: {CATEGORY_LIST}"
-  }}
-}}"""
+JSON format:
+{{"question_answer": null, "entry": {{"english": "...", "chinese": "...", "explanation": "...", "example_en": "...", "example_zh": "...", "category": "..."}}}}"""
 
         try:
             # Use cheaper model for modifications
@@ -751,17 +717,12 @@ OUTPUT FORMAT (strict JSON, no extra text):
             for i, e in enumerate(entries)
         ])
 
-        detect_prompt = f"""Given these vocabulary entries:
+        detect_prompt = f"""Entries:
 {entries_desc}
 
-And this user feedback: "{user_feedback}"
+User feedback: "{user_feedback}"
 
-Which entry number (1-{len(entries)}) is the user most likely referring to?
-- If feedback mentions a specific phrase or word from an entry, choose that entry
-- If unclear, respond with the most likely one based on context
-- If truly ambiguous, respond with 1
-
-Respond with ONLY the number (1-{len(entries)}), nothing else."""
+Which entry (1-{len(entries)}) is the user referring to? Reply with ONLY one number."""
 
         try:
             # Use cheaper model for simple number detection
