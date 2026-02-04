@@ -22,6 +22,9 @@ ENV/
 # Cache
 vocab_cache.json
 
+# User config
+review_config.json
+
 # OS
 .DS_Store
 Thumbs.db

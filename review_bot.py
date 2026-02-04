@@ -3,6 +3,8 @@ Vocabulary Review Bot
 Sends scheduled vocabulary review messages from Notion database.
 """
 import os
+import json
+import re
 import logging
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -33,11 +35,40 @@ TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 ADDITIONAL_DB_IDS_RAW = os.getenv("ADDITIONAL_DATABASE_IDS", "")
 ADDITIONAL_DB_IDS = [db_id.strip() for db_id in ADDITIONAL_DB_IDS_RAW.split(",") if db_id.strip()]
 
+# Schedule configuration
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "review_config.json")
+DEFAULT_CONFIG = {"review_hours": [8, 13, 17, 19, 22], "words_per_batch": 20}
+
+
+def load_config() -> dict:
+    """Load review config from JSON file, falling back to defaults."""
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            config = json.load(f)
+        # Validate
+        hours = config.get("review_hours")
+        words = config.get("words_per_batch")
+        if not isinstance(hours, list) or not all(isinstance(h, int) and 0 <= h <= 23 for h in hours):
+            hours = DEFAULT_CONFIG["review_hours"]
+        if not isinstance(words, int) or words < 1 or words > 50:
+            words = DEFAULT_CONFIG["words_per_batch"]
+        return {"review_hours": sorted(set(hours)), "words_per_batch": words}
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        return dict(DEFAULT_CONFIG)
+
+
+def save_config(config: dict) -> None:
+    """Save review config to JSON file."""
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(config, f, indent=2)
+
+
 # Global state
 notion_handler = None
 scheduler = None
 application = None
 is_paused = False
+review_config = None
 
 
 def format_entry_for_review(entry: dict, index: int, total: int) -> str:
@@ -100,7 +131,8 @@ async def send_review_batch(manual: bool = False):
 
     try:
         # Use smart selection with spaced repetition
-        entries = notion_handler.fetch_entries_for_review(10, smart=True)
+        batch_size = review_config["words_per_batch"] if review_config else DEFAULT_CONFIG["words_per_batch"]
+        entries = notion_handler.fetch_entries_for_review(batch_size, smart=True)
 
         if not entries:
             logger.warning("No entries fetched from Notion")
@@ -152,12 +184,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     info_message = f"""
 Vocabulary Review Bot
 
-Schedule: 8:00, 13:00, 19:00, 22:00 ({TIMEZONE})
-Entries per batch: 10
+{format_schedule_text(review_config)}
 
 Commands:
 /review - Get review batch now
 /due - See pending reviews count
+/schedule - View/edit review schedule
 /stop - Pause scheduled reviews
 /resume - Resume scheduled reviews
 /status - Check bot status
@@ -222,14 +254,14 @@ Bot Status: {status}
 Timezone: {TIMEZONE}
 Scheduled jobs: {len(jobs)}
 
+{format_schedule_text(review_config)}
+
 Review Algorithm: Spaced Repetition
 - 🔴 Again: Review tomorrow, reset progress
 - 🟡 Good: Normal interval (1→2→4→8→16 days)
 - 🟢 Easy: Longer interval, skip ahead
 
-Commands: /review /due /stop /resume
-
-Schedule: 8:00, 13:00, 19:00, 22:00
+Commands: /review /due /schedule /stop /resume
 """
     await update.message.reply_text(status_message)
 
@@ -262,6 +294,149 @@ async def due_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text("Failed to get stats.")
 
 
+def format_schedule_text(config: dict) -> str:
+    """Format current schedule config as a display string."""
+    hours_str = ", ".join(f"{h:02d}:00" for h in config["review_hours"])
+    return f"Schedule: {hours_str} ({TIMEZONE})\nWords per batch: {config['words_per_batch']}"
+
+
+async def send_schedule_display(message_or_query, config: dict, edit: bool = False) -> None:
+    """Show current schedule with Edit Times / Edit Word Count buttons."""
+    text = f"⚙️ Review Schedule\n\n{format_schedule_text(config)}"
+    keyboard = [[
+        InlineKeyboardButton("Edit Times", callback_data="sched_edit_times"),
+        InlineKeyboardButton("Edit Word Count", callback_data="sched_edit_words"),
+    ]]
+    markup = InlineKeyboardMarkup(keyboard)
+    if edit:
+        await message_or_query.edit_message_text(text=text, reply_markup=markup)
+    else:
+        await message_or_query.reply_text(text, reply_markup=markup)
+
+
+def build_hour_grid(active_hours: list) -> InlineKeyboardMarkup:
+    """Build 3-row grid of hour buttons (7-12, 13-18, 19-23) + Done/Back."""
+    rows = []
+    for row_hours in [(7, 8, 9, 10, 11, 12), (13, 14, 15, 16, 17, 18), (19, 20, 21, 22, 23)]:
+        row = []
+        for h in row_hours:
+            label = f"✅ {h:02d}" if h in active_hours else f"{h:02d}"
+            row.append(InlineKeyboardButton(label, callback_data=f"sched_toggle_{h}"))
+        rows.append(row)
+    rows.append([
+        InlineKeyboardButton("Done", callback_data="sched_done_times"),
+        InlineKeyboardButton("Back", callback_data="sched_back"),
+    ])
+    return InlineKeyboardMarkup(rows)
+
+
+def build_word_options(current: int) -> InlineKeyboardMarkup:
+    """Build word count option buttons."""
+    options = [5, 10, 15, 20, 30]
+    row = []
+    for n in options:
+        label = f"✅ {n}" if n == current else str(n)
+        row.append(InlineKeyboardButton(label, callback_data=f"sched_words_{n}"))
+    return InlineKeyboardMarkup([row, [InlineKeyboardButton("Back", callback_data="sched_back")]])
+
+
+def parse_schedule_text(text: str) -> dict | None:
+    """Parse free-form schedule text like '20 words at 8 13 17 19 22'."""
+    result = {}
+    # Match words count
+    words_match = re.search(r'(\d+)\s*words?', text, re.IGNORECASE)
+    if words_match:
+        n = int(words_match.group(1))
+        if 1 <= n <= 50:
+            result["words_per_batch"] = n
+    # Match hours (series of numbers, possibly after "at")
+    hours_match = re.search(r'(?:at\s+)?((?:\d{1,2}\s*[,\s]\s*)*\d{1,2})\s*$', text.strip())
+    if hours_match:
+        nums = re.findall(r'\d{1,2}', hours_match.group(1))
+        hours = [int(h) for h in nums if 0 <= int(h) <= 23]
+        if hours:
+            result["review_hours"] = sorted(set(hours))
+    return result if result else None
+
+
+async def schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /schedule command - view or update review schedule."""
+    global review_config
+
+    if str(update.effective_user.id) != REVIEW_USER_ID:
+        await update.message.reply_text("Sorry, this bot is private.")
+        return
+
+    # If args provided, parse as text command
+    if context.args:
+        text = " ".join(context.args)
+        parsed = parse_schedule_text(text)
+        if not parsed:
+            await update.message.reply_text("Could not parse schedule. Try: /schedule 20 words at 8 13 17 19 22")
+            return
+        review_config.update(parsed)
+        save_config(review_config)
+        if scheduler:
+            apply_schedule(scheduler, review_config)
+        await update.message.reply_text(f"✅ Schedule updated!\n\n{format_schedule_text(review_config)}")
+        return
+
+    # No args - show interactive display
+    await send_schedule_display(update.message, review_config)
+
+
+async def handle_schedule_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle schedule-related callback buttons."""
+    global review_config
+
+    query = update.callback_query
+    await query.answer()
+
+    if str(query.from_user.id) != REVIEW_USER_ID:
+        return
+
+    data = query.data
+
+    if data == "sched_edit_times":
+        await query.edit_message_text(
+            text="Select review hours (tap to toggle):",
+            reply_markup=build_hour_grid(review_config["review_hours"])
+        )
+
+    elif data.startswith("sched_toggle_"):
+        hour = int(data.split("_")[-1])
+        hours = review_config["review_hours"]
+        if hour in hours:
+            if len(hours) > 1:  # Keep at least one hour
+                hours.remove(hour)
+        else:
+            hours.append(hour)
+            hours.sort()
+        review_config["review_hours"] = hours
+        await query.edit_message_reply_markup(reply_markup=build_hour_grid(hours))
+
+    elif data == "sched_done_times":
+        save_config(review_config)
+        if scheduler:
+            apply_schedule(scheduler, review_config)
+        await send_schedule_display(query, review_config, edit=True)
+
+    elif data == "sched_edit_words":
+        await query.edit_message_text(
+            text="Select words per batch:",
+            reply_markup=build_word_options(review_config["words_per_batch"])
+        )
+
+    elif data.startswith("sched_words_"):
+        n = int(data.split("_")[-1])
+        review_config["words_per_batch"] = n
+        save_config(review_config)
+        await send_schedule_display(query, review_config, edit=True)
+
+    elif data == "sched_back":
+        await send_schedule_display(query, review_config, edit=True)
+
+
 async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle Again/Good/Easy button presses."""
     query = update.callback_query
@@ -288,41 +463,35 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_reply_markup(reply_markup=None)
 
 
+def apply_schedule(sched, config: dict) -> None:
+    """Apply review schedule from config, removing old review jobs first."""
+    # Remove existing review jobs
+    for job in sched.get_jobs():
+        if job.id.startswith("review_"):
+            sched.remove_job(job.id)
+
+    # Add new jobs from config
+    for hour in config["review_hours"]:
+        job_id = f"review_{hour:02d}"
+        sched.add_job(
+            send_review_batch,
+            CronTrigger(hour=hour, minute=0, timezone=TIMEZONE),
+            id=job_id,
+            name=f"Review ({hour:02d}:00)"
+        )
+
+    hours_str = ", ".join(f"{h:02d}:00" for h in config["review_hours"])
+    logger.info(f"Schedule applied: {hours_str}, {config['words_per_batch']} words per batch")
+
+
 async def post_init(app: Application) -> None:
     """Initialize scheduler after application starts."""
     global scheduler
 
     scheduler = AsyncIOScheduler(timezone=TIMEZONE)
-
-    # Schedule review batches at 8:00, 13:00, 19:00, and 22:00
-    scheduler.add_job(
-        send_review_batch,
-        CronTrigger(hour=8, minute=0, timezone=TIMEZONE),
-        id="review_morning",
-        name="Morning Review (8:00)"
-    )
-    scheduler.add_job(
-        send_review_batch,
-        CronTrigger(hour=13, minute=0, timezone=TIMEZONE),
-        id="review_noon",
-        name="Noon Review (13:00)"
-    )
-    scheduler.add_job(
-        send_review_batch,
-        CronTrigger(hour=19, minute=0, timezone=TIMEZONE),
-        id="review_evening",
-        name="Evening Review (19:00)"
-    )
-    scheduler.add_job(
-        send_review_batch,
-        CronTrigger(hour=22, minute=0, timezone=TIMEZONE),
-        id="review_night",
-        name="Night Review (22:00)"
-    )
-
+    apply_schedule(scheduler, review_config)
     scheduler.start()
     logger.info(f"Scheduler started with timezone {TIMEZONE}")
-    logger.info("Scheduled jobs: 8:00, 13:00, 19:00, 22:00")
 
     # Log next run times for debugging
     for job in scheduler.get_jobs():
@@ -337,7 +506,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 def main():
     """Main function to run the review bot."""
-    global notion_handler, application
+    global notion_handler, application, review_config
 
     # Validate configuration
     if not REVIEW_BOT_TOKEN:
@@ -362,6 +531,9 @@ def main():
     else:
         print(f"WARNING: Notion connection issue: {notion_test['error']}")
 
+    # Load schedule config
+    review_config = load_config()
+
     # Create application
     application = Application.builder().token(REVIEW_BOT_TOKEN).post_init(post_init).build()
 
@@ -370,17 +542,19 @@ def main():
     application.add_handler(CommandHandler("myid", myid_command))
     application.add_handler(CommandHandler("review", review_command))
     application.add_handler(CommandHandler("due", due_command))
+    application.add_handler(CommandHandler("schedule", schedule_command))
     application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CommandHandler("resume", resume_command))
     application.add_handler(CommandHandler("status", status_command))
-    application.add_handler(CallbackQueryHandler(handle_review_callback))
+    application.add_handler(CallbackQueryHandler(handle_schedule_callback, pattern=r"^sched_"))
+    application.add_handler(CallbackQueryHandler(handle_review_callback, pattern=r"^(again|good|easy)_"))
 
     # Add error handler
     application.add_error_handler(error_handler)
 
     # Start polling
     print(f"Review bot starting with timezone {TIMEZONE}...")
-    print("Schedule: 8:00, 13:00, 19:00, 22:00")
+    print(format_schedule_text(review_config))
     print("Press Ctrl+C to stop")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
