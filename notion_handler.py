@@ -239,10 +239,58 @@ class NotionHandler:
                 "error": str(e)
             }
 
-    def find_entry_by_english(self, text: str) -> dict | None:
-        """Search Notion database for an existing entry matching the English text.
+    def _get_base_word(self, text: str) -> str:
+        """Extract base word from text, removing phonetics, POS, and common suffixes."""
+        # Remove /IPA/ and (pos.)
+        base = re.sub(r'/[^/]+/', '', text).strip()
+        base = re.sub(r'\([^)]*\)', '', base).strip().lower()
+
+        # Simple lemmatization: remove common suffixes
+        # Order matters - check longer suffixes first
+        suffixes = ['ying', 'ing', 'ied', 'ies', 'ed', 'es', 's']
+        for suffix in suffixes:
+            if base.endswith(suffix) and len(base) > len(suffix) + 2:
+                # Handle doubling: running -> run, stopped -> stop
+                stem = base[:-len(suffix)]
+                if suffix in ('ing', 'ed') and len(stem) >= 2 and stem[-1] == stem[-2]:
+                    stem = stem[:-1]
+                # Handle -ied -> -y: carried -> carry
+                if suffix == 'ied':
+                    stem = stem + 'y'
+                # Handle -ies -> -y: carries -> carry
+                if suffix == 'ies':
+                    stem = stem + 'y'
+                return stem
+        return base
+
+    def _is_same_word(self, input_text: str, stored_text: str) -> bool:
+        """Check if input and stored text refer to the same word (not just substring match).
+
+        - "blow" matches "blow", "blowing", "blowed"
+        - "blow" does NOT match "land a blow" (different base phrase)
+        """
+        input_base = self._get_base_word(input_text)
+        stored_base = self._get_base_word(stored_text)
+
+        # If stored entry is a phrase (contains spaces), only match if input is also that phrase
+        stored_words = stored_base.split()
+        input_words = input_base.split()
+
+        if len(stored_words) > 1:
+            # Stored is a phrase - input must match the full phrase base
+            return input_base == stored_base
+        else:
+            # Stored is a single word - input must also be single word with same base
+            if len(input_words) > 1:
+                return False
+            return input_base == stored_base
+
+    def find_entry_by_english(self, text: str):
+        """Search Notion database for an existing entry matching the English word/phrase.
 
         Returns the entry dict with english, chinese, date fields, or None if not found.
+        Matches base words (blow = blowing) but not phrases containing the word
+        (blow != land a blow).
         """
         try:
             # Normalize: strip phonetics/part-of-speech for search
@@ -257,17 +305,20 @@ class NotionHandler:
                         "contains": search_text
                     }
                 },
-                page_size=1
+                page_size=10  # Get more results to filter
             )
 
-            if response["results"]:
-                page = response["results"][0]
+            for page in response["results"]:
                 props = page["properties"]
 
                 # Extract English title
                 english = ""
                 if props.get("English", {}).get("title"):
                     english = props["English"]["title"][0]["plain_text"]
+
+                # Check if it's actually the same word (not just substring)
+                if not self._is_same_word(text, english):
+                    continue
 
                 # Extract date
                 date_val = ""

@@ -35,13 +35,38 @@ TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 ADDITIONAL_DB_IDS_RAW = os.getenv("ADDITIONAL_DATABASE_IDS", "")
 ADDITIONAL_DB_IDS = [db_id.strip() for db_id in ADDITIONAL_DB_IDS_RAW.split(",") if db_id.strip()]
 
-# Schedule configuration
+# Schedule configuration from environment variables
+# REVIEW_HOURS: comma-separated hours (e.g., "8,13,17,19,22")
+# WORDS_PER_BATCH: number of words per review session (e.g., "20")
+def get_default_config() -> dict:
+    """Get default config from environment variables."""
+    hours_str = os.getenv("REVIEW_HOURS", "8,13,17,19,22")
+    words_str = os.getenv("WORDS_PER_BATCH", "20")
+
+    try:
+        hours = [int(h.strip()) for h in hours_str.split(",") if h.strip()]
+        hours = [h for h in hours if 0 <= h <= 23]
+        if not hours:
+            hours = [8, 13, 17, 19, 22]
+    except ValueError:
+        hours = [8, 13, 17, 19, 22]
+
+    try:
+        words = int(words_str)
+        if words < 1 or words > 50:
+            words = 20
+    except ValueError:
+        words = 20
+
+    return {"review_hours": sorted(set(hours)), "words_per_batch": words}
+
+
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "review_config.json")
-DEFAULT_CONFIG = {"review_hours": [8, 13, 17, 19, 22], "words_per_batch": 20}
 
 
 def load_config() -> dict:
-    """Load review config from JSON file, falling back to defaults."""
+    """Load review config from JSON file, falling back to env var defaults."""
+    default = get_default_config()
     try:
         with open(CONFIG_FILE, "r") as f:
             config = json.load(f)
@@ -49,12 +74,12 @@ def load_config() -> dict:
         hours = config.get("review_hours")
         words = config.get("words_per_batch")
         if not isinstance(hours, list) or not all(isinstance(h, int) and 0 <= h <= 23 for h in hours):
-            hours = DEFAULT_CONFIG["review_hours"]
+            hours = default["review_hours"]
         if not isinstance(words, int) or words < 1 or words > 50:
-            words = DEFAULT_CONFIG["words_per_batch"]
+            words = default["words_per_batch"]
         return {"review_hours": sorted(set(hours)), "words_per_batch": words}
     except (FileNotFoundError, json.JSONDecodeError, KeyError):
-        return dict(DEFAULT_CONFIG)
+        return default
 
 
 def save_config(config: dict) -> None:
@@ -131,7 +156,7 @@ async def send_review_batch(manual: bool = False):
 
     try:
         # Use smart selection with spaced repetition
-        batch_size = review_config["words_per_batch"] if review_config else DEFAULT_CONFIG["words_per_batch"]
+        batch_size = review_config["words_per_batch"] if review_config else get_default_config()["words_per_batch"]
         entries = notion_handler.fetch_entries_for_review(batch_size, smart=True)
 
         if not entries:
@@ -297,9 +322,10 @@ async def due_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 def format_schedule_text(config: dict) -> str:
     """Format current schedule config as a display string."""
     if not config:
-        config = DEFAULT_CONFIG
-    hours = config.get("review_hours", DEFAULT_CONFIG["review_hours"])
-    words = config.get("words_per_batch", DEFAULT_CONFIG["words_per_batch"])
+        config = get_default_config()
+    default = get_default_config()
+    hours = config.get("review_hours", default["review_hours"])
+    words = config.get("words_per_batch", default["words_per_batch"])
     hours_str = ", ".join(f"{h:02d}:00" for h in hours)
     return f"Schedule: {hours_str} ({TIMEZONE})\nWords per batch: {words}"
 

@@ -110,6 +110,8 @@ ALLOWED_USER_IDS=your_telegram_user_id
 REVIEW_BOT_TOKEN=your_review_bot_token
 REVIEW_USER_ID=your_telegram_user_id
 ADDITIONAL_DATABASE_IDS=  # Optional: old_db_1,old_db_2 for multi-database review
+REVIEW_HOURS=8,13,17,19,22  # Optional: review schedule hours
+WORDS_PER_BATCH=20          # Optional: words per review batch
 
 # Habit Bot
 HABITS_BOT_TOKEN=your_habit_bot_token

@@ -134,6 +134,8 @@ HABITS_USER_ID=           # Habits bot user ID
 
 # Settings
 TIMEZONE=Europe/London    # Timezone for scheduling
+REVIEW_HOURS=8,13,17,19,22  # Review schedule hours (comma-separated)
+WORDS_PER_BATCH=20        # Words per review batch
 ```
 
 ## Spaced Repetition Algorithm
