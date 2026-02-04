@@ -645,10 +645,10 @@ def main():
     # Add error handler
     application.add_error_handler(error_handler)
 
-    # Start polling
+    # Start polling (drop pending updates to avoid processing old queued commands)
     print("Bot is starting...")
     print("Press Ctrl+C to stop")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
 if __name__ == "__main__":

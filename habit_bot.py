@@ -659,7 +659,7 @@ def main():
     print("Schedule: 8:00 (morning), 12:00/19:00/22:00 (check-ins), Sunday 20:00 (weekly)")
     print("Send any message to add a task using natural language!")
     print("Press Ctrl+C to stop")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
 if __name__ == "__main__":
