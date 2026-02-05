@@ -78,14 +78,12 @@ class HabitHandler:
                 page = response["results"][0]
                 return self._parse_habit_page(page)
 
-            # Create new entry
+            # Create new entry with only Date and Tasks (minimal schema)
             new_page = self.client.pages.create(
                 parent={"database_id": self.tracking_db_id},
                 properties={
                     "Date": {"title": [{"text": {"content": today}}]},
-                    "Listened": {"checkbox": False},
-                    "Spoke": {"checkbox": False},
-                    "Video": {"rich_text": []}
+                    "Tasks": {"rich_text": [{"text": {"content": "[]"}}]}
                 }
             )
             logger.info(f"Created new habit entry for {today}")

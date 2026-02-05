@@ -936,8 +936,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 task_name = task.get("text", "Task")
 
                 # Mark as done (all tasks are from Notion now)
-                habit_handler.mark_task_done(task_id)
-                completed.append(f"✅ {task_name}")
+                success = habit_handler.mark_task_done(task_id)
+                if success:
+                    completed.append(f"✅ {task_name}")
+                else:
+                    errors.append(f"Failed to save: {task_name}")
             else:
                 errors.append(f"#{num} not found")
 
