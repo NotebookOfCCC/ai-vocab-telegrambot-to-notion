@@ -422,14 +422,14 @@ class HabitHandler:
             return "Date"
 
     def get_all_reminders(self, for_today: bool = True) -> list:
-        """Get enabled reminders.
+        """Get enabled reminders with full details.
 
         Args:
             for_today: If True, only return reminders for today or without a date.
                       If False, return all enabled reminders.
 
         Returns:
-            List of reminder dictionaries with id, text, and date
+            List of reminder dictionaries with id, text, date, start_time, end_time, category, priority
         """
         try:
             # Get the correct date property name
@@ -456,6 +456,25 @@ class HabitHandler:
                 date_prop = props.get(date_prop_name, {})
                 date_value = date_prop.get("date", {})
                 date_str = date_value.get("start", "") if date_value else ""
+                end_str = date_value.get("end", "") if date_value else ""
+
+                # Parse start_time and end_time from date strings
+                start_time = None
+                end_time = None
+                if date_str and "T" in date_str:
+                    start_time = date_str.split("T")[1][:5]  # HH:MM
+                if end_str and "T" in end_str:
+                    end_time = end_str.split("T")[1][:5]  # HH:MM
+
+                # Get Category (select)
+                category_prop = props.get("Category", {})
+                category_select = category_prop.get("select", {})
+                category = category_select.get("name") if category_select else None
+
+                # Get Priority (select)
+                priority_prop = props.get("Priority", {})
+                priority_select = priority_prop.get("select", {})
+                priority = priority_select.get("name") if priority_select else None
 
                 if not text:
                     continue
@@ -469,7 +488,11 @@ class HabitHandler:
                 reminders.append({
                     "id": page["id"],
                     "text": text,
-                    "date": date_str
+                    "date": date_str[:10] if date_str else None,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "category": category,
+                    "priority": priority
                 })
 
             return reminders
@@ -845,3 +868,142 @@ class HabitHandler:
                 skipped += 1
 
         return {"created": created, "skipped": skipped, "source": source}
+
+    def cleanup_old_reminders(self, months_old: int = 3, max_items: int = 1000) -> dict:
+        """Archive old completed reminders to keep database clean.
+
+        Cleanup triggers when:
+        - Database has more than max_items entries, OR
+        - Entry is older than months_old months
+
+        Args:
+            months_old: Archive reminders older than this many months
+            max_items: Trigger cleanup if database exceeds this count
+
+        Returns:
+            Dictionary with archived count and total count
+        """
+        try:
+            # Get all reminders (including disabled/completed)
+            response = self.client.databases.query(
+                database_id=self.reminders_db_id
+            )
+
+            all_items = response.get("results", [])
+            total_count = len(all_items)
+
+            # Calculate cutoff date
+            cutoff_date = (datetime.now() - timedelta(days=months_old * 30)).strftime("%Y-%m-%d")
+
+            archived = 0
+            date_prop_name = self._get_date_property_name()
+
+            for page in all_items:
+                props = page.get("properties", {})
+                page_id = page["id"]
+
+                # Get date
+                date_prop = props.get(date_prop_name, {})
+                date_value = date_prop.get("date", {})
+                date_str = date_value.get("start", "") if date_value else ""
+
+                # Skip if no date (recurring tasks without specific date)
+                if not date_str:
+                    continue
+
+                # Check if old enough to archive
+                entry_date = date_str[:10] if date_str else ""
+                if entry_date and entry_date < cutoff_date:
+                    # Archive (soft delete) the page
+                    self.client.pages.update(page_id=page_id, archived=True)
+                    archived += 1
+                    logger.info(f"Archived old reminder: {page_id} (date: {entry_date})")
+
+                # If we've archived enough to get under the limit, stop
+                if total_count - archived <= max_items * 0.8:  # Keep 20% buffer
+                    break
+
+            logger.info(f"Cleanup complete: archived {archived} of {total_count} reminders")
+            return {"archived": archived, "total": total_count}
+
+        except Exception as e:
+            logger.error(f"Error cleaning up reminders: {e}")
+            return {"archived": 0, "total": 0, "error": str(e)}
+
+    def get_today_schedule(self) -> dict:
+        """Get today's full schedule combining recurring blocks and one-off tasks.
+
+        Returns:
+            Dictionary with:
+            - timeline: list of time blocks sorted by start_time
+            - actionable_tasks: list of tasks that need Done/Not Yet (excludes Life/Health)
+            - completed_tasks: list of already completed task IDs
+        """
+        habit = self.get_or_create_today_habit()
+        completed_task_ids = habit.get("completed_tasks", [])
+
+        # Built-in habits
+        builtin_tasks = [
+            {
+                "id": "listened",
+                "text": "Listened to English",
+                "start_time": None,
+                "end_time": None,
+                "category": "Study",
+                "priority": "Mid",
+                "done": habit.get("listened", False),
+                "is_builtin": True
+            },
+            {
+                "id": "spoke",
+                "text": "Spoke in English",
+                "start_time": None,
+                "end_time": None,
+                "category": "Study",
+                "priority": "Mid",
+                "done": habit.get("spoke", False),
+                "is_builtin": True
+            },
+        ]
+
+        # Get reminders for today (includes recurring blocks created earlier)
+        reminders = self.get_all_reminders(for_today=True)
+
+        # Combine and categorize
+        timeline = []
+        actionable_tasks = []
+
+        for r in reminders:
+            task = {
+                "id": r["id"],
+                "text": r["text"],
+                "start_time": r.get("start_time"),
+                "end_time": r.get("end_time"),
+                "category": r.get("category"),
+                "priority": r.get("priority"),
+                "done": r["id"] in completed_task_ids,
+                "is_builtin": False
+            }
+
+            # Add to timeline if has time
+            if task["start_time"]:
+                timeline.append(task)
+
+            # Add to actionable if NOT Life or Health category
+            category = (task.get("category") or "").lower()
+            if category not in ["life", "health"]:
+                actionable_tasks.append(task)
+
+        # Add builtin tasks to actionable
+        actionable_tasks = builtin_tasks + actionable_tasks
+
+        # Sort timeline by start_time
+        timeline.sort(key=lambda x: x.get("start_time") or "99:99")
+
+        return {
+            "timeline": timeline,
+            "actionable_tasks": actionable_tasks,
+            "completed_task_ids": completed_task_ids,
+            "listened": habit.get("listened", False),
+            "spoke": habit.get("spoke", False)
+        }

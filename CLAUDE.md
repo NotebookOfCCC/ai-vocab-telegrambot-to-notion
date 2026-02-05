@@ -30,12 +30,14 @@ main.py (Entry Point)
 - **No API cost** (just Notion queries)
 
 ### 3. Habit Bot (`habit_bot.py`)
-- Daily English practice reminders
+- **Consolidated schedule view** - One message with timeline + actionable tasks
+- **Smart category handling** - Life/Health tasks (Sleep, Family Time) show in timeline only, no buttons
+- **Number-based completion** - Reply "1 3" to mark tasks #1 and #3 as done
+- **Time-aware reminders** - Only show upcoming/unfinished tasks in check-ins
+- **Evening wind-down** - 10 PM message to prepare for sleep
+- **Auto-cleanup** - Monthly cleanup of tasks older than 3 months
 - **FREE natural language task parsing** (regex-based, no AI)
-- Parses: "明天下午3点开会" → date, time, priority, category
-- **Time blocking**: Tasks with time ranges appear in Notion Calendar
 - YouTube video recommendations
-- Weekly progress summaries
 - **No API cost** for task management
 
 ## Key Files
@@ -168,12 +170,13 @@ Intervals:
 - `/stop`, `/resume`, `/status`
 
 ### Habit Bot
-- `/habits` - Today's tasks
-- `/blocks` - Manually create today's recurring time blocks
+- `/habits` - Today's consolidated schedule (timeline + tasks)
+- `/blocks` - Create today's recurring time blocks
 - `/video` - Get a random practice video
 - `/week` - Weekly progress summary
 - `/stop`, `/resume`, `/status` - Pause/resume reminders
-- **Natural language**: Just type "明天下午3点到5点开会" to create time blocks
+- **Mark done**: Reply "1 3" to mark tasks #1 and #3 as done
+- **Add task**: Send natural language like "明天下午3点开会"
 
 ## Task Parser Patterns
 
@@ -279,4 +282,9 @@ ADDITIONAL_DATABASE_IDS=second_db_id,third_db_id
 12. **Sonnet 3.5 for secondary tasks**: Modifications and detection use Sonnet 3.5 (~2x cheaper), main analysis uses Sonnet 4
 13. **Time blocking**: Tasks with time ranges appear in Notion Calendar (use with Notion Calendar app)
 14. **Simplified commands**: Removed `/add` and `/tmr` - use natural language instead (e.g., "明天3点开会")
-15. **Recurring blocks**: Auto-create daily time blocks from `schedule_config.json` (Family Time, Sleep, etc.)
+15. **Recurring blocks**: Auto-create daily time blocks from Notion database
+16. **Consolidated schedule**: One message with timeline + tasks instead of multiple messages
+17. **Number-based completion**: Reply "1 3" to mark tasks done (no more button spam)
+18. **Smart categories**: Life/Health tasks show in timeline only - no action buttons needed
+19. **Evening wind-down**: 10 PM reminder to prepare for sleep instead of regular check-in
+20. **Auto-cleanup**: Monthly cleanup of tasks older than 3 months (keeps database clean)

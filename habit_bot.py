@@ -2,21 +2,24 @@
 Daily Habit Reminder Bot
 
 A Telegram bot for daily English practice reminders with:
+- Consolidated schedule view (one message with timeline + tasks)
+- Smart category handling (Life/Health tasks show in timeline only, no action needed)
+- Number-based task completion (reply "1 3" to mark tasks done)
 - Morning video recommendations from YouTube
-- Scheduled check-ins at 12:00, 19:00, 22:00
-- Weekly progress summaries on Sundays
-- Task management with Done/Not Yet buttons
-- Integration with Notion for habit tracking
-- Natural language task input with time blocking (shows in Notion Calendar)
+- Evening wind-down reminders
+- Monthly auto-cleanup of old tasks
+- Integration with Notion Calendar for time blocking
 
 Commands:
-- /habits: View today's tasks
+- /habits: View today's consolidated schedule
+- /blocks: Create recurring time blocks
 - /video: Get a random practice video
 - /week: Weekly progress summary
 - /stop, /resume: Pause/resume reminders
 - /status: Bot status
 
-Natural language: Just send a message like "明天下午3点开会" to create a task with time block.
+Mark tasks done: Reply with numbers like "1 3" to mark tasks #1 and #3 as done.
+Add new tasks: Send natural language like "明天下午3点开会" to create tasks.
 
 Environment variables required:
 - HABITS_BOT_TOKEN: Telegram bot token
@@ -67,74 +70,137 @@ application = None
 is_paused = False
 
 
-def get_task_buttons(task_id: str) -> InlineKeyboardMarkup:
-    """Generate Done / Not Yet buttons for a task."""
-    keyboard = [[
-        InlineKeyboardButton("Done", callback_data=f"done_{task_id}"),
-        InlineKeyboardButton("Not Yet", callback_data=f"notyet_{task_id}")
-    ]]
-    return InlineKeyboardMarkup(keyboard)
+# Store current actionable tasks for number-based completion
+current_actionable_tasks = []
 
 
-async def send_task_messages(chat_id: str, include_finished: bool = True):
-    """Send individual task messages.
+def get_category_emoji(category: str) -> str:
+    """Get emoji for task category."""
+    emojis = {
+        "study": "📚",
+        "work": "💼",
+        "life": "👨‍👩‍👧",
+        "health": "😴",
+        "other": "📌"
+    }
+    return emojis.get((category or "other").lower(), "📌")
+
+
+def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: bool = False) -> str:
+    """Build a consolidated schedule message.
 
     Args:
-        chat_id: Telegram chat ID
-        include_finished: If True, show all tasks. If False, only show unfinished.
+        schedule: Output from habit_handler.get_today_schedule()
+        show_all: If True, show all tasks. If False, only upcoming/unfinished.
+        is_morning: If True, show full day view with motivational message.
+
+    Returns:
+        Formatted message string
     """
-    habit = habit_handler.get_or_create_today_habit()
-    completed_tasks = habit.get("completed_tasks", [])
+    global current_actionable_tasks
+    from datetime import datetime
 
-    # Built-in habits: Listened, Spoke
-    builtin_tasks = [
-        {"id": "listened", "text": "Listened to English", "done": habit.get("listened", False)},
-        {"id": "spoke", "text": "Spoke in English", "done": habit.get("spoke", False)},
-    ]
+    lines = []
+    current_hour = datetime.now().hour
 
-    # Custom tasks from Notion
-    reminders = habit_handler.get_all_reminders()
-    custom_tasks = []
-    for r in reminders:
-        custom_tasks.append({
-            "id": r["id"],
-            "text": r["text"],
-            "done": r["id"] in completed_tasks
-        })
+    # Greeting
+    if is_morning:
+        lines.append("🌅 Good morning! Every day is a fresh start.\n")
+    else:
+        lines.append("⏰ Schedule Check-in\n")
 
-    all_tasks = builtin_tasks + custom_tasks
+    # Timeline section
+    timeline = schedule.get("timeline", [])
+    if timeline:
+        lines.append("📅 Today's Schedule:")
+        lines.append("┌─────────────────────────────")
 
-    # Separate finished and unfinished
-    finished = [t for t in all_tasks if t["done"]]
-    unfinished = [t for t in all_tasks if not t["done"]]
+        for task in timeline:
+            start = task.get("start_time", "")
+            end = task.get("end_time", "")
+            text = task.get("text", "")
+            category = task.get("category", "")
+            emoji = get_category_emoji(category)
 
-    # Send finished tasks as summary (if any and if include_finished)
-    if finished and include_finished:
-        finished_list = "\n".join([f"✅ {t['text']}" for t in finished])
-        await application.bot.send_message(
-            chat_id=chat_id,
-            text=f"🎯 Completed:\n{finished_list}"
-        )
+            # Format time range
+            if start and end:
+                time_str = f"{start}-{end}"
+            elif start:
+                time_str = start
+            else:
+                time_str = "All day"
 
-    # Send each unfinished task as separate message with buttons
-    for task in unfinished:
-        reply_markup = get_task_buttons(task["id"])
-        await application.bot.send_message(
-            chat_id=chat_id,
-            text=f"📌 {task['text']}",
-            reply_markup=reply_markup
-        )
+            # Check if this is upcoming or past
+            task_hour = int(start.split(":")[0]) if start else 0
+            is_past = task_hour < current_hour and not show_all
 
-    # If all done
+            # Skip past Life/Health tasks in check-ins (they happened automatically)
+            if is_past and (category or "").lower() in ["life", "health"]:
+                continue
+
+            # Mark done tasks
+            done_mark = " ✅" if task.get("done") else ""
+
+            lines.append(f"│ {time_str}  {emoji} {text}{done_mark}")
+
+        lines.append("└─────────────────────────────")
+        lines.append("")
+
+    # Actionable tasks section (numbered for easy completion)
+    actionable = schedule.get("actionable_tasks", [])
+    unfinished = [t for t in actionable if not t.get("done")]
+    finished = [t for t in actionable if t.get("done")]
+
+    # Store for number-based completion
+    current_actionable_tasks = unfinished.copy()
+
+    if unfinished:
+        lines.append("📝 Tasks needing action:")
+        for i, task in enumerate(unfinished, 1):
+            emoji = get_category_emoji(task.get("category"))
+            lines.append(f"  {i}. {emoji} {task.get('text', '')}")
+
+        lines.append("")
+        lines.append("Reply with numbers to mark done (e.g., \"1 3\")")
+
+    # Show completed count
+    if finished:
+        lines.append(f"\n✅ Completed: {len(finished)}/{len(actionable)} tasks")
+
+    # All done message
     if not unfinished:
-        await application.bot.send_message(
-            chat_id=chat_id,
-            text="🎉 All tasks done today! Great work!"
-        )
+        lines.append("\n🎉 All tasks done today! Great work!")
+
+    return "\n".join(lines)
+
+
+def build_evening_message(schedule: dict) -> str:
+    """Build evening wind-down message."""
+    lines = []
+    lines.append("🌙 Time to wind down...\n")
+
+    # Check what's done
+    actionable = schedule.get("actionable_tasks", [])
+    finished = [t for t in actionable if t.get("done")]
+    unfinished = [t for t in actionable if not t.get("done")]
+
+    if finished:
+        lines.append(f"✅ Great job! You completed {len(finished)} task(s) today.")
+
+    if unfinished:
+        lines.append(f"\n⏳ Still pending ({len(unfinished)}):")
+        for t in unfinished[:3]:  # Show max 3
+            lines.append(f"  • {t.get('text', '')}")
+        if len(unfinished) > 3:
+            lines.append(f"  ... and {len(unfinished) - 3} more")
+
+    lines.append("\n😴 Rest well and recharge for tomorrow!")
+
+    return "\n".join(lines)
 
 
 async def send_morning_reminder():
-    """Send morning reminder with video and tasks."""
+    """Send morning reminder with consolidated schedule."""
     global is_paused
 
     if is_paused:
@@ -146,30 +212,31 @@ async def send_morning_reminder():
         return
 
     try:
-        # Get random video
-        video = youtube_handler.get_random_video() if youtube_handler else None
+        # Get today's schedule
+        schedule = habit_handler.get_today_schedule()
 
-        # Send greeting
+        # Build consolidated message
+        message = build_schedule_message(schedule, show_all=True, is_morning=True)
+
+        # Send schedule
         await application.bot.send_message(
             chat_id=HABITS_USER_ID,
-            text="🌅 Good morning!"
+            text=message
         )
 
-        # Send video if available
+        # Send video recommendation separately (optional)
+        video = youtube_handler.get_random_video() if youtube_handler else None
         if video:
-            message = f"""🎧 Today's listening practice:
+            video_msg = f"""🎧 Today's listening practice:
 {video.get('playlist_name', 'Video')}: {video.get('title', 'Untitled')}
 
 {video.get('url', '')}"""
             await application.bot.send_message(
                 chat_id=HABITS_USER_ID,
-                text=message
+                text=video_msg
             )
-            # Save video URL
             habit_handler.update_habit("listened", False, video_url=video.get("url"))
 
-        # Send task messages
-        await send_task_messages(HABITS_USER_ID, include_finished=False)
         logger.info("Sent morning reminder")
 
     except Exception as e:
@@ -177,7 +244,7 @@ async def send_morning_reminder():
 
 
 async def send_practice_checkin():
-    """Send practice check-in - only unfinished tasks."""
+    """Send practice check-in with consolidated schedule (time-aware)."""
     global is_paused
 
     if is_paused:
@@ -188,36 +255,56 @@ async def send_practice_checkin():
         return
 
     try:
-        habit = habit_handler.get_or_create_today_habit()
-        completed_tasks = habit.get("completed_tasks", [])
+        # Get today's schedule
+        schedule = habit_handler.get_today_schedule()
 
-        # Check if all built-in tasks are done
-        builtin_done = habit.get("listened", False) and habit.get("spoke", False)
+        # Check if all actionable tasks are done
+        actionable = schedule.get("actionable_tasks", [])
+        all_done = all(t.get("done") for t in actionable)
 
-        # Check if all custom tasks are done
-        reminders = habit_handler.get_all_reminders()
-        custom_done = all(r["id"] in completed_tasks for r in reminders)
-
-        # If everything is done, just send encouragement
-        if builtin_done and custom_done:
+        if all_done:
             await application.bot.send_message(
                 chat_id=HABITS_USER_ID,
                 text="🎉 Check-in: All tasks done today! Great work!"
             )
             return
 
-        # Send header
+        # Build consolidated message (only show upcoming/unfinished)
+        message = build_schedule_message(schedule, show_all=False, is_morning=False)
+
         await application.bot.send_message(
             chat_id=HABITS_USER_ID,
-            text="⏰ Practice Check-in\n\nHave you finished these?"
+            text=message
         )
-
-        # Send only unfinished tasks
-        await send_task_messages(HABITS_USER_ID, include_finished=False)
         logger.info("Sent practice check-in")
 
     except Exception as e:
         logger.error(f"Error sending check-in: {e}")
+
+
+async def send_evening_winddown():
+    """Send evening wind-down reminder at 10 PM."""
+    global is_paused
+
+    if is_paused:
+        logger.info("Habits bot paused, skipping evening winddown")
+        return
+
+    if not HABITS_USER_ID:
+        return
+
+    try:
+        schedule = habit_handler.get_today_schedule()
+        message = build_evening_message(schedule)
+
+        await application.bot.send_message(
+            chat_id=HABITS_USER_ID,
+            text=message
+        )
+        logger.info("Sent evening winddown")
+
+    except Exception as e:
+        logger.error(f"Error sending evening winddown: {e}")
 
 
 async def send_weekly_summary():
@@ -283,37 +370,42 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 Schedule ({TIMEZONE}):
 • 6:00 AM - Create recurring time blocks
-• 8:00 AM - Morning video + tasks
+• 8:00 AM - Morning schedule + video
 • 12:00 PM - Check-in
 • 7:00 PM - Check-in
-• 10:00 PM - Check-in
+• 10:00 PM - Evening wind-down
 • Sunday 8 PM - Weekly summary
+• Monthly - Auto-cleanup old tasks
 
-💬 Natural Language Tasks:
-Just send a message like "今晚6点和Justin约饭" or "明天下午3点到5点听力练习" and I'll automatically parse time, priority, and category!
+📋 One Message, Full Schedule:
+You'll see your day's timeline + actionable tasks in one view.
+Life/Health tasks (Family Time, Sleep) show in timeline only - no action needed.
 
-Time blocks will appear in your Notion Calendar.
+✅ Mark Tasks Done:
+Reply with numbers like "1 3" to mark tasks #1 and #3 as done.
+
+💬 Add New Tasks:
+Send natural language like "明天下午3点开会" to create tasks.
 
 Commands:
-/habits - Today's tasks status
-/blocks - Create today's recurring blocks now
-/video - Get a random practice video
-/week - Weekly progress summary
-/stop - Pause reminders
-/resume - Resume reminders
-/status - Bot status"""
+/habits - Today's schedule
+/blocks - Create recurring blocks
+/video - Practice video
+/week - Weekly progress
+/stop /resume /status"""
 
     await update.message.reply_text(info_message)
 
 
 async def habits_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /habits command - show today's tasks."""
+    """Handle /habits command - show today's consolidated schedule."""
     if str(update.effective_user.id) != HABITS_USER_ID:
         await update.message.reply_text("Sorry, this bot is private.")
         return
 
-    await update.message.reply_text("📋 Today's Tasks")
-    await send_task_messages(update.effective_chat.id, include_finished=True)
+    schedule = habit_handler.get_today_schedule()
+    message = build_schedule_message(schedule, show_all=True, is_morning=False)
+    await update.message.reply_text(message)
 
 
 
@@ -437,19 +529,65 @@ async def blocks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle natural language task input using FREE regex parser."""
+    """Handle natural language task input OR number-based task completion."""
+    global current_actionable_tasks
+
     if str(update.effective_user.id) != HABITS_USER_ID:
         await update.message.reply_text("Sorry, this bot is private.")
         return
 
     text = update.message.text.strip()
 
-    # Use FREE regex-based parser (no API cost!)
+    # Check if this is a number-based completion (e.g., "1 3" or "1, 2, 3")
+    import re
+    numbers = re.findall(r'\d+', text)
+
+    # If message is primarily numbers, treat as task completion
+    if numbers and len(text.replace(" ", "").replace(",", "")) == sum(len(n) for n in numbers):
+        if not current_actionable_tasks:
+            await update.message.reply_text("No tasks loaded. Use /habits first to see your tasks.")
+            return
+
+        completed = []
+        errors = []
+
+        for num_str in numbers:
+            num = int(num_str)
+            if 1 <= num <= len(current_actionable_tasks):
+                task = current_actionable_tasks[num - 1]
+                task_id = task.get("id")
+                task_name = task.get("text", "Task")
+
+                # Mark as done
+                if task_id == "listened":
+                    habit_handler.update_habit("listened", True)
+                elif task_id == "spoke":
+                    habit_handler.update_habit("spoke", True)
+                else:
+                    habit_handler.mark_task_done(task_id)
+
+                completed.append(f"✅ {task_name}")
+            else:
+                errors.append(f"#{num} not found")
+
+        # Send confirmation
+        if completed:
+            await update.message.reply_text("Marked as done:\n" + "\n".join(completed))
+
+            # Refresh the actionable tasks list
+            schedule = habit_handler.get_today_schedule()
+            current_actionable_tasks = [t for t in schedule.get("actionable_tasks", []) if not t.get("done")]
+
+        if errors:
+            await update.message.reply_text("Errors: " + ", ".join(errors))
+
+        return
+
+    # Otherwise, treat as new task input
     from task_parser import TaskParser
     parser = TaskParser(TIMEZONE)
     parsed = parser.parse(text)
 
-    # Log parsed result for debugging
     logger.info(f"Parsed task: {parsed}")
 
     # Create the reminder in Notion
@@ -463,7 +601,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
     if result["success"]:
-        # Send confirmation message
         confirmation = parser.format_confirmation(parsed)
         await update.message.reply_text(confirmation)
     else:
@@ -548,6 +685,22 @@ async def create_daily_blocks():
         logger.error(f"Error creating daily blocks: {e}")
 
 
+async def run_monthly_cleanup():
+    """Run monthly cleanup of old reminders."""
+    try:
+        result = habit_handler.cleanup_old_reminders(months_old=3, max_items=1000)
+        logger.info(f"Monthly cleanup: archived={result.get('archived', 0)}, total={result.get('total', 0)}")
+
+        if result.get("archived", 0) > 0 and HABITS_USER_ID:
+            await application.bot.send_message(
+                chat_id=HABITS_USER_ID,
+                text=f"🧹 Monthly cleanup: Archived {result['archived']} old reminder(s)"
+            )
+
+    except Exception as e:
+        logger.error(f"Error in monthly cleanup: {e}")
+
+
 async def post_init(app: Application) -> None:
     """Initialize scheduler after application starts."""
     global scheduler
@@ -586,12 +739,12 @@ async def post_init(app: Application) -> None:
         name="Evening Check-in (19:00)"
     )
 
-    # Check-in at 10:00 PM
+    # Evening wind-down at 10:00 PM (instead of regular check-in)
     scheduler.add_job(
-        send_practice_checkin,
+        send_evening_winddown,
         CronTrigger(hour=22, minute=0, timezone=TIMEZONE),
-        id="checkin_night",
-        name="Night Check-in (22:00)"
+        id="evening_winddown",
+        name="Evening Wind-down (22:00)"
     )
 
     # Weekly summary on Sunday at 8 PM
@@ -600,6 +753,14 @@ async def post_init(app: Application) -> None:
         CronTrigger(day_of_week="sun", hour=20, minute=0, timezone=TIMEZONE),
         id="weekly_summary",
         name="Weekly Summary (Sunday 20:00)"
+    )
+
+    # Monthly cleanup on 1st of each month at 3 AM
+    scheduler.add_job(
+        run_monthly_cleanup,
+        CronTrigger(day=1, hour=3, minute=0, timezone=TIMEZONE),
+        id="monthly_cleanup",
+        name="Monthly Cleanup (1st of month, 3:00)"
     )
 
     scheduler.start()
