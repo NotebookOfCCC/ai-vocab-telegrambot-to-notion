@@ -762,7 +762,8 @@ Send natural language like "4pm to 5pm job application"
 AI parses date, time, category automatically.
 
 Commands:
-/tasks - Today's schedule
+/tasks - Today's schedule (with date selector)
+/blocks - Create recurring blocks for next 7 days
 /settings - Day boundary & timezone
 /stop /resume /status"""
 
@@ -786,11 +787,38 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 
-# Video and weekly summary commands disabled - using recurring blocks instead
-# async def video_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-#     pass
-# async def week_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-#     pass
+async def blocks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /blocks command - manually create recurring blocks for next 7 days."""
+    if str(update.effective_user.id) != HABITS_USER_ID:
+        await update.message.reply_text("Sorry, this bot is private.")
+        return
+
+    await update.message.reply_text("Creating recurring blocks for the next 7 days...")
+
+    try:
+        import os
+        config_path = os.path.join(os.path.dirname(__file__), "schedule_config.json")
+        result = habit_handler.create_recurring_blocks(config_path, days_ahead=7)
+
+        created = result.get("created", 0)
+        skipped = result.get("skipped", 0)
+        source = result.get("source", "unknown")
+
+        if created > 0:
+            await update.message.reply_text(
+                f"✅ Created {created} recurring block(s) for the next 7 days!\n"
+                f"Source: {source}\n"
+                f"Skipped: {skipped} (already exist or disabled)"
+            )
+        else:
+            await update.message.reply_text(
+                f"No new blocks created.\n"
+                f"Skipped: {skipped} (already exist or disabled)\n"
+                f"Source: {source}"
+            )
+    except Exception as e:
+        logger.error(f"Error creating blocks: {e}")
+        await update.message.reply_text(f"Error creating blocks: {str(e)}")
 
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -841,7 +869,7 @@ Effective date: {effective}
 Scheduled jobs: {len(jobs)}
 Task parser: {ai_status}
 
-Commands: /tasks /settings /stop /resume"""
+Commands: /tasks /blocks /settings /stop /resume"""
 
     await update.message.reply_text(message)
 
@@ -1628,6 +1656,7 @@ def main():
     # Add handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("tasks", tasks_command))
+    application.add_handler(CommandHandler("blocks", blocks_command))
     application.add_handler(CommandHandler("settings", settings_command))
     application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CommandHandler("resume", resume_command))
