@@ -715,6 +715,77 @@ class HabitHandler:
             logger.error(f"Error deleting reminder: {e}")
             return False
 
+    def update_reminder(self, page_id: str, text: str = None, date: str = None,
+                        start_time: str = None, end_time: str = None,
+                        category: str = None, priority: str = None) -> bool:
+        """Update an existing reminder.
+
+        Args:
+            page_id: The Notion page ID to update
+            text: New task text (optional)
+            date: New date in YYYY-MM-DD format (optional)
+            start_time: New start time in HH:MM format (optional)
+            end_time: New end time in HH:MM format (optional)
+            category: New category (optional)
+            priority: New priority (optional)
+
+        Returns:
+            True if successful
+        """
+        try:
+            properties = {}
+
+            # Update text (title)
+            if text is not None:
+                properties["Reminder"] = {"title": [{"text": {"content": text}}]}
+
+            # Update date/time
+            if date is not None or start_time is not None:
+                date_prop_name = self._get_date_property_name()
+
+                # Get current date if only updating time
+                if date is None:
+                    # Fetch current page to get existing date
+                    page = self.client.pages.retrieve(page_id=page_id)
+                    props = page.get("properties", {})
+                    date_prop = props.get(date_prop_name, {})
+                    date_value = date_prop.get("date", {})
+                    current_date_str = date_value.get("start", "") if date_value else ""
+                    if current_date_str:
+                        date = current_date_str[:10]  # Extract YYYY-MM-DD
+                    else:
+                        from datetime import datetime
+                        date = datetime.now().strftime("%Y-%m-%d")
+
+                # Build date value
+                if start_time:
+                    date_str = f"{date}T{start_time}:00"
+                    date_value = {"start": date_str}
+                    if end_time:
+                        date_value["end"] = f"{date}T{end_time}:00"
+                else:
+                    date_value = {"start": date}
+
+                properties[date_prop_name] = {"date": date_value}
+
+            # Update category
+            if category is not None:
+                properties["Category"] = {"select": {"name": category}}
+
+            # Update priority
+            if priority is not None:
+                properties["Priority"] = {"select": {"name": priority}}
+
+            if properties:
+                self.client.pages.update(page_id=page_id, properties=properties)
+                logger.info(f"Updated reminder {page_id}: {list(properties.keys())}")
+                return True
+            return False
+
+        except Exception as e:
+            logger.error(f"Error updating reminder: {e}")
+            return False
+
     def test_connection(self) -> dict:
         """Test connection to Notion databases.
 

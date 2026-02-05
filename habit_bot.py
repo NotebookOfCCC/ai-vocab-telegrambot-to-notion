@@ -18,6 +18,7 @@ Commands:
 - /status: Bot status
 
 Mark tasks done: Reply with numbers like "1 3" to mark tasks #1 and #3 as done.
+Edit tasks: Type "edit 1" to edit task #1 (date, time, text, category, or delete).
 Add new tasks: Send natural language like "明天下午3点开会" to create tasks.
 
 Environment variables required:
@@ -102,6 +103,9 @@ task_config = None  # Loaded at startup
 
 # Store current actionable tasks for number-based completion
 current_actionable_tasks = []
+
+# Store task being edited (task_id -> task_data)
+editing_task = {}
 
 # AI client for task parsing
 ai_client = None
@@ -251,19 +255,17 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
     lines = []
     current_hour = datetime.now().hour
 
-    # Greeting
-    if is_morning:
-        lines.append("🌅 Good morning! Every day is a fresh start.\n")
-    else:
-        lines.append("⏰ Schedule Check-in\n")
-
-    # Timeline section
+    # Timeline section with date header (combines greeting + schedule)
     timeline = schedule.get("timeline", [])
+    effective_date = get_effective_date()
+    date_display = datetime.strptime(effective_date, "%Y-%m-%d").strftime("%b %d")  # e.g., "Feb 05"
+
+    if is_morning:
+        lines.append(f"🌅 Good morning! Schedule for {date_display}:")
+    else:
+        lines.append(f"📅 Schedule ({date_display}):")
+
     if timeline:
-        # Get effective date for display
-        effective_date = get_effective_date()
-        date_display = datetime.strptime(effective_date, "%Y-%m-%d").strftime("%b %d")  # e.g., "Feb 05"
-        lines.append(f"📅 Today's Schedule ({date_display}):")
         lines.append("┌─────────────────────────────")
 
         for task in timeline:
@@ -271,7 +273,6 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
             end = task.get("end_time", "")
             text = task.get("text", "")
             category = task.get("category", "")
-            emoji = get_category_emoji(category)
 
             # Format time range
             if start and end:
@@ -292,7 +293,7 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
             # Mark done tasks
             done_mark = " ✅" if task.get("done") else ""
 
-            lines.append(f"│ {time_str}  {emoji} {text}{done_mark}")
+            lines.append(f"│ {time_str}  {text}{done_mark}")
 
         lines.append("└─────────────────────────────")
         lines.append("")
@@ -318,9 +319,8 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
     current_actionable_tasks = unfinished.copy()
 
     if unfinished:
-        lines.append("📝 Tasks needing action:")
+        lines.append("\n📝 Tasks needing action:")
         for i, task in enumerate(unfinished, 1):
-            emoji = get_category_emoji(task.get("category"))
             # Format time for actionable tasks
             start = task.get("start_time", "")
             end = task.get("end_time", "")
@@ -330,20 +330,17 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
                 time_str = f" {start}"
             else:
                 time_str = ""
-            lines.append(f"  {i}. {emoji} {task.get('text', '')}{time_str}")
+            lines.append(f"{i}. {task.get('text', '')}{time_str}")
 
-        lines.append("")
-        lines.append("Reply with numbers to mark done (e.g., \"1 3\")")
+        lines.append("\n→ Mark done: \"1 3\" | Edit: \"edit 1\"")
 
     # Show completed tasks with their own section
     if finished:
         # Sort finished tasks by time too
         finished.sort(key=get_sort_time)
 
-        lines.append("")
-        lines.append("✅ Tasks completed:")
+        lines.append("\n✅ Tasks completed:")
         for i, task in enumerate(finished, 1):
-            emoji = get_category_emoji(task.get("category"))
             start = task.get("start_time", "")
             end = task.get("end_time", "")
             if start and end:
@@ -352,7 +349,7 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
                 time_str = f" {start}"
             else:
                 time_str = ""
-            lines.append(f"  {i}. {emoji} {task.get('text', '')}{time_str}")
+            lines.append(f"{i}. {task.get('text', '')}{time_str}")
 
         # Encouraging message based on progress
         total = len(actionable)
@@ -360,17 +357,17 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
         if done > 0 and unfinished:
             pct = int((done / total) * 100)
             if pct >= 75:
-                lines.append(f"\n🔥 Almost there! {done}/{total} done ({pct}%)")
+                lines.append(f"\nAlmost there! {done}/{total} ({pct}%)")
             elif pct >= 50:
-                lines.append(f"\n💪 Great progress! {done}/{total} done ({pct}%)")
+                lines.append(f"\nGreat progress! {done}/{total} ({pct}%)")
             elif pct >= 25:
-                lines.append(f"\n👍 Good start! {done}/{total} done ({pct}%)")
+                lines.append(f"\nGood start! {done}/{total} ({pct}%)")
             else:
-                lines.append(f"\n📈 Keep going! {done}/{total} done ({pct}%)")
+                lines.append(f"\nKeep going! {done}/{total} ({pct}%)")
 
     # All done message
     if not unfinished and actionable:
-        lines.append("\n🎉 All tasks done today! Amazing work!")
+        lines.append("\n🎉 All tasks done for today!")
 
     return "\n".join(lines)
 
@@ -635,6 +632,9 @@ Only Study/Work tasks are graded (A/B/C/D).
 ✅ Mark Tasks Done:
 Reply with numbers like "1 3" to mark done.
 
+✏️ Edit Tasks:
+Type "edit 1" to edit task #1.
+
 💬 Add New Tasks (AI-powered):
 Send natural language like "4pm to 5pm job application"
 AI parses date, time, category automatically.
@@ -788,6 +788,88 @@ def build_timezone_options(current: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
+def build_edit_menu(task_id: str, task: dict) -> InlineKeyboardMarkup:
+    """Build the main edit menu for a task."""
+    rows = [
+        [
+            InlineKeyboardButton("📅 Date", callback_data=f"edit_date_{task_id}"),
+            InlineKeyboardButton("🕐 Time", callback_data=f"edit_time_{task_id}"),
+        ],
+        [
+            InlineKeyboardButton("📝 Text", callback_data=f"edit_text_{task_id}"),
+            InlineKeyboardButton("📁 Category", callback_data=f"edit_cat_{task_id}"),
+        ],
+        [
+            InlineKeyboardButton("🗑 Delete", callback_data=f"edit_delete_{task_id}"),
+            InlineKeyboardButton("✖ Cancel", callback_data="edit_cancel"),
+        ],
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+def build_date_picker(task_id: str) -> InlineKeyboardMarkup:
+    """Build date selection buttons."""
+    today = datetime.now()
+    rows = []
+    # Today, Tomorrow, Day after tomorrow
+    for i in range(3):
+        d = today + timedelta(days=i)
+        label = ["Today", "Tomorrow", d.strftime("%a")][i] if i < 2 else d.strftime("%a %d")
+        date_str = d.strftime("%Y-%m-%d")
+        rows.append([InlineKeyboardButton(label, callback_data=f"edit_setdate_{task_id}_{date_str}")])
+    # Next 4 days
+    row = []
+    for i in range(3, 7):
+        d = today + timedelta(days=i)
+        label = d.strftime("%a %d")
+        date_str = d.strftime("%Y-%m-%d")
+        row.append(InlineKeyboardButton(label, callback_data=f"edit_setdate_{task_id}_{date_str}"))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("← Back", callback_data=f"edit_back_{task_id}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def build_time_picker(task_id: str) -> InlineKeyboardMarkup:
+    """Build time selection buttons."""
+    times = [
+        ("Morning", [("08:00", "8am"), ("09:00", "9am"), ("10:00", "10am"), ("11:00", "11am")]),
+        ("Afternoon", [("12:00", "12pm"), ("13:00", "1pm"), ("14:00", "2pm"), ("15:00", "3pm")]),
+        ("Evening", [("16:00", "4pm"), ("17:00", "5pm"), ("18:00", "6pm"), ("19:00", "7pm")]),
+        ("Night", [("20:00", "8pm"), ("21:00", "9pm"), ("22:00", "10pm"), ("23:00", "11pm")]),
+    ]
+    rows = []
+    for period, slots in times:
+        row = []
+        for time_val, label in slots:
+            row.append(InlineKeyboardButton(label, callback_data=f"edit_settime_{task_id}_{time_val}"))
+        rows.append(row)
+    rows.append([
+        InlineKeyboardButton("No time", callback_data=f"edit_settime_{task_id}_none"),
+        InlineKeyboardButton("← Back", callback_data=f"edit_back_{task_id}")
+    ])
+    return InlineKeyboardMarkup(rows)
+
+
+def build_category_picker(task_id: str) -> InlineKeyboardMarkup:
+    """Build category selection buttons."""
+    categories = ["Study", "Work", "Life", "Health", "Other"]
+    rows = []
+    row = []
+    for cat in categories:
+        row.append(InlineKeyboardButton(cat, callback_data=f"edit_setcat_{task_id}_{cat}"))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("← Back", callback_data=f"edit_back_{task_id}")])
+    return InlineKeyboardMarkup(rows)
+
+
 async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle settings-related callback buttons."""
     global task_config
@@ -907,7 +989,7 @@ def setup_scheduler_jobs(sched: AsyncIOScheduler, timezone: str) -> None:
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle natural language task input OR number-based task completion."""
-    global current_actionable_tasks
+    global current_actionable_tasks, editing_task
 
     if str(update.effective_user.id) != HABITS_USER_ID:
         await update.message.reply_text("Sorry, this bot is private.")
@@ -915,8 +997,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     text = update.message.text.strip()
 
-    # Check if this is a number-based completion (e.g., "1 3" or "1, 2, 3")
+    # Handle pending text edit
+    if editing_task.get("field") == "text" and editing_task.get("id"):
+        task_id = editing_task["id"]
+        success = habit_handler.update_reminder(task_id, text=text)
+        editing_task = {}
+        if success:
+            await update.message.reply_text(f"✅ Task updated to: {text}")
+        else:
+            await update.message.reply_text("Failed to update task text.")
+        return
+
+    # Check for "edit N" command
     import re
+    edit_match = re.match(r'^edit\s+(\d+)$', text.lower())
+    if edit_match:
+        num = int(edit_match.group(1))
+        if not current_actionable_tasks:
+            await update.message.reply_text("No tasks loaded. Use /tasks first.")
+            return
+        if 1 <= num <= len(current_actionable_tasks):
+            task = current_actionable_tasks[num - 1]
+            task_id = task.get("id")
+            task_text = task.get("text", "Task")
+            editing_task = {"id": task_id, "task": task}
+            await update.message.reply_text(
+                f"Editing: {task_text}\n\nSelect what to change:",
+                reply_markup=build_edit_menu(task_id, task)
+            )
+        else:
+            await update.message.reply_text(f"Task #{num} not found.")
+        return
+
+    # Check if this is a number-based completion (e.g., "1 3" or "1, 2, 3")
     numbers = re.findall(r'\d+', text)
 
     # If message is primarily numbers, treat as task completion
@@ -986,6 +1099,126 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text("\n".join(lines))
     else:
         await update.message.reply_text(f"保存失败: {result.get('error', 'Unknown error')}")
+
+
+async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle edit-related callback buttons."""
+    global editing_task
+
+    query = update.callback_query
+    await query.answer()
+
+    if str(query.from_user.id) != HABITS_USER_ID:
+        return
+
+    data = query.data
+
+    try:
+        # Cancel editing
+        if data == "edit_cancel":
+            editing_task = {}
+            await query.edit_message_text("Edit cancelled.")
+            return
+
+        # Extract task_id from most edit callbacks
+        parts = data.split("_")
+
+        # Show date picker
+        if data.startswith("edit_date_"):
+            task_id = "_".join(parts[2:])
+            await query.edit_message_text(
+                text="Select new date:",
+                reply_markup=build_date_picker(task_id)
+            )
+
+        # Show time picker
+        elif data.startswith("edit_time_"):
+            task_id = "_".join(parts[2:])
+            await query.edit_message_text(
+                text="Select new time:",
+                reply_markup=build_time_picker(task_id)
+            )
+
+        # Show category picker
+        elif data.startswith("edit_cat_"):
+            task_id = "_".join(parts[2:])
+            await query.edit_message_text(
+                text="Select category:",
+                reply_markup=build_category_picker(task_id)
+            )
+
+        # Prompt for text edit
+        elif data.startswith("edit_text_"):
+            task_id = "_".join(parts[2:])
+            editing_task = {"id": task_id, "field": "text"}
+            await query.edit_message_text(
+                "Type the new task text:\n\n(Send a message with the new text)"
+            )
+
+        # Delete task
+        elif data.startswith("edit_delete_"):
+            task_id = "_".join(parts[2:])
+            success = habit_handler.delete_reminder(task_id)
+            if success:
+                await query.edit_message_text("🗑 Task deleted.")
+            else:
+                await query.edit_message_text("Failed to delete task.")
+            editing_task = {}
+
+        # Back to edit menu
+        elif data.startswith("edit_back_"):
+            task_id = "_".join(parts[2:])
+            task = editing_task.get("task", {})
+            text = task.get("text", "Task")
+            await query.edit_message_text(
+                text=f"Editing: {text}\n\nSelect what to change:",
+                reply_markup=build_edit_menu(task_id, task)
+            )
+
+        # Set date
+        elif data.startswith("edit_setdate_"):
+            # Format: edit_setdate_TASKID_DATE
+            date_str = parts[-1]
+            task_id = "_".join(parts[2:-1])
+            success = habit_handler.update_reminder(task_id, date=date_str)
+            if success:
+                await query.edit_message_text(f"✅ Date updated to {date_str}")
+            else:
+                await query.edit_message_text("Failed to update date.")
+            editing_task = {}
+
+        # Set time
+        elif data.startswith("edit_settime_"):
+            # Format: edit_settime_TASKID_TIME
+            time_str = parts[-1]
+            task_id = "_".join(parts[2:-1])
+            if time_str == "none":
+                success = habit_handler.update_reminder(task_id, start_time=None)
+            else:
+                success = habit_handler.update_reminder(task_id, start_time=time_str)
+            if success:
+                msg = "Time removed" if time_str == "none" else f"Time updated to {time_str}"
+                await query.edit_message_text(f"✅ {msg}")
+            else:
+                await query.edit_message_text("Failed to update time.")
+            editing_task = {}
+
+        # Set category
+        elif data.startswith("edit_setcat_"):
+            # Format: edit_setcat_TASKID_CATEGORY
+            category = parts[-1]
+            task_id = "_".join(parts[2:-1])
+            success = habit_handler.update_reminder(task_id, category=category)
+            if success:
+                await query.edit_message_text(f"✅ Category updated to {category}")
+            else:
+                await query.edit_message_text("Failed to update category.")
+            editing_task = {}
+
+    except Exception as e:
+        logger.error(f"Edit callback error: {e}")
+        await query.edit_message_text(f"Error: {str(e)}")
+        editing_task = {}
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1160,8 +1393,9 @@ def main():
     application.add_handler(CommandHandler("resume", resume_command))
     application.add_handler(CommandHandler("status", status_command))
 
-    # Callback handlers - settings first (more specific pattern)
+    # Callback handlers - specific patterns first
     application.add_handler(CallbackQueryHandler(handle_settings_callback, pattern="^settings_"))
+    application.add_handler(CallbackQueryHandler(handle_edit_callback, pattern="^edit_"))
     application.add_handler(CallbackQueryHandler(handle_callback))
 
     # Add message handler for natural language tasks (must be last)
