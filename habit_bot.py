@@ -260,7 +260,10 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
     # Timeline section
     timeline = schedule.get("timeline", [])
     if timeline:
-        lines.append("📅 Today's Schedule:")
+        # Get effective date for display
+        effective_date = get_effective_date()
+        date_display = datetime.strptime(effective_date, "%Y-%m-%d").strftime("%b %d")  # e.g., "Feb 05"
+        lines.append(f"📅 Today's Schedule ({date_display}):")
         lines.append("┌─────────────────────────────")
 
         for task in timeline:

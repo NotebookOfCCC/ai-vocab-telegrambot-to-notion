@@ -24,11 +24,15 @@ A Telegram bot system that helps you learn English vocabulary with AI-powered ex
 
 ### Task Bot (`habit_bot.py`)
 - **AI Task Parsing**: Natural language task input with Claude Haiku - just type "4pm to 5pm job application" or "明天下午3点开会"
-- **Consolidated Schedule**: One message showing timeline + actionable tasks
+- **Consolidated Schedule**: One message showing timeline (with date) + actionable tasks sorted by time
 - **Notion Calendar Integration**: Recurring time blocks sync to Notion Calendar for time blocking
-- **Smart Categories**: Life/Health tasks (Family Time, Sleep) show in timeline only, no action needed
+- **Smart Categories**: Life/Health tasks (Family Time, Sleep) show in timeline only, not graded
 - **Number-based Completion**: Reply "1 3" to mark tasks #1 and #3 as done
-- **Recurring Blocks**: Auto-creates next 7 days of recurring time blocks (Sleep, Family Time, Speaking Practice)
+- **Configurable Day Boundary**: Default 4am - late night work counts for previous day
+- **Configurable Timezone**: Change via /settings command with button selection
+- **Daily Scoring**: Evening wind-down shows A/B/C/D grade for Study/Work tasks only
+- **Weekly Summary**: Sunday 8pm summary with daily scores and streak
+- **Recurring Blocks**: Auto-creates next 7 days of recurring time blocks
 - **Auto-cleanup**: Monthly cleanup of old completed tasks
 
 ## Cost Optimization
@@ -160,7 +164,8 @@ python habit_bot.py   # Task management
 
 ### Task Bot
 - `/start` - Bot info
-- `/tasks` - Today's consolidated schedule (timeline + actionable tasks)
+- `/tasks` - Today's schedule with date (timeline + actionable tasks sorted by time)
+- `/settings` - Configure day boundary (3-6am) and timezone
 - `/stop` / `/resume` - Pause/resume reminders
 - `/status` - Bot status
 - **Mark done**: Reply with numbers like "1 3" to mark tasks done
@@ -253,8 +258,9 @@ ai-vocab-telegram-bot/
 
 ### Task Bot
 - 6:00 AM - Create recurring blocks (next 7 days)
-- 8:00 AM - Morning schedule
+- 8:00 AM - Morning schedule (with date)
 - 12:00 PM - Check-in
 - 7:00 PM - Check-in
-- 10:00 PM - Evening wind-down
+- 10:00 PM - Evening wind-down + daily score (A/B/C/D for Study/Work)
+- Sunday 8:00 PM - Weekly summary with daily breakdown and streak
 - 1st of month - Auto-cleanup old tasks
