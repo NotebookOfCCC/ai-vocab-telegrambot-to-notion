@@ -2,7 +2,7 @@
 Habit Handler
 
 Business logic for habit tracking with Notion integration.
-Manages two Notion databases:
+Manages Notion databases:
 
 1. Tracking Database - Daily habit entries
    Properties: Date (title), Listened (checkbox), Spoke (checkbox),
@@ -11,6 +11,11 @@ Manages two Notion databases:
 2. Reminders Database - User-defined tasks/reminders
    Properties: Reminder (title), Enabled (checkbox), Date (date - optional)
 
+3. Recurring Blocks Database (optional) - Auto-created time blocks
+   Properties: Name (title), Start Time (text), End Time (text),
+              Days (multi-select), Start Date (date), End Date (date),
+              Category (select), Priority (select), Enabled (checkbox)
+
 Key methods:
 - get_or_create_today_habit(): Get or create today's tracking entry
 - update_habit(field, value): Update Listened/Spoke checkboxes
@@ -18,6 +23,7 @@ Key methods:
 - get_weekly_stats(): Calculate 7-day progress statistics
 - get_all_reminders(): Fetch enabled reminders from Notion
 - create_reminder(text): Add a new reminder via bot
+- create_recurring_blocks(): Create daily time blocks from config or Notion DB
 """
 import json
 import logging
@@ -31,17 +37,20 @@ logger = logging.getLogger(__name__)
 class HabitHandler:
     """Handles habit tracking operations with Notion database."""
 
-    def __init__(self, notion_key: str, tracking_db_id: str, reminders_db_id: str):
+    def __init__(self, notion_key: str, tracking_db_id: str, reminders_db_id: str,
+                 recurring_blocks_db_id: str = None):
         """Initialize habit handler.
 
         Args:
             notion_key: Notion API key
             tracking_db_id: Database ID for habit tracking
             reminders_db_id: Database ID for reminders
+            recurring_blocks_db_id: Optional database ID for recurring time blocks
         """
         self.client = Client(auth=notion_key)
         self.tracking_db_id = tracking_db_id
         self.reminders_db_id = reminders_db_id
+        self.recurring_blocks_db_id = recurring_blocks_db_id
 
     def _get_today_date_str(self) -> str:
         """Get today's date as YYYY-MM-DD string."""
@@ -602,3 +611,237 @@ class HabitHandler:
                 "success": False,
                 "error": str(e)
             }
+
+    def check_block_exists(self, name: str, date: str) -> bool:
+        """Check if a recurring block already exists for a specific date.
+
+        Args:
+            name: The block name (e.g., "Family Time")
+            date: Date in YYYY-MM-DD format
+
+        Returns:
+            True if block exists, False otherwise
+        """
+        try:
+            # Get the date property name
+            date_prop_name = self._get_date_property_name()
+
+            response = self.client.databases.query(
+                database_id=self.reminders_db_id,
+                filter={
+                    "and": [
+                        {"property": "Reminder", "title": {"equals": name}},
+                        {"property": date_prop_name, "date": {"on_or_after": date}},
+                        {"property": date_prop_name, "date": {"on_or_before": date}}
+                    ]
+                }
+            )
+
+            return len(response.get("results", [])) > 0
+
+        except Exception as e:
+            logger.error(f"Error checking block exists: {e}")
+            return False
+
+    def _get_blocks_from_notion(self) -> list:
+        """Fetch recurring blocks configuration from Notion database.
+
+        Expected database properties:
+        - Name (title): Block name
+        - Start Time (rich_text): HH:MM format
+        - End Time (rich_text): HH:MM format
+        - Days (multi_select): Mon, Tue, Wed, Thu, Fri, Sat, Sun
+        - Start Date (date): When to start creating blocks
+        - End Date (date): When to stop (empty = forever)
+        - Category (select): Work, Life, Health, Study, Other
+        - Priority (select): High, Mid, Low
+        - Enabled (checkbox): Active/inactive
+
+        Returns:
+            List of block dictionaries
+        """
+        if not self.recurring_blocks_db_id:
+            return []
+
+        try:
+            response = self.client.databases.query(
+                database_id=self.recurring_blocks_db_id,
+                filter={"property": "Enabled", "checkbox": {"equals": True}}
+            )
+
+            blocks = []
+            for page in response.get("results", []):
+                props = page.get("properties", {})
+
+                # Get Name (title)
+                name_prop = props.get("Name", {})
+                name_title = name_prop.get("title", [])
+                name = name_title[0]["text"]["content"] if name_title else ""
+
+                if not name:
+                    continue
+
+                # Get Start Time (rich_text)
+                start_time_prop = props.get("Start Time", {})
+                start_time_text = start_time_prop.get("rich_text", [])
+                start_time = start_time_text[0]["text"]["content"] if start_time_text else ""
+
+                # Get End Time (rich_text)
+                end_time_prop = props.get("End Time", {})
+                end_time_text = end_time_prop.get("rich_text", [])
+                end_time = end_time_text[0]["text"]["content"] if end_time_text else ""
+
+                # Get Days (multi_select)
+                days_prop = props.get("Days", {})
+                days_select = days_prop.get("multi_select", [])
+                days = [d["name"] for d in days_select] if days_select else []
+
+                # Get Start Date (date)
+                start_date_prop = props.get("Start Date", {})
+                start_date_val = start_date_prop.get("date", {})
+                start_date = start_date_val.get("start", "") if start_date_val else None
+
+                # Get End Date (date)
+                end_date_prop = props.get("End Date", {})
+                end_date_val = end_date_prop.get("date", {})
+                end_date = end_date_val.get("start", "") if end_date_val else None
+
+                # Get Category (select)
+                category_prop = props.get("Category", {})
+                category_select = category_prop.get("select", {})
+                category = category_select.get("name") if category_select else None
+
+                # Get Priority (select)
+                priority_prop = props.get("Priority", {})
+                priority_select = priority_prop.get("select", {})
+                priority = priority_select.get("name") if priority_select else None
+
+                blocks.append({
+                    "name": name,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "days": days if days else ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+                    "start_date": start_date[:10] if start_date else None,
+                    "end_date": end_date[:10] if end_date else None,
+                    "category": category,
+                    "priority": priority,
+                    "enabled": True
+                })
+
+            logger.info(f"Loaded {len(blocks)} recurring blocks from Notion database")
+            return blocks
+
+        except Exception as e:
+            logger.error(f"Error fetching blocks from Notion: {e}")
+            return []
+
+    def _get_blocks_from_json(self, config_path: str) -> list:
+        """Load recurring blocks from JSON config file.
+
+        Args:
+            config_path: Path to schedule_config.json
+
+        Returns:
+            List of block dictionaries
+        """
+        import os
+
+        if not os.path.exists(config_path):
+            logger.warning(f"Schedule config not found: {config_path}")
+            return []
+
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            blocks = config.get("recurring_blocks", [])
+            logger.info(f"Loaded {len(blocks)} recurring blocks from JSON file")
+            return blocks
+        except Exception as e:
+            logger.error(f"Error loading schedule config: {e}")
+            return []
+
+    def create_recurring_blocks(self, config_path: str = "schedule_config.json") -> dict:
+        """Create recurring time blocks for today.
+
+        Tries to load blocks from:
+        1. Notion database (if recurring_blocks_db_id is configured)
+        2. JSON config file (fallback)
+
+        Args:
+            config_path: Path to the schedule config JSON file (fallback)
+
+        Returns:
+            Dictionary with created count, skipped count, and source
+        """
+        # Try Notion database first, then fall back to JSON
+        if self.recurring_blocks_db_id:
+            blocks = self._get_blocks_from_notion()
+            source = "notion"
+        else:
+            blocks = []
+            source = None
+
+        # Fall back to JSON if no blocks from Notion
+        if not blocks:
+            blocks = self._get_blocks_from_json(config_path)
+            source = "json" if blocks else None
+
+        if not blocks:
+            return {"created": 0, "skipped": 0, "source": None, "error": "No blocks configured"}
+
+        today = datetime.now()
+        today_str = today.strftime("%Y-%m-%d")
+        day_name = today.strftime("%a")  # Mon, Tue, Wed, etc.
+
+        created = 0
+        skipped = 0
+
+        for block in blocks:
+            # Skip if disabled
+            if not block.get("enabled", True):
+                skipped += 1
+                continue
+
+            # Check date range
+            start_date = block.get("start_date")
+            end_date = block.get("end_date")
+
+            if start_date and today_str < start_date:
+                skipped += 1
+                continue
+
+            if end_date and today_str > end_date:
+                skipped += 1
+                continue
+
+            # Check day of week
+            days = block.get("days", [])
+            if days != "*" and day_name not in days:
+                skipped += 1
+                continue
+
+            # Check if already exists
+            name = block.get("name", "Block")
+            if self.check_block_exists(name, today_str):
+                logger.info(f"Block '{name}' already exists for {today_str}, skipping")
+                skipped += 1
+                continue
+
+            # Create the block
+            result = self.create_reminder(
+                text=name,
+                date=today_str,
+                start_time=block.get("start_time"),
+                end_time=block.get("end_time"),
+                priority=block.get("priority"),
+                category=block.get("category")
+            )
+
+            if result.get("success"):
+                logger.info(f"Created recurring block: {name} for {today_str}")
+                created += 1
+            else:
+                logger.error(f"Failed to create block {name}: {result.get('error')}")
+                skipped += 1
+
+        return {"created": created, "skipped": skipped, "source": source}

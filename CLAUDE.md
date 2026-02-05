@@ -33,6 +33,7 @@ main.py (Entry Point)
 - Daily English practice reminders
 - **FREE natural language task parsing** (regex-based, no AI)
 - Parses: "明天下午3点开会" → date, time, priority, category
+- **Time blocking**: Tasks with time ranges appear in Notion Calendar
 - YouTube video recommendations
 - Weekly progress summaries
 - **No API cost** for task management
@@ -102,11 +103,14 @@ main.py (Entry Point)
 ### Reminders Database
 ```
 - Reminder (Title) - task description
+- Created Date (Date) - when task was created [auto or optional]
+- Date (Date) - scheduled date/time with optional end time for time blocks
 - Enabled (Checkbox) - active/inactive
-- Date (Date) - optional, supports datetime for time-specific tasks
 - Priority (Select) - High, Mid, Low [optional]
 - Category (Select) - Work, Life, Health, Study, Other [optional]
 ```
+
+**Note**: Tasks with start/end times (e.g., "3pm-5pm") appear as time blocks in Notion Calendar.
 
 ## Environment Variables
 
@@ -126,6 +130,7 @@ NOTION_DATABASE_ID=       # Primary vocabulary database ID (for saving)
 ADDITIONAL_DATABASE_IDS=  # Optional: comma-separated additional DB IDs for review
 HABITS_TRACKING_DB_ID=    # Habit tracking database ID
 HABITS_REMINDERS_DB_ID=   # Reminders database ID
+RECURRING_BLOCKS_DB_ID=   # Optional: Recurring time blocks database ID
 
 # User IDs
 ALLOWED_USER_IDS=         # Comma-separated user IDs for vocab bot
@@ -164,10 +169,11 @@ Intervals:
 
 ### Habit Bot
 - `/habits` - Today's tasks
-- `/add <task>` - Add task manually
-- `/tmr <task>` - Add task for tomorrow
-- `/video`, `/week`, `/stop`, `/resume`, `/status`
-- **Natural language**: Just type "明天下午3点开会"
+- `/blocks` - Manually create today's recurring time blocks
+- `/video` - Get a random practice video
+- `/week` - Weekly progress summary
+- `/stop`, `/resume`, `/status` - Pause/resume reminders
+- **Natural language**: Just type "明天下午3点到5点开会" to create time blocks
 
 ## Task Parser Patterns
 
@@ -190,6 +196,33 @@ The regex-based task parser (`task_parser.py`) recognizes:
 ### Priority Keywords
 - High: 紧急, urgent, 重要, important, 必须
 - Low: 不急, 随便, maybe
+
+## Recurring Time Blocks
+
+Configure automatic time blocks via Notion database.
+
+### Notion Database Setup
+
+Create a Notion database called "Recurring Blocks" with these properties:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| Name | Title | Block name (e.g., "Family Time") |
+| Start Time | Text | HH:MM format (e.g., "17:00") |
+| End Time | Text | HH:MM format (e.g., "22:00") |
+| Days | Multi-select | Mon, Tue, Wed, Thu, Fri, Sat, Sun |
+| Start Date | Date | When to start creating blocks |
+| End Date | Date | When to stop (leave empty = forever) |
+| Category | Select | Work, Life, Health, Study, Other |
+| Priority | Select | High, Mid, Low |
+| Enabled | Checkbox | Active/inactive |
+
+Then add the database ID to your `.env`:
+```bash
+RECURRING_BLOCKS_DB_ID=your_database_id_here
+```
+
+**Schedule:** Blocks are created daily at 6:00 AM. Use `/blocks` to create manually.
 
 ## Development Notes
 
@@ -244,3 +277,6 @@ ADDITIONAL_DATABASE_IDS=second_db_id,third_db_id
 10. **Fixed "New" label**: Now means "never reviewed" (not just review_count=0)
 11. **Phrase override**: When modifying entries, explicit phrases in quotes are preserved exactly
 12. **Sonnet 3.5 for secondary tasks**: Modifications and detection use Sonnet 3.5 (~2x cheaper), main analysis uses Sonnet 4
+13. **Time blocking**: Tasks with time ranges appear in Notion Calendar (use with Notion Calendar app)
+14. **Simplified commands**: Removed `/add` and `/tmr` - use natural language instead (e.g., "明天3点开会")
+15. **Recurring blocks**: Auto-create daily time blocks from `schedule_config.json` (Family Time, Sleep, etc.)

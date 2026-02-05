@@ -7,14 +7,16 @@ A Telegram bot for daily English practice reminders with:
 - Weekly progress summaries on Sundays
 - Task management with Done/Not Yet buttons
 - Integration with Notion for habit tracking
+- Natural language task input with time blocking (shows in Notion Calendar)
 
 Commands:
 - /habits: View today's tasks
-- /add <task>: Add a new task
 - /video: Get a random practice video
 - /week: Weekly progress summary
 - /stop, /resume: Pause/resume reminders
 - /status: Bot status
+
+Natural language: Just send a message like "明天下午3点开会" to create a task with time block.
 
 Environment variables required:
 - HABITS_BOT_TOKEN: Telegram bot token
@@ -52,6 +54,7 @@ HABITS_USER_ID = os.getenv("HABITS_USER_ID", "").strip()
 NOTION_KEY = os.getenv("NOTION_API_KEY")
 TRACKING_DB_ID = os.getenv("HABITS_TRACKING_DB_ID")
 REMINDERS_DB_ID = os.getenv("HABITS_REMINDERS_DB_ID")
+RECURRING_BLOCKS_DB_ID = os.getenv("RECURRING_BLOCKS_DB_ID")  # Optional: Notion DB for recurring blocks
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
@@ -279,6 +282,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     info_message = f"""Daily Practice Reminder Bot
 
 Schedule ({TIMEZONE}):
+• 6:00 AM - Create recurring time blocks
 • 8:00 AM - Morning video + tasks
 • 12:00 PM - Check-in
 • 7:00 PM - Check-in
@@ -286,12 +290,13 @@ Schedule ({TIMEZONE}):
 • Sunday 8 PM - Weekly summary
 
 💬 Natural Language Tasks:
-Just send a message like "今晚6点和Justin约饭" and I'll automatically parse time, priority, and category!
+Just send a message like "今晚6点和Justin约饭" or "明天下午3点到5点听力练习" and I'll automatically parse time, priority, and category!
+
+Time blocks will appear in your Notion Calendar.
 
 Commands:
 /habits - Today's tasks status
-/add <task> - Add a new task manually
-/tmr <task> - Add task for tomorrow
+/blocks - Create today's recurring blocks now
 /video - Get a random practice video
 /week - Weekly progress summary
 /stop - Pause reminders
@@ -311,45 +316,6 @@ async def habits_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await send_task_messages(update.effective_chat.id, include_finished=True)
 
 
-async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /add command - add a task for today."""
-    if str(update.effective_user.id) != HABITS_USER_ID:
-        await update.message.reply_text("Sorry, this bot is private.")
-        return
-
-    if not context.args:
-        await update.message.reply_text("Usage: /add <task>\n\nExample: /add Practice speaking")
-        return
-
-    task_text = " ".join(context.args)
-    result = habit_handler.create_reminder(task_text)
-
-    if result["success"]:
-        await update.message.reply_text(f"✅ Added task:\n📌 {task_text}")
-    else:
-        await update.message.reply_text(f"❌ Failed to add task: {result.get('error', 'Unknown error')}")
-
-
-async def tmr_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /tmr command - add a task for tomorrow."""
-    if str(update.effective_user.id) != HABITS_USER_ID:
-        await update.message.reply_text("Sorry, this bot is private.")
-        return
-
-    if not context.args:
-        await update.message.reply_text("Usage: /tmr <task>\n\nExample: /tmr Do taxes")
-        return
-
-    from datetime import datetime, timedelta
-    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-
-    task_text = " ".join(context.args)
-    result = habit_handler.create_reminder(task_text, tomorrow)
-
-    if result["success"]:
-        await update.message.reply_text(f"✅ Added task for tomorrow:\n📌 {task_text}")
-    else:
-        await update.message.reply_text(f"❌ Failed to add task: {result.get('error', 'Unknown error')}")
 
 
 async def video_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -446,6 +412,30 @@ Commands: /habits /video /week /stop /resume"""
     await update.message.reply_text(message)
 
 
+async def blocks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /blocks command - manually create today's recurring blocks."""
+    if str(update.effective_user.id) != HABITS_USER_ID:
+        await update.message.reply_text("Sorry, this bot is private.")
+        return
+
+    await update.message.reply_text("Creating recurring time blocks...")
+
+    import os
+    config_path = os.path.join(os.path.dirname(__file__), "schedule_config.json")
+    result = habit_handler.create_recurring_blocks(config_path)
+
+    if result.get("error"):
+        await update.message.reply_text(f"Error: {result['error']}")
+    else:
+        source = result.get("source", "unknown")
+        source_label = "Notion database" if source == "notion" else "JSON file" if source == "json" else "unknown"
+        await update.message.reply_text(
+            f"📅 Done! (from {source_label})\n"
+            f"• Created: {result.get('created', 0)}\n"
+            f"• Skipped: {result.get('skipped', 0)} (already exist or not scheduled today)"
+        )
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle natural language task input using FREE regex parser."""
     if str(update.effective_user.id) != HABITS_USER_ID:
@@ -533,11 +523,44 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.answer("Error processing request")
 
 
+async def create_daily_blocks():
+    """Create recurring time blocks from schedule config."""
+    global is_paused
+
+    if is_paused:
+        logger.info("Habits bot paused, skipping daily block creation")
+        return
+
+    try:
+        import os
+        config_path = os.path.join(os.path.dirname(__file__), "schedule_config.json")
+        result = habit_handler.create_recurring_blocks(config_path)
+        logger.info(f"Daily blocks: created={result.get('created', 0)}, skipped={result.get('skipped', 0)}")
+
+        # Notify user if blocks were created
+        if result.get("created", 0) > 0 and HABITS_USER_ID:
+            await application.bot.send_message(
+                chat_id=HABITS_USER_ID,
+                text=f"📅 Created {result['created']} time block(s) for today"
+            )
+
+    except Exception as e:
+        logger.error(f"Error creating daily blocks: {e}")
+
+
 async def post_init(app: Application) -> None:
     """Initialize scheduler after application starts."""
     global scheduler
 
     scheduler = AsyncIOScheduler(timezone=TIMEZONE)
+
+    # Create daily recurring blocks at 6:00 AM
+    scheduler.add_job(
+        create_daily_blocks,
+        CronTrigger(hour=6, minute=0, timezone=TIMEZONE),
+        id="daily_blocks",
+        name="Daily Blocks (6:00)"
+    )
 
     # Morning reminder at 8:00 AM
     scheduler.add_job(
@@ -614,7 +637,7 @@ def main():
         return
 
     # Initialize handlers
-    habit_handler = HabitHandler(NOTION_KEY, TRACKING_DB_ID, REMINDERS_DB_ID)
+    habit_handler = HabitHandler(NOTION_KEY, TRACKING_DB_ID, REMINDERS_DB_ID, RECURRING_BLOCKS_DB_ID)
 
     # Initialize YouTube handler (optional)
     if YOUTUBE_API_KEY and YOUTUBE_API_KEY != "your_youtube_api_key_here":
@@ -639,13 +662,12 @@ def main():
     # Add handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("habits", habits_command))
-    application.add_handler(CommandHandler("add", add_command))
-    application.add_handler(CommandHandler("tmr", tmr_command))
     application.add_handler(CommandHandler("video", video_command))
     application.add_handler(CommandHandler("week", week_command))
     application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CommandHandler("resume", resume_command))
     application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("blocks", blocks_command))
     application.add_handler(CallbackQueryHandler(handle_callback))
 
     # Add message handler for natural language tasks (must be last)
