@@ -33,12 +33,12 @@ main.py (Entry Point)
 - **Consolidated schedule view** - One message with timeline + actionable tasks
 - **Smart category handling** - Life/Health tasks (Sleep, Family Time) show in timeline only
 - **Number-based completion** - Reply "1 3" to mark tasks #1 and #3 as done
+- **AI-powered task parsing** - Uses Haiku for accurate natural language understanding (~$0.001/task)
+- **7-day recurring blocks** - Creates blocks for next 7 days (visible in Notion Calendar)
 - **Time-aware reminders** - Only show upcoming/unfinished tasks in check-ins
 - **Evening wind-down** - 10 PM message to prepare for sleep
 - **Auto-cleanup** - Monthly cleanup of tasks older than 3 months
-- **FREE natural language task parsing** (regex-based, no AI)
 - **Simplified** - No built-in habits, no video recommendations, no weekly summary
-- **No API cost** for task management
 
 ## Key Files
 
@@ -171,10 +171,9 @@ Intervals:
 
 ### Habit Bot
 - `/habits` - Today's consolidated schedule (timeline + tasks)
-- `/blocks` - Create today's recurring time blocks
 - `/stop`, `/resume`, `/status` - Pause/resume reminders
 - **Mark done**: Reply "1 3" to mark tasks #1 and #3 as done
-- **Add task**: Send natural language like "明天下午3点开会"
+- **Add task**: Send natural language like "4pm to 5pm job application" (AI parses it)
 
 ## Task Parser Patterns
 
@@ -287,3 +286,6 @@ ADDITIONAL_DATABASE_IDS=second_db_id,third_db_id
 19. **Evening wind-down**: 10 PM reminder to prepare for sleep instead of regular check-in
 20. **Auto-cleanup**: Monthly cleanup of tasks older than 3 months (keeps database clean)
 21. **Simplified system**: Removed built-in habits, video recommendations, and weekly summary - all tasks from Notion databases
+22. **AI task parsing**: Uses Haiku for accurate natural language parsing (handles "4pm to 5pm this afternoon" correctly)
+23. **7-day recurring blocks**: Creates blocks for next 7 days so Notion Calendar shows full week
+24. **Removed /blocks command**: Recurring blocks created automatically at 6am

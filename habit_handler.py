@@ -783,8 +783,11 @@ class HabitHandler:
             logger.error(f"Error loading schedule config: {e}")
             return []
 
-    def create_recurring_blocks(self, config_path: str = "schedule_config.json") -> dict:
-        """Create recurring time blocks for today.
+    def create_recurring_blocks(self, config_path: str = "schedule_config.json", days_ahead: int = 7) -> dict:
+        """Create recurring time blocks for the next N days.
+
+        Creates blocks for today + next 6 days (7 days total) so they appear
+        in Notion Calendar for weekly planning.
 
         Tries to load blocks from:
         1. Notion database (if recurring_blocks_db_id is configured)
@@ -792,6 +795,7 @@ class HabitHandler:
 
         Args:
             config_path: Path to the schedule config JSON file (fallback)
+            days_ahead: Number of days to create blocks for (default: 7)
 
         Returns:
             Dictionary with created count, skipped count, and source
@@ -812,60 +816,61 @@ class HabitHandler:
         if not blocks:
             return {"created": 0, "skipped": 0, "source": None, "error": "No blocks configured"}
 
-        today = datetime.now()
-        today_str = today.strftime("%Y-%m-%d")
-        day_name = today.strftime("%a")  # Mon, Tue, Wed, etc.
-
         created = 0
         skipped = 0
 
-        for block in blocks:
-            # Skip if disabled
-            if not block.get("enabled", True):
-                skipped += 1
-                continue
+        # Create blocks for the next N days
+        for day_offset in range(days_ahead):
+            target_date = datetime.now() + timedelta(days=day_offset)
+            target_str = target_date.strftime("%Y-%m-%d")
+            day_name = target_date.strftime("%a")  # Mon, Tue, Wed, etc.
 
-            # Check date range
-            start_date = block.get("start_date")
-            end_date = block.get("end_date")
+            for block in blocks:
+                # Skip if disabled
+                if not block.get("enabled", True):
+                    skipped += 1
+                    continue
 
-            if start_date and today_str < start_date:
-                skipped += 1
-                continue
+                # Check date range
+                start_date = block.get("start_date")
+                end_date = block.get("end_date")
 
-            if end_date and today_str > end_date:
-                skipped += 1
-                continue
+                if start_date and target_str < start_date:
+                    skipped += 1
+                    continue
 
-            # Check day of week
-            days = block.get("days", [])
-            if days != "*" and day_name not in days:
-                skipped += 1
-                continue
+                if end_date and target_str > end_date:
+                    skipped += 1
+                    continue
 
-            # Check if already exists
-            name = block.get("name", "Block")
-            if self.check_block_exists(name, today_str):
-                logger.info(f"Block '{name}' already exists for {today_str}, skipping")
-                skipped += 1
-                continue
+                # Check day of week
+                days = block.get("days", [])
+                if days != "*" and day_name not in days:
+                    skipped += 1
+                    continue
 
-            # Create the block
-            result = self.create_reminder(
-                text=name,
-                date=today_str,
-                start_time=block.get("start_time"),
-                end_time=block.get("end_time"),
-                priority=block.get("priority"),
-                category=block.get("category")
-            )
+                # Check if already exists
+                name = block.get("name", "Block")
+                if self.check_block_exists(name, target_str):
+                    skipped += 1
+                    continue
 
-            if result.get("success"):
-                logger.info(f"Created recurring block: {name} for {today_str}")
-                created += 1
-            else:
-                logger.error(f"Failed to create block {name}: {result.get('error')}")
-                skipped += 1
+                # Create the block
+                result = self.create_reminder(
+                    text=name,
+                    date=target_str,
+                    start_time=block.get("start_time"),
+                    end_time=block.get("end_time"),
+                    priority=block.get("priority"),
+                    category=block.get("category")
+                )
+
+                if result.get("success"):
+                    logger.info(f"Created recurring block: {name} for {target_str}")
+                    created += 1
+                else:
+                    logger.error(f"Failed to create block {name}: {result.get('error')}")
+                    skipped += 1
 
         return {"created": created, "skipped": skipped, "source": source}
 

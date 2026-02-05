@@ -40,6 +40,9 @@ from apscheduler.triggers.cron import CronTrigger
 from habit_handler import HabitHandler
 from youtube_handler import YouTubeHandler
 from telegram.ext import MessageHandler, filters
+import anthropic
+from datetime import datetime, timedelta
+import json
 
 # Load environment variables
 load_dotenv()
@@ -72,6 +75,100 @@ is_paused = False
 
 # Store current actionable tasks for number-based completion
 current_actionable_tasks = []
+
+# AI client for task parsing
+ai_client = None
+
+
+def init_ai_client():
+    """Initialize Anthropic client for AI task parsing."""
+    global ai_client
+    if ANTHROPIC_API_KEY:
+        ai_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        logger.info("AI task parser initialized (Haiku)")
+    else:
+        logger.warning("ANTHROPIC_API_KEY not set - using regex parser fallback")
+
+
+def parse_task_with_ai(text: str, timezone: str = "Europe/London") -> dict:
+    """Parse task using Claude Haiku for accurate natural language understanding.
+
+    Cost: ~$0.001 per task (very cheap)
+
+    Args:
+        text: Natural language task description
+        timezone: Timezone for date calculations
+
+    Returns:
+        Dictionary with task, date, start_time, end_time, category, priority
+    """
+    if not ai_client:
+        # Fallback to regex parser
+        from task_parser import TaskParser
+        parser = TaskParser(timezone)
+        return parser.parse(text)
+
+    today = datetime.now()
+    today_str = today.strftime("%Y-%m-%d")
+    tomorrow_str = (today + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    prompt = f"""Parse this task and extract structured information.
+
+Task: "{text}"
+
+Today's date: {today_str} ({today.strftime("%A")})
+Tomorrow: {tomorrow_str}
+
+Return a JSON object with these fields:
+- task: Clean task description (just the action, not time/date info)
+- date: Date in YYYY-MM-DD format (use {today_str} for "today", "this afternoon", "tonight", etc.)
+- start_time: Start time in HH:MM format (24-hour), null if not specified
+- end_time: End time in HH:MM format (24-hour), null if not specified
+- category: One of Work, Life, Health, Study, Other
+- priority: One of High, Mid, Low
+
+Examples:
+- "4 o'clock to 5 o'clock this afternoon to send a job application" → task: "Send a job application", date: "{today_str}", start_time: "16:00", end_time: "17:00", category: "Work"
+- "明天下午3点开会" → task: "开会", date: "{tomorrow_str}", start_time: "15:00", end_time: "17:00", category: "Work"
+- "tonight 8pm call mom" → task: "Call mom", date: "{today_str}", start_time: "20:00", end_time: null, category: "Life"
+
+Return ONLY the JSON object, no other text."""
+
+    try:
+        response = ai_client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        result_text = response.content[0].text.strip()
+
+        # Parse JSON from response
+        # Handle case where response might have markdown code blocks
+        if "```json" in result_text:
+            result_text = result_text.split("```json")[1].split("```")[0]
+        elif "```" in result_text:
+            result_text = result_text.split("```")[1].split("```")[0]
+
+        parsed = json.loads(result_text)
+
+        # Ensure all required fields exist
+        return {
+            "task": parsed.get("task", text),
+            "date": parsed.get("date"),
+            "start_time": parsed.get("start_time"),
+            "end_time": parsed.get("end_time"),
+            "category": parsed.get("category", "Other"),
+            "priority": parsed.get("priority", "Mid"),
+            "success": True
+        }
+
+    except Exception as e:
+        logger.error(f"AI task parsing failed: {e}, falling back to regex")
+        # Fallback to regex parser
+        from task_parser import TaskParser
+        parser = TaskParser(timezone)
+        return parser.parse(text)
 
 
 def get_category_emoji(category: str) -> str:
@@ -314,7 +411,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     info_message = f"""Daily Practice Reminder Bot
 
 Schedule ({TIMEZONE}):
-• 6:00 AM - Create recurring time blocks
+• 6:00 AM - Create recurring blocks (next 7 days)
 • 8:00 AM - Morning schedule
 • 12:00 PM - Check-in
 • 7:00 PM - Check-in
@@ -328,12 +425,12 @@ Life/Health tasks (Family Time, Sleep) show in timeline only.
 ✅ Mark Tasks Done:
 Reply with numbers like "1 3" to mark done.
 
-💬 Add New Tasks:
-Send "明天下午3点开会" to create tasks.
+💬 Add New Tasks (AI-powered):
+Send natural language like "4pm to 5pm job application"
+AI parses date, time, category automatically.
 
 Commands:
 /habits - Today's schedule
-/blocks - Create recurring blocks
 /stop /resume /status"""
 
     await update.message.reply_text(info_message)
@@ -393,42 +490,21 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     status = "paused" if is_paused else "active"
     jobs = scheduler.get_jobs() if scheduler else []
-    recurring_db = "configured" if RECURRING_BLOCKS_DB_ID else "not configured"
+    ai_status = "Haiku" if ai_client else "regex fallback"
 
     message = f"""Habit Bot Status
 
 Status: {status}
 Timezone: {TIMEZONE}
 Scheduled jobs: {len(jobs)}
-Recurring Blocks DB: {recurring_db}
+Task parser: {ai_status}
 
-Commands: /habits /blocks /stop /resume"""
+Commands: /habits /stop /resume"""
 
     await update.message.reply_text(message)
 
 
-async def blocks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /blocks command - manually create today's recurring blocks."""
-    if str(update.effective_user.id) != HABITS_USER_ID:
-        await update.message.reply_text("Sorry, this bot is private.")
-        return
-
-    await update.message.reply_text("Creating recurring time blocks...")
-
-    import os
-    config_path = os.path.join(os.path.dirname(__file__), "schedule_config.json")
-    result = habit_handler.create_recurring_blocks(config_path)
-
-    if result.get("error"):
-        await update.message.reply_text(f"Error: {result['error']}")
-    else:
-        source = result.get("source", "unknown")
-        source_label = "Notion database" if source == "notion" else "JSON file" if source == "json" else "unknown"
-        await update.message.reply_text(
-            f"📅 Done! (from {source_label})\n"
-            f"• Created: {result.get('created', 0)}\n"
-            f"• Skipped: {result.get('skipped', 0)} (already exist or not scheduled today)"
-        )
+# /blocks command removed - recurring blocks are created automatically at 6am for next 7 days
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -480,12 +556,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         return
 
-    # Otherwise, treat as new task input
-    from task_parser import TaskParser
-    parser = TaskParser(TIMEZONE)
-    parsed = parser.parse(text)
-
-    logger.info(f"Parsed task: {parsed}")
+    # Otherwise, treat as new task input - use AI parser
+    parsed = parse_task_with_ai(text, TIMEZONE)
+    logger.info(f"AI Parsed task: {parsed}")
 
     # Create the reminder in Notion
     result = habit_handler.create_reminder(
@@ -498,8 +571,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
     if result["success"]:
-        confirmation = parser.format_confirmation(parsed)
-        await update.message.reply_text(confirmation)
+        # Build confirmation message
+        lines = ["✅ 已添加任务！", ""]
+        if parsed.get("start_time"):
+            time_str = f"• 时间：{parsed.get('date', '今天')} {parsed['start_time']}"
+            if parsed.get("end_time"):
+                time_str += f"-{parsed['end_time']}"
+            lines.append(time_str)
+        elif parsed.get("date"):
+            lines.append(f"• 日期：{parsed['date']}")
+        lines.append(f"• 事项：{parsed.get('task', text)}")
+        lines.append(f"• 类别：{parsed.get('category', 'Other')}")
+        await update.message.reply_text("\n".join(lines))
     else:
         await update.message.reply_text(f"保存失败: {result.get('error', 'Unknown error')}")
 
@@ -697,15 +780,12 @@ def main():
     # Initialize handlers
     habit_handler = HabitHandler(NOTION_KEY, TRACKING_DB_ID, REMINDERS_DB_ID, RECURRING_BLOCKS_DB_ID)
 
-    # Initialize YouTube handler (optional)
-    if YOUTUBE_API_KEY and YOUTUBE_API_KEY != "your_youtube_api_key_here":
-        youtube_handler = YouTubeHandler(YOUTUBE_API_KEY)
-        print("YouTube handler initialized")
+    # Initialize AI client for task parsing
+    init_ai_client()
+    if ai_client:
+        print("AI task parser initialized (Haiku) - accurate natural language parsing")
     else:
-        print("YouTube API key not configured - video features disabled")
-
-    # Task parsing uses FREE regex-based parser (no API cost)
-    print("Task parser ready - natural language task parsing enabled (FREE)")
+        print("AI not configured - using regex fallback for task parsing")
 
     # Test Notion connection
     notion_test = habit_handler.test_connection()
@@ -724,7 +804,7 @@ def main():
     application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CommandHandler("resume", resume_command))
     application.add_handler(CommandHandler("status", status_command))
-    application.add_handler(CommandHandler("blocks", blocks_command))
+    # /blocks command removed - recurring blocks created automatically
     application.add_handler(CallbackQueryHandler(handle_callback))
 
     # Add message handler for natural language tasks (must be last)
