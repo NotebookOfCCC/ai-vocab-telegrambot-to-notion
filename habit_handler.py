@@ -931,45 +931,23 @@ class HabitHandler:
             return {"archived": 0, "total": 0, "error": str(e)}
 
     def get_today_schedule(self) -> dict:
-        """Get today's full schedule combining recurring blocks and one-off tasks.
+        """Get today's full schedule from Reminders database only.
+
+        No more built-in habits - everything comes from Notion databases.
 
         Returns:
             Dictionary with:
             - timeline: list of time blocks sorted by start_time
-            - actionable_tasks: list of tasks that need Done/Not Yet (excludes Life/Health)
-            - completed_tasks: list of already completed task IDs
+            - actionable_tasks: list of tasks that need action (excludes Life/Health)
+            - completed_task_ids: list of already completed task IDs
         """
         habit = self.get_or_create_today_habit()
         completed_task_ids = habit.get("completed_tasks", [])
 
-        # Built-in habits
-        builtin_tasks = [
-            {
-                "id": "listened",
-                "text": "Listened to English",
-                "start_time": None,
-                "end_time": None,
-                "category": "Study",
-                "priority": "Mid",
-                "done": habit.get("listened", False),
-                "is_builtin": True
-            },
-            {
-                "id": "spoke",
-                "text": "Spoke in English",
-                "start_time": None,
-                "end_time": None,
-                "category": "Study",
-                "priority": "Mid",
-                "done": habit.get("spoke", False),
-                "is_builtin": True
-            },
-        ]
-
         # Get reminders for today (includes recurring blocks created earlier)
         reminders = self.get_all_reminders(for_today=True)
 
-        # Combine and categorize
+        # Categorize tasks
         timeline = []
         actionable_tasks = []
 
@@ -994,16 +972,11 @@ class HabitHandler:
             if category not in ["life", "health"]:
                 actionable_tasks.append(task)
 
-        # Add builtin tasks to actionable
-        actionable_tasks = builtin_tasks + actionable_tasks
-
         # Sort timeline by start_time
         timeline.sort(key=lambda x: x.get("start_time") or "99:99")
 
         return {
             "timeline": timeline,
             "actionable_tasks": actionable_tasks,
-            "completed_task_ids": completed_task_ids,
-            "listened": habit.get("listened", False),
-            "spoke": habit.get("spoke", False)
+            "completed_task_ids": completed_task_ids
         }

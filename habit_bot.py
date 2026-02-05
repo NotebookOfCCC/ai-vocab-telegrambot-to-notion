@@ -1,20 +1,20 @@
 """
 Daily Habit Reminder Bot
 
-A Telegram bot for daily English practice reminders with:
+A simplified Telegram bot for daily task reminders with:
 - Consolidated schedule view (one message with timeline + tasks)
-- Smart category handling (Life/Health tasks show in timeline only, no action needed)
+- Smart category handling (Life/Health tasks show in timeline only)
 - Number-based task completion (reply "1 3" to mark tasks done)
-- Morning video recommendations from YouTube
 - Evening wind-down reminders
 - Monthly auto-cleanup of old tasks
 - Integration with Notion Calendar for time blocking
 
+All tasks come from Notion databases (Recurring Blocks + Reminders).
+No more built-in habits or video recommendations.
+
 Commands:
 - /habits: View today's consolidated schedule
 - /blocks: Create recurring time blocks
-- /video: Get a random practice video
-- /week: Weekly progress summary
 - /stop, /resume: Pause/resume reminders
 - /status: Bot status
 
@@ -224,19 +224,6 @@ async def send_morning_reminder():
             text=message
         )
 
-        # Send video recommendation separately (optional)
-        video = youtube_handler.get_random_video() if youtube_handler else None
-        if video:
-            video_msg = f"""🎧 Today's listening practice:
-{video.get('playlist_name', 'Video')}: {video.get('title', 'Untitled')}
-
-{video.get('url', '')}"""
-            await application.bot.send_message(
-                chat_id=HABITS_USER_ID,
-                text=video_msg
-            )
-            habit_handler.update_habit("listened", False, video_url=video.get("url"))
-
         logger.info("Sent morning reminder")
 
     except Exception as e:
@@ -307,52 +294,10 @@ async def send_evening_winddown():
         logger.error(f"Error sending evening winddown: {e}")
 
 
-async def send_weekly_summary():
-    """Send weekly progress summary on Sunday."""
-    global is_paused
-
-    if is_paused:
-        logger.info("Habits bot paused, skipping weekly summary")
-        return
-
-    if not HABITS_USER_ID:
-        return
-
-    try:
-        stats = habit_handler.get_weekly_stats()
-
-        listening = stats.get("listening_days", 0)
-        speaking = stats.get("speaking_days", 0)
-        videos = stats.get("videos_watched", 0)
-        streak = stats.get("streak", 0)
-        total = stats.get("total_days", 7)
-
-        listen_emoji = " ✅" if listening >= 5 else ""
-        speak_emoji = " ✅" if speaking >= 5 else ""
-
-        message = f"""Weekly Progress Report
-
-Listening: {listening}/{total} days{listen_emoji}
-Speaking: {speaking}/{total} days{speak_emoji}
-Videos watched: {videos}
-Current streak: {streak} days
-
-"""
-        if listening >= 5 and speaking >= 5:
-            message += "Great work this week!"
-        elif listening >= 3 or speaking >= 3:
-            message += "Good progress! Keep it up!"
-        else:
-            message += "Let's do better next week!"
-
-        await application.bot.send_message(
-            chat_id=HABITS_USER_ID,
-            text=message
-        )
-        logger.info("Sent weekly summary")
-
-    except Exception as e:
-        logger.error(f"Error sending weekly summary: {e}")
+# Weekly summary disabled - using recurring blocks instead of built-in habit tracking
+# async def send_weekly_summary():
+#     """Send weekly progress summary on Sunday."""
+#     pass
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -370,28 +315,25 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 Schedule ({TIMEZONE}):
 • 6:00 AM - Create recurring time blocks
-• 8:00 AM - Morning schedule + video
+• 8:00 AM - Morning schedule
 • 12:00 PM - Check-in
 • 7:00 PM - Check-in
 • 10:00 PM - Evening wind-down
-• Sunday 8 PM - Weekly summary
 • Monthly - Auto-cleanup old tasks
 
 📋 One Message, Full Schedule:
-You'll see your day's timeline + actionable tasks in one view.
-Life/Health tasks (Family Time, Sleep) show in timeline only - no action needed.
+Your day's timeline + actionable tasks in one view.
+Life/Health tasks (Family Time, Sleep) show in timeline only.
 
 ✅ Mark Tasks Done:
-Reply with numbers like "1 3" to mark tasks #1 and #3 as done.
+Reply with numbers like "1 3" to mark done.
 
 💬 Add New Tasks:
-Send natural language like "明天下午3点开会" to create tasks.
+Send "明天下午3点开会" to create tasks.
 
 Commands:
 /habits - Today's schedule
 /blocks - Create recurring blocks
-/video - Practice video
-/week - Weekly progress
 /stop /resume /status"""
 
     await update.message.reply_text(info_message)
@@ -410,50 +352,11 @@ async def habits_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 
-async def video_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /video command - get random video."""
-    if str(update.effective_user.id) != HABITS_USER_ID:
-        await update.message.reply_text("Sorry, this bot is private.")
-        return
-
-    if not youtube_handler:
-        await update.message.reply_text("YouTube not configured. Set YOUTUBE_API_KEY.")
-        return
-
-    video = youtube_handler.get_random_video()
-
-    if video:
-        message = f"""{video.get('playlist_name', 'Video')}:
-{video.get('title', 'Untitled')}
-
-{video.get('url', '')}"""
-        await update.message.reply_text(message)
-    else:
-        await update.message.reply_text("No videos available. Check playlist configuration.")
-
-
-async def week_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /week command - show weekly summary."""
-    if str(update.effective_user.id) != HABITS_USER_ID:
-        await update.message.reply_text("Sorry, this bot is private.")
-        return
-
-    stats = habit_handler.get_weekly_stats()
-
-    listening = stats.get("listening_days", 0)
-    speaking = stats.get("speaking_days", 0)
-    videos = stats.get("videos_watched", 0)
-    streak = stats.get("streak", 0)
-    total = stats.get("total_days", 7)
-
-    message = f"""Weekly Progress
-
-Listening: {listening}/{total} days
-Speaking: {speaking}/{total} days
-Videos: {videos}
-Streak: {streak} days"""
-
-    await update.message.reply_text(message)
+# Video and weekly summary commands disabled - using recurring blocks instead
+# async def video_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+#     pass
+# async def week_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+#     pass
 
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -490,16 +393,16 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     status = "paused" if is_paused else "active"
     jobs = scheduler.get_jobs() if scheduler else []
-    yt_status = "configured" if youtube_handler and YOUTUBE_API_KEY else "not configured"
+    recurring_db = "configured" if RECURRING_BLOCKS_DB_ID else "not configured"
 
     message = f"""Habit Bot Status
 
 Status: {status}
 Timezone: {TIMEZONE}
 Scheduled jobs: {len(jobs)}
-YouTube: {yt_status}
+Recurring Blocks DB: {recurring_db}
 
-Commands: /habits /video /week /stop /resume"""
+Commands: /habits /blocks /stop /resume"""
 
     await update.message.reply_text(message)
 
@@ -558,14 +461,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 task_id = task.get("id")
                 task_name = task.get("text", "Task")
 
-                # Mark as done
-                if task_id == "listened":
-                    habit_handler.update_habit("listened", True)
-                elif task_id == "spoke":
-                    habit_handler.update_habit("spoke", True)
-                else:
-                    habit_handler.mark_task_done(task_id)
-
+                # Mark as done (all tasks are from Notion now)
+                habit_handler.mark_task_done(task_id)
                 completed.append(f"✅ {task_name}")
             else:
                 errors.append(f"#{num} not found")
@@ -747,13 +644,13 @@ async def post_init(app: Application) -> None:
         name="Evening Wind-down (22:00)"
     )
 
-    # Weekly summary on Sunday at 8 PM
-    scheduler.add_job(
-        send_weekly_summary,
-        CronTrigger(day_of_week="sun", hour=20, minute=0, timezone=TIMEZONE),
-        id="weekly_summary",
-        name="Weekly Summary (Sunday 20:00)"
-    )
+    # Weekly summary disabled - using recurring blocks instead
+    # scheduler.add_job(
+    #     send_weekly_summary,
+    #     CronTrigger(day_of_week="sun", hour=20, minute=0, timezone=TIMEZONE),
+    #     id="weekly_summary",
+    #     name="Weekly Summary (Sunday 20:00)"
+    # )
 
     # Monthly cleanup on 1st of each month at 3 AM
     scheduler.add_job(
@@ -823,8 +720,7 @@ def main():
     # Add handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("habits", habits_command))
-    application.add_handler(CommandHandler("video", video_command))
-    application.add_handler(CommandHandler("week", week_command))
+    # video and week commands disabled
     application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CommandHandler("resume", resume_command))
     application.add_handler(CommandHandler("status", status_command))

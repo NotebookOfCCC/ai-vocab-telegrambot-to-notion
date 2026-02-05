@@ -31,13 +31,13 @@ main.py (Entry Point)
 
 ### 3. Habit Bot (`habit_bot.py`)
 - **Consolidated schedule view** - One message with timeline + actionable tasks
-- **Smart category handling** - Life/Health tasks (Sleep, Family Time) show in timeline only, no buttons
+- **Smart category handling** - Life/Health tasks (Sleep, Family Time) show in timeline only
 - **Number-based completion** - Reply "1 3" to mark tasks #1 and #3 as done
 - **Time-aware reminders** - Only show upcoming/unfinished tasks in check-ins
 - **Evening wind-down** - 10 PM message to prepare for sleep
 - **Auto-cleanup** - Monthly cleanup of tasks older than 3 months
 - **FREE natural language task parsing** (regex-based, no AI)
-- YouTube video recommendations
+- **Simplified** - No built-in habits, no video recommendations, no weekly summary
 - **No API cost** for task management
 
 ## Key Files
@@ -172,8 +172,6 @@ Intervals:
 ### Habit Bot
 - `/habits` - Today's consolidated schedule (timeline + tasks)
 - `/blocks` - Create today's recurring time blocks
-- `/video` - Get a random practice video
-- `/week` - Weekly progress summary
 - `/stop`, `/resume`, `/status` - Pause/resume reminders
 - **Mark done**: Reply "1 3" to mark tasks #1 and #3 as done
 - **Add task**: Send natural language like "明天下午3点开会"
@@ -288,3 +286,4 @@ ADDITIONAL_DATABASE_IDS=second_db_id,third_db_id
 18. **Smart categories**: Life/Health tasks show in timeline only - no action buttons needed
 19. **Evening wind-down**: 10 PM reminder to prepare for sleep instead of regular check-in
 20. **Auto-cleanup**: Monthly cleanup of tasks older than 3 months (keeps database clean)
+21. **Simplified system**: Removed built-in habits, video recommendations, and weekly summary - all tasks from Notion databases
