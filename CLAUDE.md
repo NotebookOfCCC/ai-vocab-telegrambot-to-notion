@@ -30,15 +30,16 @@ main.py (Entry Point)
 - **No API cost** (just Notion queries)
 
 ### 3. Task Bot (`habit_bot.py`)
-- **Consolidated schedule view** - One message with timeline + actionable tasks (with time shown)
-- **Smart category handling** - Life/Health tasks (Sleep, Family Time) show in timeline only
+- **Consolidated schedule view** - One message with timeline + actionable tasks (sorted by time)
+- **Smart category handling** - Life/Health tasks (Sleep, Family Time) show in timeline only, not graded
 - **Number-based completion** - Reply "1 3" to mark tasks #1 and #3 as done
 - **AI-powered task parsing** - Uses Haiku for accurate natural language understanding (~$0.001/task)
 - **7-day recurring blocks** - Creates blocks for next 7 days (visible in Notion Calendar)
-- **Time-aware reminders** - Only show upcoming/unfinished tasks in check-ins
-- **Evening wind-down** - 10 PM message to prepare for sleep
+- **Configurable day boundary** - Default 4am, so late night work counts for previous day
+- **Configurable timezone** - Change via /settings (affects all scheduling)
+- **Daily scoring** - Evening wind-down shows A/B/C/D grade for Study/Work tasks
+- **Weekly summary** - Sunday 8pm summary with daily scores and streak
 - **Auto-cleanup** - Monthly cleanup of tasks older than 3 months
-- **Simplified** - No built-in habits, no video recommendations, no weekly summary
 
 ## Key Files
 
@@ -166,7 +167,8 @@ Intervals:
 - `/stop`, `/resume`, `/status`
 
 ### Task Bot
-- `/tasks` - Today's consolidated schedule (timeline + tasks with time)
+- `/tasks` - Today's consolidated schedule (timeline + tasks sorted by time)
+- `/settings` - Configure day boundary (default 4am) and timezone
 - `/stop`, `/resume`, `/status` - Pause/resume reminders
 - **Mark done**: Reply "1 3" to mark tasks #1 and #3 as done
 - **Add task**: Send natural language like "4pm to 5pm job application" (AI parses it)

@@ -42,6 +42,7 @@ from telegram.ext import MessageHandler, filters
 import anthropic
 from datetime import datetime, timedelta
 import json
+import pytz
 
 # Load environment variables
 load_dotenv()
@@ -63,19 +64,71 @@ RECURRING_BLOCKS_DB_ID = os.getenv("RECURRING_BLOCKS_DB_ID")  # Optional: Notion
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 
+# Config file for user settings (day boundary, timezone)
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "task_config.json")
+
+def get_default_config() -> dict:
+    """Get default config."""
+    return {
+        "day_boundary": 4,  # 4am - day ends at this hour
+        "timezone": TIMEZONE
+    }
+
+def load_config() -> dict:
+    """Load task config from JSON file, falling back to defaults."""
+    default = get_default_config()
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                config = json.load(f)
+            # Merge with defaults
+            return {**default, **config}
+        except Exception as e:
+            logger.error(f"Error loading config: {e}")
+    return default
+
+def save_config(config: dict) -> None:
+    """Save task config to JSON file."""
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(config, f, indent=2)
+    logger.info(f"Config saved: {config}")
+
 # Global state
 habit_handler = None
-youtube_handler = None
 scheduler = None
 application = None
 is_paused = False
-
+task_config = None  # Loaded at startup
 
 # Store current actionable tasks for number-based completion
 current_actionable_tasks = []
 
 # AI client for task parsing
 ai_client = None
+
+
+def get_effective_date() -> str:
+    """Get the effective date considering day boundary.
+
+    If current time is before the day boundary (e.g., 4am),
+    treat it as still being "yesterday" for task purposes.
+
+    Returns:
+        Date string in YYYY-MM-DD format
+    """
+    import pytz
+
+    tz = pytz.timezone(task_config.get("timezone", TIMEZONE) if task_config else TIMEZONE)
+    now = datetime.now(tz)
+    boundary = task_config.get("day_boundary", 4) if task_config else 4
+
+    # If before boundary hour, use yesterday's date
+    if now.hour < boundary:
+        effective = now - timedelta(days=1)
+    else:
+        effective = now
+
+    return effective.strftime("%Y-%m-%d")
 
 
 def init_ai_client():
@@ -246,6 +299,18 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
     unfinished = [t for t in actionable if not t.get("done")]
     finished = [t for t in actionable if t.get("done")]
 
+    # Sort unfinished tasks by start_time
+    def get_sort_time(task):
+        start = task.get("start_time", "")
+        if start:
+            try:
+                return int(start.replace(":", ""))
+            except:
+                return 9999
+        return 9999  # Tasks without time go to the end
+
+    unfinished.sort(key=get_sort_time)
+
     # Store for number-based completion
     current_actionable_tasks = unfinished.copy()
 
@@ -278,18 +343,66 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
     return "\n".join(lines)
 
 
+def calculate_daily_score(schedule: dict) -> dict:
+    """Calculate daily score based on Study/Work task completion.
+
+    Only grades Study and Work categories. Life/Health are excluded.
+
+    Returns:
+        Dictionary with completed, total, percentage, grade
+    """
+    actionable = schedule.get("actionable_tasks", [])
+
+    # Filter to only Study and Work categories
+    gradeable = [t for t in actionable if (t.get("category") or "").lower() in ["study", "work"]]
+
+    if not gradeable:
+        return {"completed": 0, "total": 0, "percentage": 100, "grade": "N/A"}
+
+    completed = len([t for t in gradeable if t.get("done")])
+    total = len(gradeable)
+    percentage = int((completed / total) * 100) if total > 0 else 100
+
+    # Assign grade
+    if percentage >= 90:
+        grade = "A"
+    elif percentage >= 70:
+        grade = "B"
+    elif percentage >= 50:
+        grade = "C"
+    else:
+        grade = "D"
+
+    return {
+        "completed": completed,
+        "total": total,
+        "percentage": percentage,
+        "grade": grade
+    }
+
+
 def build_evening_message(schedule: dict) -> str:
-    """Build evening wind-down message."""
+    """Build evening wind-down message with daily score."""
     lines = []
     lines.append("🌙 Time to wind down...\n")
 
-    # Check what's done
+    # Calculate daily score (Study/Work only)
+    score = calculate_daily_score(schedule)
+
+    # Check what's done (all actionable tasks)
     actionable = schedule.get("actionable_tasks", [])
     finished = [t for t in actionable if t.get("done")]
     unfinished = [t for t in actionable if not t.get("done")]
 
+    # Show score if there were gradeable tasks
+    if score["total"] > 0:
+        grade_emoji = {"A": "🌟", "B": "👍", "C": "📈", "D": "💪"}.get(score["grade"], "")
+        lines.append(f"📊 Today's Score: {score['grade']} {grade_emoji}")
+        lines.append(f"   Study/Work tasks: {score['completed']}/{score['total']} ({score['percentage']}%)")
+        lines.append("")
+
     if finished:
-        lines.append(f"✅ Great job! You completed {len(finished)} task(s) today.")
+        lines.append(f"✅ Completed {len(finished)} task(s) today.")
 
     if unfinished:
         lines.append(f"\n⏳ Still pending ({len(unfinished)}):")
@@ -398,10 +511,59 @@ async def send_evening_winddown():
         logger.error(f"Error sending evening winddown: {e}")
 
 
-# Weekly summary disabled - using recurring blocks instead of built-in habit tracking
-# async def send_weekly_summary():
-#     """Send weekly progress summary on Sunday."""
-#     pass
+async def send_weekly_summary():
+    """Send weekly progress summary on Sunday."""
+    global is_paused
+
+    if is_paused:
+        logger.info("Task bot paused, skipping weekly summary")
+        return
+
+    if not HABITS_USER_ID:
+        return
+
+    try:
+        # Get weekly stats from habit_handler
+        stats = habit_handler.get_weekly_task_stats()
+
+        lines = ["📊 Weekly Summary\n"]
+
+        # Overall stats
+        lines.append(f"Total tasks completed: {stats['total_completed']}/{stats['total_tasks']}")
+
+        if stats['total_tasks'] > 0:
+            avg_pct = int((stats['total_completed'] / stats['total_tasks']) * 100)
+            lines.append(f"Average completion: {avg_pct}%")
+
+        # Daily breakdown
+        if stats['daily_scores']:
+            lines.append("\n📅 Daily Scores (Study/Work):")
+            for day in stats['daily_scores']:
+                grade_emoji = {"A": "🌟", "B": "👍", "C": "📈", "D": "💪", "N/A": "➖"}.get(day['grade'], "")
+                lines.append(f"  {day['date']}: {day['grade']} {grade_emoji} ({day['completed']}/{day['total']})")
+
+        # Streak
+        if stats['streak'] > 0:
+            lines.append(f"\n🔥 Current streak: {stats['streak']} day(s) with 70%+ completion")
+
+        # Encouragement based on average
+        if stats['total_tasks'] > 0:
+            avg_pct = int((stats['total_completed'] / stats['total_tasks']) * 100)
+            if avg_pct >= 80:
+                lines.append("\n🎉 Excellent week! Keep it up!")
+            elif avg_pct >= 60:
+                lines.append("\n👍 Good progress! Room for improvement.")
+            else:
+                lines.append("\n💪 Keep pushing! Next week will be better.")
+
+        await application.bot.send_message(
+            chat_id=HABITS_USER_ID,
+            text="\n".join(lines)
+        )
+        logger.info("Sent weekly summary")
+
+    except Exception as e:
+        logger.error(f"Error sending weekly summary: {e}")
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -415,19 +577,28 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
-    info_message = f"""Daily Practice Reminder Bot
+    tz = task_config.get("timezone", TIMEZONE) if task_config else TIMEZONE
+    boundary = task_config.get("day_boundary", 4) if task_config else 4
 
-Schedule ({TIMEZONE}):
+    info_message = f"""Daily Task Reminder Bot
+
+Schedule ({tz}):
 • 6:00 AM - Create recurring blocks (next 7 days)
 • 8:00 AM - Morning schedule
 • 12:00 PM - Check-in
 • 7:00 PM - Check-in
-• 10:00 PM - Evening wind-down
-• Monthly - Auto-cleanup old tasks
+• 10:00 PM - Evening wind-down + daily score
+• Sunday 8:00 PM - Weekly summary
+
+⏰ Day Boundary: {boundary}:00 AM
+Work done before {boundary}am counts for the previous day.
 
 📋 One Message, Full Schedule:
-Your day's timeline + actionable tasks in one view.
+Timeline + actionable tasks (sorted by time).
 Life/Health tasks (Family Time, Sleep) show in timeline only.
+
+📊 Daily Scoring:
+Only Study/Work tasks are graded (A/B/C/D).
 
 ✅ Mark Tasks Done:
 Reply with numbers like "1 3" to mark done.
@@ -438,6 +609,7 @@ AI parses date, time, category automatically.
 
 Commands:
 /tasks - Today's schedule
+/settings - Day boundary & timezone
 /stop /resume /status"""
 
     await update.message.reply_text(info_message)
@@ -498,17 +670,204 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     status = "paused" if is_paused else "active"
     jobs = scheduler.get_jobs() if scheduler else []
     ai_status = "Haiku" if ai_client else "regex fallback"
+    tz = task_config.get("timezone", TIMEZONE) if task_config else TIMEZONE
+    boundary = task_config.get("day_boundary", 4) if task_config else 4
+    effective = get_effective_date()
 
-    message = f"""Habit Bot Status
+    message = f"""Task Bot Status
 
 Status: {status}
-Timezone: {TIMEZONE}
+Timezone: {tz}
+Day boundary: {boundary}:00 AM
+Effective date: {effective}
 Scheduled jobs: {len(jobs)}
 Task parser: {ai_status}
 
-Commands: /tasks /stop /resume"""
+Commands: /tasks /settings /stop /resume"""
 
     await update.message.reply_text(message)
+
+
+# Common timezone options for settings
+TIMEZONE_OPTIONS = [
+    ("🇬🇧 London", "Europe/London"),
+    ("🇫🇷 Paris", "Europe/Paris"),
+    ("🇨🇳 Shanghai", "Asia/Shanghai"),
+    ("🇯🇵 Tokyo", "Asia/Tokyo"),
+    ("🇺🇸 New York", "America/New_York"),
+    ("🇺🇸 Los Angeles", "America/Los_Angeles"),
+]
+
+
+async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /settings command - view or update bot settings."""
+    if str(update.effective_user.id) != HABITS_USER_ID:
+        await update.message.reply_text("Sorry, this bot is private.")
+        return
+
+    await send_settings_display(update.message, task_config)
+
+
+async def send_settings_display(message_or_query, config: dict, edit: bool = False) -> None:
+    """Show current settings with Edit buttons."""
+    tz = config.get("timezone", TIMEZONE)
+    boundary = config.get("day_boundary", 4)
+
+    text = f"""⚙️ Task Bot Settings
+
+🕐 Day Boundary: {boundary}:00 AM
+   (Day ends at {boundary}am - late night work counts for previous day)
+
+🌍 Timezone: {tz}
+   (Used for all scheduling)"""
+
+    keyboard = [[
+        InlineKeyboardButton("Edit Day Boundary", callback_data="settings_boundary"),
+        InlineKeyboardButton("Edit Timezone", callback_data="settings_timezone"),
+    ]]
+    markup = InlineKeyboardMarkup(keyboard)
+
+    if edit:
+        await message_or_query.edit_message_text(text=text, reply_markup=markup)
+    else:
+        await message_or_query.reply_text(text, reply_markup=markup)
+
+
+def build_boundary_options(current: int) -> InlineKeyboardMarkup:
+    """Build day boundary hour options (3am-6am)."""
+    options = [3, 4, 5, 6]
+    row = []
+    for h in options:
+        label = f"✅ {h}am" if h == current else f"{h}am"
+        row.append(InlineKeyboardButton(label, callback_data=f"settings_boundary_{h}"))
+    return InlineKeyboardMarkup([row, [InlineKeyboardButton("← Back", callback_data="settings_back")]])
+
+
+def build_timezone_options(current: str) -> InlineKeyboardMarkup:
+    """Build timezone selection buttons."""
+    rows = []
+    for i in range(0, len(TIMEZONE_OPTIONS), 2):
+        row = []
+        for label, tz in TIMEZONE_OPTIONS[i:i+2]:
+            display = f"✅ {label}" if tz == current else label
+            row.append(InlineKeyboardButton(display, callback_data=f"settings_tz_{tz}"))
+        rows.append(row)
+    rows.append([InlineKeyboardButton("← Back", callback_data="settings_back")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle settings-related callback buttons."""
+    global task_config
+
+    query = update.callback_query
+    await query.answer()
+
+    if str(query.from_user.id) != HABITS_USER_ID:
+        return
+
+    data = query.data
+
+    if data == "settings_boundary":
+        current = task_config.get("day_boundary", 4)
+        await query.edit_message_text(
+            text="Select when your day ends:\n\n(Late night work before this hour counts for the previous day)",
+            reply_markup=build_boundary_options(current)
+        )
+
+    elif data.startswith("settings_boundary_"):
+        hour = int(data.split("_")[-1])
+        task_config["day_boundary"] = hour
+        save_config(task_config)
+        await query.edit_message_text(
+            text=f"✅ Day boundary updated to {hour}:00 AM\n\nWork done before {hour}am now counts for the previous day.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("← Back to Settings", callback_data="settings_back")]])
+        )
+
+    elif data == "settings_timezone":
+        current = task_config.get("timezone", TIMEZONE)
+        await query.edit_message_text(
+            text="Select your timezone:",
+            reply_markup=build_timezone_options(current)
+        )
+
+    elif data.startswith("settings_tz_"):
+        tz = data.replace("settings_tz_", "")
+        task_config["timezone"] = tz
+        save_config(task_config)
+
+        # Restart scheduler with new timezone
+        if scheduler:
+            scheduler.remove_all_jobs()
+            setup_scheduler_jobs(scheduler, tz)
+            logger.info(f"Scheduler restarted with timezone {tz}")
+
+        await query.edit_message_text(
+            text=f"✅ Timezone updated to {tz}\n\nAll schedules now use this timezone.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("← Back to Settings", callback_data="settings_back")]])
+        )
+
+    elif data == "settings_back":
+        await send_settings_display(query, task_config, edit=True)
+
+
+def setup_scheduler_jobs(sched: AsyncIOScheduler, timezone: str) -> None:
+    """Set up all scheduler jobs with given timezone."""
+    # Create daily recurring blocks at 6:00 AM
+    sched.add_job(
+        create_daily_blocks,
+        CronTrigger(hour=6, minute=0, timezone=timezone),
+        id="daily_blocks",
+        name="Daily Blocks (6:00)"
+    )
+
+    # Morning reminder at 8:00 AM
+    sched.add_job(
+        send_morning_reminder,
+        CronTrigger(hour=8, minute=0, timezone=timezone),
+        id="morning_reminder",
+        name="Morning Reminder (8:00)"
+    )
+
+    # Check-in at 12:00 PM
+    sched.add_job(
+        send_practice_checkin,
+        CronTrigger(hour=12, minute=0, timezone=timezone),
+        id="checkin_noon",
+        name="Noon Check-in (12:00)"
+    )
+
+    # Check-in at 7:00 PM
+    sched.add_job(
+        send_practice_checkin,
+        CronTrigger(hour=19, minute=0, timezone=timezone),
+        id="checkin_evening",
+        name="Evening Check-in (19:00)"
+    )
+
+    # Evening wind-down at 10:00 PM (with daily score)
+    sched.add_job(
+        send_evening_winddown,
+        CronTrigger(hour=22, minute=0, timezone=timezone),
+        id="evening_winddown",
+        name="Evening Wind-down (22:00)"
+    )
+
+    # Weekly summary on Sunday at 8:00 PM
+    sched.add_job(
+        send_weekly_summary,
+        CronTrigger(day_of_week="sun", hour=20, minute=0, timezone=timezone),
+        id="weekly_summary",
+        name="Weekly Summary (Sunday 20:00)"
+    )
+
+    # Monthly cleanup on 1st of each month at 3 AM
+    sched.add_job(
+        run_monthly_cleanup,
+        CronTrigger(day=1, hour=3, minute=0, timezone=timezone),
+        id="monthly_cleanup",
+        name="Monthly Cleanup (1st of month, 3:00)"
+    )
 
 
 # /blocks command removed - recurring blocks are created automatically at 6am for next 7 days
@@ -531,7 +890,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # If message is primarily numbers, treat as task completion
     if numbers and len(text.replace(" ", "").replace(",", "")) == sum(len(n) for n in numbers):
         if not current_actionable_tasks:
-            await update.message.reply_text("No tasks loaded. Use /habits first to see your tasks.")
+            await update.message.reply_text("No tasks loaded. Use /tasks first to see your tasks.")
             return
 
         completed = []
@@ -692,66 +1051,14 @@ async def post_init(app: Application) -> None:
     """Initialize scheduler after application starts."""
     global scheduler
 
-    scheduler = AsyncIOScheduler(timezone=TIMEZONE)
+    tz = task_config.get("timezone", TIMEZONE) if task_config else TIMEZONE
+    scheduler = AsyncIOScheduler(timezone=tz)
 
-    # Create daily recurring blocks at 6:00 AM
-    scheduler.add_job(
-        create_daily_blocks,
-        CronTrigger(hour=6, minute=0, timezone=TIMEZONE),
-        id="daily_blocks",
-        name="Daily Blocks (6:00)"
-    )
-
-    # Morning reminder at 8:00 AM
-    scheduler.add_job(
-        send_morning_reminder,
-        CronTrigger(hour=8, minute=0, timezone=TIMEZONE),
-        id="morning_reminder",
-        name="Morning Reminder (8:00)"
-    )
-
-    # Check-in at 12:00 PM
-    scheduler.add_job(
-        send_practice_checkin,
-        CronTrigger(hour=12, minute=0, timezone=TIMEZONE),
-        id="checkin_noon",
-        name="Noon Check-in (12:00)"
-    )
-
-    # Check-in at 7:00 PM
-    scheduler.add_job(
-        send_practice_checkin,
-        CronTrigger(hour=19, minute=0, timezone=TIMEZONE),
-        id="checkin_evening",
-        name="Evening Check-in (19:00)"
-    )
-
-    # Evening wind-down at 10:00 PM (instead of regular check-in)
-    scheduler.add_job(
-        send_evening_winddown,
-        CronTrigger(hour=22, minute=0, timezone=TIMEZONE),
-        id="evening_winddown",
-        name="Evening Wind-down (22:00)"
-    )
-
-    # Weekly summary disabled - using recurring blocks instead
-    # scheduler.add_job(
-    #     send_weekly_summary,
-    #     CronTrigger(day_of_week="sun", hour=20, minute=0, timezone=TIMEZONE),
-    #     id="weekly_summary",
-    #     name="Weekly Summary (Sunday 20:00)"
-    # )
-
-    # Monthly cleanup on 1st of each month at 3 AM
-    scheduler.add_job(
-        run_monthly_cleanup,
-        CronTrigger(day=1, hour=3, minute=0, timezone=TIMEZONE),
-        id="monthly_cleanup",
-        name="Monthly Cleanup (1st of month, 3:00)"
-    )
+    # Set up all scheduled jobs
+    setup_scheduler_jobs(scheduler, tz)
 
     scheduler.start()
-    logger.info(f"Scheduler started with timezone {TIMEZONE}")
+    logger.info(f"Scheduler started with timezone {tz}")
 
     for job in scheduler.get_jobs():
         next_run = job.next_run_time
@@ -764,8 +1071,8 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 def main():
-    """Main function to run the habit bot."""
-    global habit_handler, youtube_handler, application
+    """Main function to run the task bot."""
+    global habit_handler, application, task_config
 
     # Validate configuration
     if not HABITS_BOT_TOKEN:
@@ -783,6 +1090,12 @@ def main():
     if not REMINDERS_DB_ID:
         print("ERROR: HABITS_REMINDERS_DB_ID not set")
         return
+
+    # Load task config (day boundary, timezone)
+    task_config = load_config()
+    tz = task_config.get("timezone", TIMEZONE)
+    boundary = task_config.get("day_boundary", 4)
+    print(f"Config loaded: timezone={tz}, day_boundary={boundary}am")
 
     # Initialize handlers
     habit_handler = HabitHandler(NOTION_KEY, TRACKING_DB_ID, REMINDERS_DB_ID, RECURRING_BLOCKS_DB_ID)
@@ -807,11 +1120,13 @@ def main():
     # Add handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("tasks", tasks_command))
-    # video and week commands disabled
+    application.add_handler(CommandHandler("settings", settings_command))
     application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CommandHandler("resume", resume_command))
     application.add_handler(CommandHandler("status", status_command))
-    # /blocks command removed - recurring blocks created automatically
+
+    # Callback handlers - settings first (more specific pattern)
+    application.add_handler(CallbackQueryHandler(handle_settings_callback, pattern="^settings_"))
     application.add_handler(CallbackQueryHandler(handle_callback))
 
     # Add message handler for natural language tasks (must be last)
@@ -821,8 +1136,9 @@ def main():
     application.add_error_handler(error_handler)
 
     # Start polling
-    print(f"Habit bot starting with timezone {TIMEZONE}...")
-    print("Schedule: 8:00 (morning), 12:00/19:00/22:00 (check-ins), Sunday 20:00 (weekly)")
+    print(f"Task bot starting with timezone {tz}...")
+    print(f"Day boundary: {boundary}:00 AM (late night work counts for previous day)")
+    print("Schedule: 8:00 (morning), 12:00/19:00 (check-ins), 22:00 (wind-down), Sunday 20:00 (weekly)")
     print("Send any message to add a task using natural language!")
     print("Press Ctrl+C to stop")
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)

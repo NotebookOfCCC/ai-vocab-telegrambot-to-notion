@@ -338,6 +338,114 @@ class HabitHandler:
                 "total_days": 7
             }
 
+    def get_weekly_task_stats(self) -> dict:
+        """Calculate 7-day task completion statistics.
+
+        Only counts Study and Work category tasks for scoring.
+
+        Returns:
+            Dictionary with daily_scores, total_completed, total_tasks, streak
+        """
+        today = datetime.now()
+        daily_scores = []
+        total_completed = 0
+        total_tasks = 0
+        streak = 0
+        streak_broken = False
+
+        try:
+            # Get last 7 days
+            for i in range(6, -1, -1):  # Start from 6 days ago to today
+                check_date = today - timedelta(days=i)
+                date_str = check_date.strftime("%Y-%m-%d")
+                day_name = check_date.strftime("%a")  # Mon, Tue, etc.
+
+                # Get tasks for this date
+                reminders = self.get_all_reminders(for_date=date_str)
+
+                # Filter to Study/Work only
+                gradeable = [r for r in reminders
+                            if (r.get("category") or "").lower() in ["study", "work"]]
+
+                # Get completed tasks for this date
+                try:
+                    response = self.client.databases.query(
+                        database_id=self.tracking_db_id,
+                        filter={
+                            "property": "Date",
+                            "title": {"equals": date_str}
+                        }
+                    )
+                    if response.get("results"):
+                        page = response["results"][0]
+                        habit = self._parse_habit_page(page)
+                        completed_ids = habit.get("completed_tasks", [])
+                    else:
+                        completed_ids = []
+                except Exception:
+                    completed_ids = []
+
+                # Count completed gradeable tasks
+                completed = len([t for t in gradeable if t.get("id") in completed_ids])
+                total = len(gradeable)
+
+                total_completed += completed
+                total_tasks += total
+
+                # Calculate grade
+                if total == 0:
+                    grade = "N/A"
+                    pct = 100
+                else:
+                    pct = int((completed / total) * 100)
+                    if pct >= 90:
+                        grade = "A"
+                    elif pct >= 70:
+                        grade = "B"
+                    elif pct >= 50:
+                        grade = "C"
+                    else:
+                        grade = "D"
+
+                daily_scores.append({
+                    "date": f"{day_name} {check_date.strftime('%m/%d')}",
+                    "completed": completed,
+                    "total": total,
+                    "percentage": pct,
+                    "grade": grade
+                })
+
+                # Calculate streak (70%+ completion)
+                if not streak_broken and pct >= 70 and total > 0:
+                    streak += 1
+                elif total > 0:
+                    streak_broken = True
+
+            # Reverse streak count (we want consecutive days from today going back)
+            # Recalculate from today backwards
+            streak = 0
+            for score in reversed(daily_scores):
+                if score["total"] > 0 and score["percentage"] >= 70:
+                    streak += 1
+                elif score["total"] > 0:
+                    break
+
+            return {
+                "daily_scores": daily_scores,
+                "total_completed": total_completed,
+                "total_tasks": total_tasks,
+                "streak": streak
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting weekly task stats: {e}")
+            return {
+                "daily_scores": [],
+                "total_completed": 0,
+                "total_tasks": 0,
+                "streak": 0
+            }
+
     def fetch_reminders_for_time(self, time_str: str) -> list:
         """Fetch enabled reminders for a specific time.
 
@@ -421,12 +529,14 @@ class HabitHandler:
             logger.error(f"Error getting date property name: {e}")
             return "Date"
 
-    def get_all_reminders(self, for_today: bool = True) -> list:
+    def get_all_reminders(self, for_today: bool = True, for_date: str = None) -> list:
         """Get enabled reminders with full details.
 
         Args:
             for_today: If True, only return reminders for today or without a date.
                       If False, return all enabled reminders.
+            for_date: If provided (YYYY-MM-DD), return reminders for that specific date.
+                      Overrides for_today if provided.
 
         Returns:
             List of reminder dictionaries with id, text, date, start_time, end_time, category, priority
@@ -441,7 +551,12 @@ class HabitHandler:
                 filter={"property": "Enabled", "checkbox": {"equals": True}}
             )
 
-            today = self._get_today_date_str()
+            # Determine target date
+            if for_date:
+                target_date = for_date
+            else:
+                target_date = self._get_today_date_str()
+
             reminders = []
 
             for page in response.get("results", []):
@@ -480,9 +595,9 @@ class HabitHandler:
                     continue
 
                 # Filter by date if requested
-                if for_today:
-                    # Include if: no date set, or date is today
-                    if date_str and date_str[:10] != today:
+                if for_today or for_date:
+                    # Include if: no date set, or date matches target
+                    if date_str and date_str[:10] != target_date:
                         continue
 
                 reminders.append({
