@@ -337,9 +337,10 @@ class HabitHandler:
             }
 
     def get_weekly_task_stats(self) -> dict:
-        """Calculate 7-day task completion statistics.
+        """Calculate weekly task completion statistics (Mon-Sat only).
 
         Counts all tasks except "Block" category for scoring.
+        Sunday is excluded from weekly summary since it's rest day.
 
         Returns:
             Dictionary with daily_scores, total_completed, total_tasks, streak
@@ -352,11 +353,15 @@ class HabitHandler:
         streak_broken = False
 
         try:
-            # Get last 7 days
+            # Get last 7 days but skip Sunday
             for i in range(6, -1, -1):  # Start from 6 days ago to today
                 check_date = today - timedelta(days=i)
                 date_str = check_date.strftime("%Y-%m-%d")
                 day_name = check_date.strftime("%a")  # Mon, Tue, etc.
+
+                # Skip Sunday - only count Mon-Sat
+                if day_name == "Sun":
+                    continue
 
                 # Get tasks for this date
                 reminders = self.get_all_reminders(for_date=date_str)
@@ -1096,15 +1101,16 @@ class HabitHandler:
                     skipped += 1
                     continue
 
-                # Create the block - always use "Block" category for recurring time blocks
-                # This ensures they show in timeline but not in "Tasks needing action"
+                # Create the block - preserve category from config
+                # Block category = time blocks (show ☀️, not actionable)
+                # Study/Work/etc = actionable tasks (can be marked done)
                 result = self.create_reminder(
                     text=name,
                     date=target_str,
                     start_time=block.get("start_time"),
                     end_time=block.get("end_time"),
                     priority=block.get("priority"),
-                    category="Block"  # Override to Block category
+                    category=block.get("category")  # Preserve original category
                 )
 
                 if result.get("success"):

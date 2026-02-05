@@ -739,27 +739,21 @@ Schedule ({tz}):
 • 12:00 PM - Check-in
 • 7:00 PM - Check-in
 • 10:00 PM - Evening wind-down + daily score
-• Sunday 8:00 PM - Weekly summary
+• Sunday 8:00 AM - Weekly summary (Mon-Sat)
 
 ⏰ Day Boundary: {boundary}:00 AM
 Work done before {boundary}am counts for the previous day.
 
-📋 One Message, Full Schedule:
-Timeline + actionable tasks (sorted by time).
-Time blocks (Sleep, Family Time) show in timeline only.
-
 📊 Daily Scoring:
-All tasks are graded (A/B/C/D) except time blocks.
+All tasks are graded (A/B/C/D) except time blocks (☀️).
 
 ✅ Mark Tasks Done:
 Reply with numbers like "1 3" to mark done.
 
-✏️ Edit Tasks:
-Type "edit 1" to edit task #1.
-
 💬 Add New Tasks (AI-powered):
 Send natural language like "4pm to 5pm job application"
 AI parses date, time, category automatically.
+Use Edit button to modify after creating.
 
 Commands:
 /tasks - Today's schedule (with date selector)
@@ -1160,12 +1154,12 @@ def setup_scheduler_jobs(sched: AsyncIOScheduler, timezone: str) -> None:
         name="Evening Wind-down (22:00)"
     )
 
-    # Weekly summary on Sunday at 8:00 PM
+    # Weekly summary on Sunday at 8:00 AM
     sched.add_job(
         send_weekly_summary,
-        CronTrigger(day_of_week="sun", hour=20, minute=0, timezone=timezone),
+        CronTrigger(day_of_week="sun", hour=8, minute=0, timezone=timezone),
         id="weekly_summary",
-        name="Weekly Summary (Sunday 20:00)"
+        name="Weekly Summary (Sunday 08:00)"
     )
 
     # Monthly cleanup on 1st of each month at 3 AM
