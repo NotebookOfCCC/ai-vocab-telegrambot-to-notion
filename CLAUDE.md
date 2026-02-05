@@ -30,14 +30,18 @@ main.py (Entry Point)
 - **No API cost** (just Notion queries)
 
 ### 3. Task Bot (`habit_bot.py`)
-- **Consolidated schedule view** - One message with timeline + actionable tasks (sorted by time)
-- **Smart category handling** - Life/Health tasks (Sleep, Family Time) show in timeline only, not graded
+- **Consolidated schedule view** - One message with numbered timeline + actionable tasks
+- **Block category** - Recurring time blocks (Sleep, Family Time) show ☀️ in timeline, not actionable
+- **All other categories scored** - Study, Work, Life, Health, Other tasks are actionable and graded
 - **Number-based completion** - Reply "1 3" to mark tasks #1 and #3 as done
+- **Edit tasks** - Type "edit 1" to edit task #1, or use Edit button on new tasks
 - **AI-powered task parsing** - Uses Haiku for accurate natural language understanding (~$0.001/task)
-- **7-day recurring blocks** - Creates blocks for next 7 days (visible in Notion Calendar)
+- **Date selector** - /tasks shows buttons to view schedule for next 7 days
+- **7-day recurring blocks** - /blocks creates blocks for next 7 days (also auto-creates at 6am)
+- **Conflict detection** - Warns when creating task at same time as existing task
 - **Configurable day boundary** - Default 4am, so late night work counts for previous day
 - **Configurable timezone** - Change via /settings (affects all scheduling)
-- **Daily scoring** - Evening wind-down shows A/B/C/D grade for Study/Work tasks
+- **Daily scoring** - Evening wind-down shows A/B/C/D grade for all tasks (except Block)
 - **Weekly summary** - Sunday 8pm summary with daily scores and streak
 - **Auto-cleanup** - Monthly cleanup of tasks older than 3 months
 
@@ -107,8 +111,12 @@ main.py (Entry Point)
 - Date (Date) - scheduled date/time with optional end time for time blocks
 - Enabled (Checkbox) - active/inactive
 - Priority (Select) - High, Mid, Low [optional]
-- Category (Select) - Work, Life, Health, Study, Other [optional]
+- Category (Select) - Work, Life, Health, Study, Other, Block [optional]
 ```
+
+**Categories:**
+- **Block** - Recurring time blocks (Sleep, Family Time) - show ☀️ in timeline, NOT actionable, NOT scored
+- **Study, Work, Life, Health, Other** - User tasks - actionable and scored
 
 **Note**: Tasks with start/end times (e.g., "3pm-5pm") appear as time blocks in Notion Calendar.
 
@@ -167,11 +175,13 @@ Intervals:
 - `/stop`, `/resume`, `/status`
 
 ### Task Bot
-- `/tasks` - Today's consolidated schedule (timeline + tasks sorted by time)
+- `/tasks` - Today's schedule with date selector (view next 7 days)
+- `/blocks` - Manually create recurring blocks for next 7 days
 - `/settings` - Configure day boundary (default 4am) and timezone
 - `/stop`, `/resume`, `/status` - Pause/resume reminders
 - **Mark done**: Reply "1 3" to mark tasks #1 and #3 as done
-- **Add task**: Send natural language like "4pm to 5pm job application" (AI parses it)
+- **Edit task**: Type "edit 1" to edit task #1 (date, time, text, category, delete)
+- **Add task**: Send natural language like "4pm to 5pm job application" (AI parses it, shows Edit button)
 
 ## Task Parser Patterns
 
@@ -286,4 +296,10 @@ ADDITIONAL_DATABASE_IDS=second_db_id,third_db_id
 21. **Simplified system**: Removed built-in habits, video recommendations, and weekly summary - all tasks from Notion databases
 22. **AI task parsing**: Uses Haiku for accurate natural language parsing (handles "4pm to 5pm this afternoon" correctly)
 23. **7-day recurring blocks**: Creates blocks for next 7 days so Notion Calendar shows full week
-24. **Removed /blocks command**: Recurring blocks created automatically at 6am
+24. **Block category**: New category for recurring time blocks - show ☀️, not actionable, not scored
+25. **Edit task feature**: Edit button on new tasks, or type "edit 1" to edit task #1
+26. **Date selector**: /tasks shows buttons to view schedule for any day in next 7 days
+27. **/blocks command**: Manually create recurring blocks (also auto-creates at 6am)
+28. **Conflict detection**: Warns when creating task at same time as existing task
+29. **All categories scored**: Life/Health tasks now count toward daily score (only Block excluded)
+30. **Cleaner formatting**: Numbered schedule, sun icon for blocks, no duplicate headers

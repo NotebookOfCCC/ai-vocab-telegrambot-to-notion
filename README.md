@@ -24,15 +24,19 @@ A Telegram bot system that helps you learn English vocabulary with AI-powered ex
 
 ### Task Bot (`habit_bot.py`)
 - **AI Task Parsing**: Natural language task input with Claude Haiku - just type "4pm to 5pm job application" or "明天下午3点开会"
-- **Consolidated Schedule**: One message showing timeline (with date) + actionable tasks sorted by time
+- **Consolidated Schedule**: One message showing numbered timeline + actionable tasks
+- **Date Selector**: View schedule for any day in the next 7 days with buttons
 - **Notion Calendar Integration**: Recurring time blocks sync to Notion Calendar for time blocking
-- **Smart Categories**: Life/Health tasks (Family Time, Sleep) show in timeline only, not graded
+- **Block Category**: Time blocks (Sleep, Family Time) show ☀️ in timeline, not actionable
+- **All Tasks Scored**: Study, Work, Life, Health, Other categories are all scored (only Block excluded)
 - **Number-based Completion**: Reply "1 3" to mark tasks #1 and #3 as done
+- **Edit Tasks**: Type "edit 1" to edit task #1, or use Edit button on new tasks
+- **Conflict Detection**: Warns when creating task at same time as existing task
 - **Configurable Day Boundary**: Default 4am - late night work counts for previous day
 - **Configurable Timezone**: Change via /settings command with button selection
-- **Daily Scoring**: Evening wind-down shows A/B/C/D grade for Study/Work tasks only
+- **Daily Scoring**: Evening wind-down shows A/B/C/D grade for all actionable tasks
 - **Weekly Summary**: Sunday 8pm summary with daily scores and streak
-- **Recurring Blocks**: Auto-creates next 7 days of recurring time blocks
+- **Recurring Blocks**: /blocks command or auto-creates next 7 days at 6am
 - **Auto-cleanup**: Monthly cleanup of old completed tasks
 
 ## Cost Optimization
@@ -93,7 +97,9 @@ Required properties:
 
 Optional properties:
 - Priority (Select): High, Mid, Low
-- Category (Select): Work, Life, Health, Study, Other
+- Category (Select): Work, Life, Health, Study, Other, Block
+
+**Note:** Block category is for recurring time blocks (Sleep, Family Time) - they show ☀️ in timeline but are NOT actionable or scored.
 
 #### Recurring Blocks Database (Optional - for Notion Calendar)
 Required properties:
@@ -164,11 +170,13 @@ python habit_bot.py   # Task management
 
 ### Task Bot
 - `/start` - Bot info
-- `/tasks` - Today's schedule with date (timeline + actionable tasks sorted by time)
+- `/tasks` - Today's schedule with date selector (view next 7 days)
+- `/blocks` - Create recurring blocks for next 7 days
 - `/settings` - Configure day boundary (3-6am) and timezone
 - `/stop` / `/resume` - Pause/resume reminders
 - `/status` - Bot status
 - **Mark done**: Reply with numbers like "1 3" to mark tasks done
+- **Edit tasks**: Type "edit 1" to edit task #1
 - **Add tasks**: Send natural language like "4pm to 5pm job application"
 
 ## Spaced Repetition Algorithm
