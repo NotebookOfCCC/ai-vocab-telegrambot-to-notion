@@ -266,13 +266,24 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
         lines.append(f"📅 Schedule ({date_display}):")
 
     if timeline:
-        lines.append("┌─────────────────────────────")
-
+        # Filter timeline items first
+        filtered_timeline = []
         for task in timeline:
+            start = task.get("start_time", "")
+            category = task.get("category", "")
+            task_hour = int(start.split(":")[0]) if start else 0
+            is_past = task_hour < current_hour and not show_all
+
+            # Skip past Life/Health tasks in check-ins
+            if is_past and (category or "").lower() in ["life", "health"]:
+                continue
+            filtered_timeline.append(task)
+
+        # Number the schedule items
+        for i, task in enumerate(filtered_timeline, 1):
             start = task.get("start_time", "")
             end = task.get("end_time", "")
             text = task.get("text", "")
-            category = task.get("category", "")
 
             # Format time range
             if start and end:
@@ -282,21 +293,13 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
             else:
                 time_str = "All day"
 
-            # Check if this is upcoming or past
-            task_hour = int(start.split(":")[0]) if start else 0
-            is_past = task_hour < current_hour and not show_all
-
-            # Skip past Life/Health tasks in check-ins (they happened automatically)
-            if is_past and (category or "").lower() in ["life", "health"]:
-                continue
-
             # Mark done tasks
             done_mark = " ✅" if task.get("done") else ""
 
-            lines.append(f"│ {time_str}  {text}{done_mark}")
+            lines.append(f"{i}. {time_str}  {text}{done_mark}")
 
-        lines.append("└─────────────────────────────")
-        lines.append("")
+        # Separator line between sections
+        lines.append("\n─────────────────────────────")
 
     # Actionable tasks section (numbered for easy completion)
     actionable = schedule.get("actionable_tasks", [])
@@ -332,7 +335,7 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
                 time_str = ""
             lines.append(f"{i}. {task.get('text', '')}{time_str}")
 
-        lines.append("\n→ Mark done: \"1 3\" | Edit: \"edit 1\"")
+        lines.append("\n→ Mark done: \"1 3\"")
 
     # Show completed tasks with their own section
     if finished:
@@ -1074,6 +1077,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     parsed = parse_task_with_ai(text, TIMEZONE)
     logger.info(f"AI Parsed task: {parsed}")
 
+    # Check for conflicts (tasks at the same time on the same date)
+    conflict_warning = ""
+    if parsed.get("date") and parsed.get("start_time"):
+        existing_tasks = habit_handler.get_all_reminders(for_date=parsed["date"])
+        for existing in existing_tasks:
+            if existing.get("start_time") == parsed["start_time"]:
+                conflict_warning = f"\n\n⚠️ Note: You already have \"{existing['text']}\" at {parsed['start_time']}"
+                break
+
     # Create the reminder in Notion
     result = habit_handler.create_reminder(
         text=parsed.get("task", text),
@@ -1085,6 +1097,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
     if result["success"]:
+        task_id = result.get("page_id")
+
         # Build confirmation message
         lines = ["✅ 已添加任务！", ""]
         if parsed.get("start_time"):
@@ -1096,7 +1110,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             lines.append(f"• 日期：{parsed['date']}")
         lines.append(f"• 事项：{parsed.get('task', text)}")
         lines.append(f"• 类别：{parsed.get('category', 'Other')}")
-        await update.message.reply_text("\n".join(lines))
+
+        if conflict_warning:
+            lines.append(conflict_warning)
+
+        # Add Edit button
+        keyboard = [[
+            InlineKeyboardButton("✏️ Edit", callback_data=f"edit_menu_{task_id}"),
+            InlineKeyboardButton("🗑 Delete", callback_data=f"edit_delete_{task_id}"),
+        ]]
+        markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text("\n".join(lines), reply_markup=markup)
     else:
         await update.message.reply_text(f"保存失败: {result.get('error', 'Unknown error')}")
 
@@ -1123,8 +1148,17 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         # Extract task_id from most edit callbacks
         parts = data.split("_")
 
+        # Show edit menu (from task creation confirmation)
+        if data.startswith("edit_menu_"):
+            task_id = "_".join(parts[2:])
+            editing_task = {"id": task_id, "task": {}}
+            await query.edit_message_text(
+                text="Select what to change:",
+                reply_markup=build_edit_menu(task_id, {})
+            )
+
         # Show date picker
-        if data.startswith("edit_date_"):
+        elif data.startswith("edit_date_"):
             task_id = "_".join(parts[2:])
             await query.edit_message_text(
                 text="Select new date:",
