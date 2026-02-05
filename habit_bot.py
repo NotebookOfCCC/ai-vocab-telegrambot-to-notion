@@ -335,13 +335,42 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
         lines.append("")
         lines.append("Reply with numbers to mark done (e.g., \"1 3\")")
 
-    # Show completed count
+    # Show completed tasks with their own section
     if finished:
-        lines.append(f"\n✅ Completed: {len(finished)}/{len(actionable)} tasks")
+        # Sort finished tasks by time too
+        finished.sort(key=get_sort_time)
+
+        lines.append("")
+        lines.append("✅ Tasks completed:")
+        for i, task in enumerate(finished, 1):
+            emoji = get_category_emoji(task.get("category"))
+            start = task.get("start_time", "")
+            end = task.get("end_time", "")
+            if start and end:
+                time_str = f" {start}-{end}"
+            elif start:
+                time_str = f" {start}"
+            else:
+                time_str = ""
+            lines.append(f"  {i}. {emoji} {task.get('text', '')}{time_str}")
+
+        # Encouraging message based on progress
+        total = len(actionable)
+        done = len(finished)
+        if done > 0 and unfinished:
+            pct = int((done / total) * 100)
+            if pct >= 75:
+                lines.append(f"\n🔥 Almost there! {done}/{total} done ({pct}%)")
+            elif pct >= 50:
+                lines.append(f"\n💪 Great progress! {done}/{total} done ({pct}%)")
+            elif pct >= 25:
+                lines.append(f"\n👍 Good start! {done}/{total} done ({pct}%)")
+            else:
+                lines.append(f"\n📈 Keep going! {done}/{total} done ({pct}%)")
 
     # All done message
-    if not unfinished:
-        lines.append("\n🎉 All tasks done today! Great work!")
+    if not unfinished and actionable:
+        lines.append("\n🎉 All tasks done today! Amazing work!")
 
     return "\n".join(lines)
 
