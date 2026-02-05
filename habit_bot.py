@@ -1,20 +1,19 @@
 """
-Daily Habit Reminder Bot
+Daily Task Reminder Bot
 
 A simplified Telegram bot for daily task reminders with:
 - Consolidated schedule view (one message with timeline + tasks)
 - Smart category handling (Life/Health tasks show in timeline only)
 - Number-based task completion (reply "1 3" to mark tasks done)
+- AI-powered natural language task parsing (Haiku)
 - Evening wind-down reminders
 - Monthly auto-cleanup of old tasks
 - Integration with Notion Calendar for time blocking
 
 All tasks come from Notion databases (Recurring Blocks + Reminders).
-No more built-in habits or video recommendations.
 
 Commands:
-- /habits: View today's consolidated schedule
-- /blocks: Create recurring time blocks
+- /tasks: View today's consolidated schedule
 - /stop, /resume: Pause/resume reminders
 - /status: Bot status
 
@@ -27,7 +26,8 @@ Environment variables required:
 - NOTION_API_KEY: Notion integration token
 - HABITS_TRACKING_DB_ID: Notion database for daily tracking
 - HABITS_REMINDERS_DB_ID: Notion database for reminders/tasks
-- YOUTUBE_API_KEY: YouTube Data API key (optional)
+- RECURRING_BLOCKS_DB_ID: Notion database for recurring time blocks (optional)
+- ANTHROPIC_API_KEY: Claude API key for AI task parsing (optional)
 - TIMEZONE: Timezone for scheduling (default: Europe/London)
 """
 import os
@@ -38,7 +38,6 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from habit_handler import HabitHandler
-from youtube_handler import YouTubeHandler
 from telegram.ext import MessageHandler, filters
 import anthropic
 from datetime import datetime, timedelta
@@ -61,7 +60,6 @@ NOTION_KEY = os.getenv("NOTION_API_KEY")
 TRACKING_DB_ID = os.getenv("HABITS_TRACKING_DB_ID")
 REMINDERS_DB_ID = os.getenv("HABITS_REMINDERS_DB_ID")
 RECURRING_BLOCKS_DB_ID = os.getenv("RECURRING_BLOCKS_DB_ID")  # Optional: Notion DB for recurring blocks
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 
@@ -255,7 +253,16 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
         lines.append("📝 Tasks needing action:")
         for i, task in enumerate(unfinished, 1):
             emoji = get_category_emoji(task.get("category"))
-            lines.append(f"  {i}. {emoji} {task.get('text', '')}")
+            # Format time for actionable tasks
+            start = task.get("start_time", "")
+            end = task.get("end_time", "")
+            if start and end:
+                time_str = f" {start}-{end}"
+            elif start:
+                time_str = f" {start}"
+            else:
+                time_str = ""
+            lines.append(f"  {i}. {emoji} {task.get('text', '')}{time_str}")
 
         lines.append("")
         lines.append("Reply with numbers to mark done (e.g., \"1 3\")")
@@ -430,14 +437,14 @@ Send natural language like "4pm to 5pm job application"
 AI parses date, time, category automatically.
 
 Commands:
-/habits - Today's schedule
+/tasks - Today's schedule
 /stop /resume /status"""
 
     await update.message.reply_text(info_message)
 
 
-async def habits_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /habits command - show today's consolidated schedule."""
+async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /tasks command - show today's consolidated schedule."""
     if str(update.effective_user.id) != HABITS_USER_ID:
         await update.message.reply_text("Sorry, this bot is private.")
         return
@@ -499,7 +506,7 @@ Timezone: {TIMEZONE}
 Scheduled jobs: {len(jobs)}
 Task parser: {ai_status}
 
-Commands: /habits /stop /resume"""
+Commands: /tasks /stop /resume"""
 
     await update.message.reply_text(message)
 
@@ -799,7 +806,7 @@ def main():
 
     # Add handlers
     application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("habits", habits_command))
+    application.add_handler(CommandHandler("tasks", tasks_command))
     # video and week commands disabled
     application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CommandHandler("resume", resume_command))

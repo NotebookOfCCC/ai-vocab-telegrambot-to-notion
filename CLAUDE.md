@@ -8,7 +8,7 @@ A 3-bot Telegram ecosystem for English vocabulary learning with AI-powered analy
 main.py (Entry Point)
 ├── bot.py (Vocab Learner Bot) + ai_handler.py + notion_handler.py
 ├── review_bot.py (Spaced Repetition) + notion_handler.py
-└── habit_bot.py (Daily Habits) + habit_handler.py + task_parser.py + youtube_handler.py
+└── habit_bot.py (Task Bot) + habit_handler.py + task_parser.py
 ```
 
 ## Bots Overview
@@ -29,8 +29,8 @@ main.py (Entry Point)
 - **Multi-database support**: Can query from multiple Notion databases
 - **No API cost** (just Notion queries)
 
-### 3. Habit Bot (`habit_bot.py`)
-- **Consolidated schedule view** - One message with timeline + actionable tasks
+### 3. Task Bot (`habit_bot.py`)
+- **Consolidated schedule view** - One message with timeline + actionable tasks (with time shown)
 - **Smart category handling** - Life/Health tasks (Sleep, Family Time) show in timeline only
 - **Number-based completion** - Reply "1 3" to mark tasks #1 and #3 as done
 - **AI-powered task parsing** - Uses Haiku for accurate natural language understanding (~$0.001/task)
@@ -45,11 +45,10 @@ main.py (Entry Point)
 | File | Purpose | API Cost |
 |------|---------|----------|
 | `ai_handler.py` | Claude API for vocab analysis | ~$0.01/word |
-| `task_parser.py` | Regex task parsing | **FREE** |
+| `task_parser.py` | Regex task parsing (fallback) | **FREE** |
 | `notion_handler.py` | Notion database operations (with retry) | FREE |
-| `habit_handler.py` | Habit tracking, task management | FREE |
-| `youtube_handler.py` | YouTube video fetching | FREE |
-| `video_config.json` | YouTube sources configuration | - |
+| `habit_handler.py` | Task tracking, task management | FREE |
+| `schedule_config.json` | Recurring blocks configuration | - |
 
 ## Cost Optimization
 
@@ -63,10 +62,11 @@ main.py (Entry Point)
   - Modifications: Claude Sonnet 3.5 (`claude-3-5-sonnet-20241022`) - ~2x cheaper
   - Entry detection: Claude Sonnet 3.5 - ~2x cheaper
 
-### Habit Bot (task_parser.py)
-- **100% FREE** - uses regex patterns, no API
+### Task Bot (habit_bot.py)
+- **Primary**: Claude Haiku for AI parsing (~$0.001/task)
+- **Fallback**: Regex patterns (task_parser.py) if no API key
 - Parses Chinese: 今天, 明天, 后天, 周六, 上午/下午/晚上 + 时间
-- Parses English: today, tomorrow, saturday, 3pm
+- Parses English: today, tomorrow, saturday, 3pm, "4pm to 5pm"
 - Auto-infers category: Work, Life, Health, Study, Other
 - Auto-infers priority: High, Mid, Low
 
@@ -93,12 +93,9 @@ main.py (Entry Point)
 - Last Reviewed (Date) - most recent review date
 ```
 
-### Habit Tracking Database
+### Task Tracking Database
 ```
 - Date (Title) - format: YYYY-MM-DD
-- Listened (Checkbox) - listened to English content
-- Spoke (Checkbox) - spoke English
-- Video (Rich text) - stores YouTube URL
 - Tasks (Rich text) - JSON array of completed task IDs
 ```
 
@@ -123,9 +120,8 @@ REVIEW_BOT_TOKEN=         # Review bot token
 HABITS_BOT_TOKEN=         # Habit bot token
 
 # API Keys
-ANTHROPIC_API_KEY=        # Claude API key (for vocab analysis)
+ANTHROPIC_API_KEY=        # Claude API key (for vocab analysis + task parsing)
 NOTION_API_KEY=           # Notion integration token
-YOUTUBE_API_KEY=          # Optional: YouTube API key
 
 # Notion Databases
 NOTION_DATABASE_ID=       # Primary vocabulary database ID (for saving)
@@ -169,8 +165,8 @@ Intervals:
 - `/due` - Show review stats (overdue, due today, new, total)
 - `/stop`, `/resume`, `/status`
 
-### Habit Bot
-- `/habits` - Today's consolidated schedule (timeline + tasks)
+### Task Bot
+- `/tasks` - Today's consolidated schedule (timeline + tasks with time)
 - `/stop`, `/resume`, `/status` - Pause/resume reminders
 - **Mark done**: Reply "1 3" to mark tasks #1 and #3 as done
 - **Add task**: Send natural language like "4pm to 5pm job application" (AI parses it)
@@ -222,7 +218,7 @@ Then add the database ID to your `.env`:
 RECURRING_BLOCKS_DB_ID=your_database_id_here
 ```
 
-**Schedule:** Blocks are created daily at 6:00 AM. Use `/blocks` to create manually.
+**Schedule:** Blocks are created automatically at 6:00 AM daily for the next 7 days.
 
 ## Development Notes
 

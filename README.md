@@ -1,6 +1,6 @@
 # Vocab Learning Telegram Bot
 
-A Telegram bot system that helps you learn English vocabulary with AI-powered explanations, automatic saving to Notion, scheduled reviews, and daily habit tracking.
+A Telegram bot system that helps you learn English vocabulary with AI-powered explanations, automatic saving to Notion, scheduled reviews, and daily task management with Notion Calendar integration.
 
 ## Features
 
@@ -22,13 +22,14 @@ A Telegram bot system that helps you learn English vocabulary with AI-powered ex
 - **Multi-Database**: Supports querying from multiple Notion databases
 - **Reliable Fetching**: Auto-retry (3x with exponential backoff) for Notion API errors
 
-### Habit Bot (`habit_bot.py`)
-- **Natural Language Tasks**: Just type "明天下午3点开会" - automatically parses time, priority, category (FREE - no API cost!)
-- **Daily Reminders**: Morning video + tasks, check-ins throughout the day
-- **YouTube Integration**: Random videos from configured channels/playlists
-- **Habit Tracking**: Track listening and speaking practice in Notion
-- **Custom Tasks**: Add tasks via natural language or `/add` command
-- **Weekly Summary**: Progress report every Sunday
+### Task Bot (`habit_bot.py`)
+- **AI Task Parsing**: Natural language task input with Claude Haiku - just type "4pm to 5pm job application" or "明天下午3点开会"
+- **Consolidated Schedule**: One message showing timeline + actionable tasks
+- **Notion Calendar Integration**: Recurring time blocks sync to Notion Calendar for time blocking
+- **Smart Categories**: Life/Health tasks (Family Time, Sleep) show in timeline only, no action needed
+- **Number-based Completion**: Reply "1 3" to mark tasks #1 and #3 as done
+- **Recurring Blocks**: Auto-creates next 7 days of recurring time blocks (Sleep, Family Time, Speaking Practice)
+- **Auto-cleanup**: Monthly cleanup of old completed tasks
 
 ## Cost Optimization
 
@@ -36,14 +37,14 @@ This bot is optimized to minimize API costs:
 
 | Feature | Cost |
 |---------|------|
-| Habit Bot task parsing | **FREE** (regex-based) |
+| Task Bot AI parsing (Haiku) | ~$0.001 per task |
 | Common words (~300) | **FREE** (skipped) |
 | Review Bot | **FREE** (no AI) |
 | Vocab analysis (Sonnet 4) | ~$0.01-0.02 per word |
 | Modifications (Sonnet 3.5) | ~$0.005 per call |
 | Entry detection (Sonnet 3.5) | ~$0.002 per call |
 
-**Model selection**: Main analysis uses Sonnet 4 for quality, secondary tasks use Sonnet 3.5 (~2x cheaper).
+**Model selection**: Main analysis uses Sonnet 4 for quality, secondary tasks use Sonnet 3.5 (~2x cheaper), task parsing uses Haiku (very cheap).
 
 **Estimated cost**: ~£0.40-0.70/day with normal usage
 
@@ -54,13 +55,12 @@ This bot is optimized to minimize API costs:
 Create 3 bots via `@BotFather` on Telegram:
 1. **Vocab Learner Bot** - for learning new vocabulary
 2. **Review Bot** - for scheduled reviews
-3. **Habit Bot** - for daily reminders
+3. **Task Bot** - for daily task management
 
 ### Step 2: Get API Keys
 
 1. **Claude API Key**: [console.anthropic.com](https://console.anthropic.com)
 2. **Notion Integration**: [notion.so/my-integrations](https://www.notion.so/my-integrations)
-3. **YouTube API Key** (optional): [Google Cloud Console](https://console.cloud.google.com) - Enable "YouTube Data API v3"
 
 ### Step 3: Set Up Notion Databases
 
@@ -76,23 +76,27 @@ Required properties:
 - Next Review (Date) - for spaced repetition
 - Last Reviewed (Date) - for tracking
 
-#### Habit Tracking Database
+#### Task Tracking Database
 Required properties:
 - Date (Title) - format: YYYY-MM-DD
-- Listened (Checkbox)
-- Spoke (Checkbox)
-- Video (Text) - stores video URL
 - Tasks (Text) - stores completed task IDs as JSON
 
 #### Reminders Database
 Required properties:
 - Reminder (Title) - task description
 - Enabled (Checkbox) - whether task is active
-- Date (Date) - optional, for time-specific reminders
+- Date (Date) - supports datetime for time-specific tasks
 
-Optional properties (for natural language parsing):
+Optional properties:
 - Priority (Select): High, Mid, Low
 - Category (Select): Work, Life, Health, Study, Other
+
+#### Recurring Blocks Database (Optional - for Notion Calendar)
+Required properties:
+- Reminder (Title) - block name (e.g., "Family Time", "Sleep")
+- Date (Date) - with time for calendar display
+- Enabled (Checkbox)
+- Category (Select): Life, Health, Study, Work, Other
 
 ### Step 4: Configure Environment
 
@@ -113,39 +117,18 @@ ADDITIONAL_DATABASE_IDS=  # Optional: old_db_1,old_db_2 for multi-database revie
 REVIEW_HOURS=8,13,17,19,22  # Optional: review schedule hours
 WORDS_PER_BATCH=20          # Optional: words per review batch
 
-# Habit Bot
-HABITS_BOT_TOKEN=your_habit_bot_token
+# Task Bot
+HABITS_BOT_TOKEN=your_task_bot_token
 HABITS_USER_ID=your_telegram_user_id
 HABITS_REMINDERS_DB_ID=your_reminders_database_id
 HABITS_TRACKING_DB_ID=your_tracking_database_id
-YOUTUBE_API_KEY=your_youtube_api_key
+RECURRING_BLOCKS_DB_ID=your_recurring_blocks_database_id  # Optional
 
 # Timezone
 TIMEZONE=Europe/London
 ```
 
-### Step 5: Configure YouTube Playlists (Optional)
-
-Edit `video_config.json` to add your preferred channels:
-
-```json
-{
-  "playlists": [
-    {
-      "name": "Channel Name",
-      "channel_handle": "@YouTubeHandle",
-      "enabled": true
-    },
-    {
-      "name": "Playlist Name",
-      "playlist_id": "PLxxxxxx",
-      "enabled": true
-    }
-  ]
-}
-```
-
-### Step 6: Install & Run
+### Step 5: Install & Run
 
 ```bash
 # Install dependencies
@@ -157,7 +140,7 @@ python main.py
 # Or run individual bots
 python bot.py         # Vocab learner
 python review_bot.py  # Scheduled reviews
-python habit_bot.py   # Daily habits
+python habit_bot.py   # Task management
 ```
 
 ## Commands
@@ -175,16 +158,13 @@ python habit_bot.py   # Daily habits
 - `/stop` / `/resume` - Pause/resume scheduled reviews
 - `/status` - Bot status
 
-### Habit Bot
+### Task Bot
 - `/start` - Bot info
-- `/habits` - Today's tasks with Done/Not Yet buttons
-- `/add <task>` - Add a new task manually
-- `/tmr <task>` - Add task for tomorrow
-- `/video` - Get a random practice video
-- `/week` - Weekly progress summary
+- `/tasks` - Today's consolidated schedule (timeline + actionable tasks)
 - `/stop` / `/resume` - Pause/resume reminders
 - `/status` - Bot status
-- **Or just type naturally**: "明天下午3点开会" → auto-parsed!
+- **Mark done**: Reply with numbers like "1 3" to mark tasks done
+- **Add tasks**: Send natural language like "4pm to 5pm job application"
 
 ## Spaced Repetition Algorithm
 
@@ -192,9 +172,9 @@ The review bot uses a modified SM-2 algorithm:
 
 | Response | Next Review | Count Change |
 |----------|-------------|--------------|
-| Again (🔴) | Tomorrow | Reset to 0 |
-| Good (🟡) | 2^count days (1→2→4→8→16→32→60 max) | +1 |
-| Easy (🟢) | 2^(count+1) days | +2 |
+| Again (red circle) | Tomorrow | Reset to 0 |
+| Good (yellow circle) | 2^count days (1-2-4-8-16-32-60 max) | +1 |
+| Easy (green circle) | 2^(count+1) days | +2 |
 
 Priority scoring ensures new words and due words are mixed equally.
 
@@ -215,6 +195,20 @@ For multiple old databases, use comma-separated IDs:
 ```bash
 ADDITIONAL_DATABASE_IDS=old_db_1,old_db_2,old_db_3
 ```
+
+## Notion Calendar Integration
+
+The Task Bot creates recurring time blocks that sync to Notion Calendar:
+
+1. Set up the Recurring Blocks Database (see Step 3)
+2. Add `RECURRING_BLOCKS_DB_ID` to your `.env`
+3. The bot auto-creates blocks for the next 7 days at 6:00 AM daily
+4. View your schedule in Notion Calendar for time blocking
+
+Example recurring blocks:
+- Sleep (1:00 AM - 6:00 AM) - Health
+- Family Time (5:00 PM - 10:00 PM) - Life
+- Speaking Practice (11:00 AM - 12:00 PM, Mon-Fri) - Study
 
 ## Deployment
 
@@ -238,18 +232,18 @@ This runs all three bots as separate processes.
 ai-vocab-telegram-bot/
 ├── bot.py              # Vocab learner bot - AI analysis and Notion saving
 ├── review_bot.py       # Review bot - spaced repetition scheduling
-├── habit_bot.py        # Habit bot - daily reminders and tracking
+├── habit_bot.py        # Task bot - daily task management and reminders
 ├── main.py             # Entry point - runs all bots together
 ├── ai_handler.py       # Claude AI integration for vocab analysis
 ├── notion_handler.py   # Notion API for vocab database (with retry)
-├── habit_handler.py    # Notion API for habit/reminder databases
-├── youtube_handler.py  # YouTube API for fetching videos
-├── task_parser.py      # FREE regex-based task parser (no API)
-├── video_config.json   # YouTube channels/playlists configuration
+├── habit_handler.py    # Notion API for task/reminder databases
+├── task_parser.py      # Regex-based task parser (fallback if no AI)
+├── schedule_config.json # Recurring blocks configuration
 ├── requirements.txt    # Python dependencies
 ├── .env.example        # Environment template
 ├── CLAUDE.md           # AI assistant documentation
-└── README.md           # This file
+├── README.md           # This file
+└── archive/            # Unused files (youtube_handler.py, video_config.json)
 ```
 
 ## Schedule
@@ -257,7 +251,10 @@ ai-vocab-telegram-bot/
 ### Review Bot
 - 8:00, 13:00, 19:00, 22:00 - Vocabulary reviews
 
-### Habit Bot
-- 8:00 - Morning video + reminders
-- 12:00, 19:00, 22:00 - Practice check-ins
-- Sunday 20:00 - Weekly summary
+### Task Bot
+- 6:00 AM - Create recurring blocks (next 7 days)
+- 8:00 AM - Morning schedule
+- 12:00 PM - Check-in
+- 7:00 PM - Check-in
+- 10:00 PM - Evening wind-down
+- 1st of month - Auto-cleanup old tasks
