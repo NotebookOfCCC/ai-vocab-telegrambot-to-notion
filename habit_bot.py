@@ -274,8 +274,8 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
             task_hour = int(start.split(":")[0]) if start else 0
             is_past = task_hour < current_hour and not show_all
 
-            # Skip past Life/Health tasks in check-ins
-            if is_past and (category or "").lower() in ["life", "health"]:
+            # Skip past Block tasks in check-ins (they're time blocks, not tasks)
+            if is_past and (category or "").lower() == "block":
                 continue
             filtered_timeline.append(task)
 
@@ -284,6 +284,7 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
             start = task.get("start_time", "")
             end = task.get("end_time", "")
             text = task.get("text", "")
+            category = (task.get("category") or "").lower()
 
             # Format time range
             if start and end:
@@ -293,10 +294,15 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
             else:
                 time_str = "All day"
 
-            # Mark done tasks
-            done_mark = " ✅" if task.get("done") else ""
+            # Mark done tasks or show block icon
+            if category == "block":
+                suffix = " ☀️"  # Sun icon for time blocks
+            elif task.get("done"):
+                suffix = " ✅"
+            else:
+                suffix = ""
 
-            lines.append(f"{i}. {time_str}  {text}{done_mark}")
+            lines.append(f"{i}. {time_str}  {text}{suffix}")
 
         # Separator line between sections
         lines.append("\n─────────────────────────────")
@@ -371,6 +377,119 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
     # All done message
     if not unfinished and actionable:
         lines.append("\n🎉 All tasks done for today!")
+
+    return "\n".join(lines)
+
+
+def build_schedule_message_for_date(schedule: dict, date_str: str) -> str:
+    """Build schedule message for a specific date (for date selector).
+
+    Args:
+        schedule: Output from habit_handler.get_schedule_for_date()
+        date_str: Date in YYYY-MM-DD format
+
+    Returns:
+        Formatted message string
+    """
+    global current_actionable_tasks
+
+    lines = []
+
+    # Format date display
+    from datetime import datetime
+    date_display = datetime.strptime(date_str, "%Y-%m-%d").strftime("%b %d (%a)")
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    if date_str == today_str:
+        lines.append(f"📅 Schedule ({date_display}) - Today:")
+    else:
+        lines.append(f"📅 Schedule ({date_display}):")
+
+    # Timeline section
+    timeline = schedule.get("timeline", [])
+    if timeline:
+        for i, task in enumerate(timeline, 1):
+            start = task.get("start_time", "")
+            end = task.get("end_time", "")
+            text = task.get("text", "")
+            category = (task.get("category") or "").lower()
+
+            if start and end:
+                time_str = f"{start}-{end}"
+            elif start:
+                time_str = start
+            else:
+                time_str = "All day"
+
+            # Mark done tasks or show block icon
+            if category == "block":
+                suffix = " ☀️"
+            elif task.get("done"):
+                suffix = " ✅"
+            else:
+                suffix = ""
+
+            lines.append(f"{i}. {time_str}  {text}{suffix}")
+
+        lines.append("\n─────────────────────────────")
+    else:
+        lines.append("No scheduled items.")
+        lines.append("")
+
+    # Actionable tasks section
+    actionable = schedule.get("actionable_tasks", [])
+    unfinished = [t for t in actionable if not t.get("done")]
+    finished = [t for t in actionable if t.get("done")]
+
+    # Sort by time
+    def get_sort_time(task):
+        start = task.get("start_time", "")
+        if start:
+            try:
+                return int(start.replace(":", ""))
+            except:
+                return 9999
+        return 9999
+
+    unfinished.sort(key=get_sort_time)
+
+    # Only store actionable tasks if viewing today
+    if date_str == today_str:
+        current_actionable_tasks = unfinished.copy()
+
+    if unfinished:
+        lines.append("\n📝 Tasks needing action:")
+        for i, task in enumerate(unfinished, 1):
+            start = task.get("start_time", "")
+            end = task.get("end_time", "")
+            if start and end:
+                time_str = f" {start}-{end}"
+            elif start:
+                time_str = f" {start}"
+            else:
+                time_str = ""
+            lines.append(f"{i}. {task.get('text', '')}{time_str}")
+
+        if date_str == today_str:
+            lines.append("\n→ Mark done: \"1 3\"")
+
+    # Completed tasks
+    if finished:
+        finished.sort(key=get_sort_time)
+        lines.append("\n✅ Tasks completed:")
+        for i, task in enumerate(finished, 1):
+            start = task.get("start_time", "")
+            end = task.get("end_time", "")
+            if start and end:
+                time_str = f" {start}-{end}"
+            elif start:
+                time_str = f" {start}"
+            else:
+                time_str = ""
+            lines.append(f"{i}. {task.get('text', '')}{time_str}")
+
+    if not unfinished and not finished:
+        lines.append("No tasks for this day.")
 
     return "\n".join(lines)
 
@@ -651,14 +770,18 @@ Commands:
 
 
 async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /tasks command - show today's consolidated schedule."""
+    """Handle /tasks command - show today's schedule with date selector."""
     if str(update.effective_user.id) != HABITS_USER_ID:
         await update.message.reply_text("Sorry, this bot is private.")
         return
 
+    # Show today's schedule with date selector buttons
     schedule = habit_handler.get_today_schedule()
     message = build_schedule_message(schedule, show_all=True, is_morning=False)
-    await update.message.reply_text(message)
+
+    # Add date selector buttons
+    keyboard = build_date_selector_keyboard()
+    await update.message.reply_text(message, reply_markup=keyboard)
 
 
 
@@ -870,6 +993,45 @@ def build_category_picker(task_id: str) -> InlineKeyboardMarkup:
     if row:
         rows.append(row)
     rows.append([InlineKeyboardButton("← Back", callback_data=f"edit_back_{task_id}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def build_date_selector_keyboard(selected_date: str = None) -> InlineKeyboardMarkup:
+    """Build date selector buttons for viewing different days' schedules."""
+    today = datetime.now()
+    rows = []
+
+    # First row: Today, Tomorrow
+    row1 = []
+    for i in range(2):
+        d = today + timedelta(days=i)
+        date_str = d.strftime("%Y-%m-%d")
+        if i == 0:
+            label = "Today"
+        else:
+            label = "Tomorrow"
+
+        # Mark selected date
+        if selected_date == date_str or (selected_date is None and i == 0):
+            label = f"• {label}"
+
+        row1.append(InlineKeyboardButton(label, callback_data=f"tasks_date_{date_str}"))
+    rows.append(row1)
+
+    # Second row: Next 5 days
+    row2 = []
+    for i in range(2, 7):
+        d = today + timedelta(days=i)
+        date_str = d.strftime("%Y-%m-%d")
+        label = d.strftime("%a")  # Mon, Tue, etc.
+
+        if selected_date == date_str:
+            label = f"• {label}"
+
+        row2.append(InlineKeyboardButton(label, callback_data=f"tasks_date_{date_str}"))
+        if len(row2) == 5:
+            rows.append(row2)
+
     return InlineKeyboardMarkup(rows)
 
 
@@ -1145,6 +1307,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text("\n".join(lines), reply_markup=markup)
     else:
         await update.message.reply_text(f"保存失败: {result.get('error', 'Unknown error')}")
+
+
+async def handle_tasks_date_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle date selection for viewing different days' schedules."""
+    query = update.callback_query
+    await query.answer()
+
+    if str(query.from_user.id) != HABITS_USER_ID:
+        return
+
+    # Extract date from callback data: tasks_date_YYYY-MM-DD
+    date_str = query.data.replace("tasks_date_", "")
+
+    # Get schedule for the selected date
+    schedule = habit_handler.get_schedule_for_date(date_str)
+
+    # Build message with the selected date
+    message = build_schedule_message_for_date(schedule, date_str)
+
+    # Update keyboard with selected date highlighted
+    keyboard = build_date_selector_keyboard(selected_date=date_str)
+
+    await query.edit_message_text(message, reply_markup=keyboard)
 
 
 async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1450,6 +1635,7 @@ def main():
 
     # Callback handlers - specific patterns first
     application.add_handler(CallbackQueryHandler(handle_settings_callback, pattern="^settings_"))
+    application.add_handler(CallbackQueryHandler(handle_tasks_date_callback, pattern="^tasks_date_"))
     application.add_handler(CallbackQueryHandler(handle_edit_callback, pattern="^edit_"))
     application.add_handler(CallbackQueryHandler(handle_callback))
 

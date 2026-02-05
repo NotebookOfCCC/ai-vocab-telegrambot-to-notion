@@ -1228,3 +1228,67 @@ class HabitHandler:
             "actionable_tasks": actionable_tasks,
             "completed_task_ids": completed_task_ids
         }
+
+    def get_schedule_for_date(self, date_str: str) -> dict:
+        """Get schedule for a specific date.
+
+        Args:
+            date_str: Date in YYYY-MM-DD format
+
+        Returns:
+            Dictionary with timeline, actionable_tasks, completed_task_ids
+        """
+        # Get completed tasks for this date
+        try:
+            response = self.client.databases.query(
+                database_id=self.tracking_db_id,
+                filter={
+                    "property": "Date",
+                    "title": {"equals": date_str}
+                }
+            )
+            if response.get("results"):
+                page = response["results"][0]
+                habit = self._parse_habit_page(page)
+                completed_task_ids = habit.get("completed_tasks", [])
+            else:
+                completed_task_ids = []
+        except Exception:
+            completed_task_ids = []
+
+        # Get reminders for the specified date
+        reminders = self.get_all_reminders(for_date=date_str)
+
+        # Categorize tasks
+        timeline = []
+        actionable_tasks = []
+
+        for r in reminders:
+            task = {
+                "id": r["id"],
+                "text": r["text"],
+                "start_time": r.get("start_time"),
+                "end_time": r.get("end_time"),
+                "category": r.get("category"),
+                "priority": r.get("priority"),
+                "done": r["id"] in completed_task_ids,
+                "is_builtin": False
+            }
+
+            # Add to timeline if has time
+            if task["start_time"]:
+                timeline.append(task)
+
+            # Add to actionable if NOT Block category
+            category = (task.get("category") or "").lower()
+            if category != "block":
+                actionable_tasks.append(task)
+
+        # Sort timeline by start_time
+        timeline.sort(key=lambda x: x.get("start_time") or "99:99")
+
+        return {
+            "timeline": timeline,
+            "actionable_tasks": actionable_tasks,
+            "completed_task_ids": completed_task_ids
+        }
