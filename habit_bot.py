@@ -376,17 +376,17 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
 
 
 def calculate_daily_score(schedule: dict) -> dict:
-    """Calculate daily score based on Study/Work task completion.
+    """Calculate daily score based on all actionable task completion.
 
-    Only grades Study and Work categories. Life/Health are excluded.
+    All categories are graded except "Block" (which isn't in actionable_tasks anyway).
 
     Returns:
         Dictionary with completed, total, percentage, grade
     """
     actionable = schedule.get("actionable_tasks", [])
 
-    # Filter to only Study and Work categories
-    gradeable = [t for t in actionable if (t.get("category") or "").lower() in ["study", "work"]]
+    # All actionable tasks are gradeable (Block is already excluded)
+    gradeable = actionable
 
     if not gradeable:
         return {"completed": 0, "total": 0, "percentage": 100, "grade": "N/A"}
@@ -430,7 +430,7 @@ def build_evening_message(schedule: dict) -> str:
     if score["total"] > 0:
         grade_emoji = {"A": "🌟", "B": "👍", "C": "📈", "D": "💪"}.get(score["grade"], "")
         lines.append(f"📊 Today's Score: {score['grade']} {grade_emoji}")
-        lines.append(f"   Study/Work tasks: {score['completed']}/{score['total']} ({score['percentage']}%)")
+        lines.append(f"   Tasks: {score['completed']}/{score['total']} ({score['percentage']}%)")
         lines.append("")
 
     if finished:
@@ -569,7 +569,7 @@ async def send_weekly_summary():
 
         # Daily breakdown
         if stats['daily_scores']:
-            lines.append("\n📅 Daily Scores (Study/Work):")
+            lines.append("\n📅 Daily Scores:")
             for day in stats['daily_scores']:
                 grade_emoji = {"A": "🌟", "B": "👍", "C": "📈", "D": "💪", "N/A": "➖"}.get(day['grade'], "")
                 lines.append(f"  {day['date']}: {day['grade']} {grade_emoji} ({day['completed']}/{day['total']})")
@@ -627,10 +627,10 @@ Work done before {boundary}am counts for the previous day.
 
 📋 One Message, Full Schedule:
 Timeline + actionable tasks (sorted by time).
-Life/Health tasks (Family Time, Sleep) show in timeline only.
+Time blocks (Sleep, Family Time) show in timeline only.
 
 📊 Daily Scoring:
-Only Study/Work tasks are graded (A/B/C/D).
+All tasks are graded (A/B/C/D) except time blocks.
 
 ✅ Mark Tasks Done:
 Reply with numbers like "1 3" to mark done.
@@ -1006,7 +1006,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         success = habit_handler.update_reminder(task_id, text=text)
         editing_task = {}
         if success:
-            await update.message.reply_text(f"✅ Task updated to: {text}")
+            # Get updated task details and show full confirmation with buttons
+            task_details = habit_handler.get_reminder_by_id(task_id)
+            if task_details:
+                lines = ["✅ Task updated!", ""]
+                if task_details.get("start_time"):
+                    time_str = f"• 时间：{task_details.get('date', '')} {task_details['start_time']}"
+                    if task_details.get("end_time"):
+                        time_str += f"-{task_details['end_time']}"
+                    lines.append(time_str)
+                elif task_details.get("date"):
+                    lines.append(f"• 日期：{task_details['date']}")
+                lines.append(f"• 事项：{task_details.get('text', text)}")
+                lines.append(f"• 类别：{task_details.get('category', 'Other')}")
+
+                keyboard = [[
+                    InlineKeyboardButton("✏️ Edit", callback_data=f"edit_menu_{task_id}"),
+                    InlineKeyboardButton("🗑 Delete", callback_data=f"edit_delete_{task_id}"),
+                ]]
+                markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text("\n".join(lines), reply_markup=markup)
+            else:
+                await update.message.reply_text(f"✅ Task updated to: {text}")
         else:
             await update.message.reply_text("Failed to update task text.")
         return

@@ -339,7 +339,7 @@ class HabitHandler:
     def get_weekly_task_stats(self) -> dict:
         """Calculate 7-day task completion statistics.
 
-        Only counts Study and Work category tasks for scoring.
+        Counts all tasks except "Block" category for scoring.
 
         Returns:
             Dictionary with daily_scores, total_completed, total_tasks, streak
@@ -361,9 +361,9 @@ class HabitHandler:
                 # Get tasks for this date
                 reminders = self.get_all_reminders(for_date=date_str)
 
-                # Filter to Study/Work only
+                # Filter out Block category (all others are gradeable)
                 gradeable = [r for r in reminders
-                            if (r.get("category") or "").lower() in ["study", "work"]]
+                            if (r.get("category") or "").lower() != "block"]
 
                 # Get completed tasks for this date
                 try:
@@ -613,6 +613,63 @@ class HabitHandler:
         except Exception as e:
             logger.error(f"Error fetching all reminders: {e}")
             return []
+
+    def get_reminder_by_id(self, page_id: str) -> dict:
+        """Get a single reminder by its page ID.
+
+        Args:
+            page_id: The Notion page ID
+
+        Returns:
+            Dictionary with task details or None if not found
+        """
+        try:
+            page = self.client.pages.retrieve(page_id=page_id)
+            props = page.get("properties", {})
+
+            # Get Reminder (title)
+            reminder_prop = props.get("Reminder", {})
+            reminder_title = reminder_prop.get("title", [])
+            text = reminder_title[0]["text"]["content"] if reminder_title else ""
+
+            # Get Date
+            date_prop_name = self._get_date_property_name()
+            date_prop = props.get(date_prop_name, {})
+            date_value = date_prop.get("date", {})
+            date_str = date_value.get("start", "") if date_value else ""
+            end_str = date_value.get("end", "") if date_value else ""
+
+            # Parse times
+            start_time = None
+            end_time = None
+            if date_str and "T" in date_str:
+                start_time = date_str.split("T")[1][:5]
+            if end_str and "T" in end_str:
+                end_time = end_str.split("T")[1][:5]
+
+            # Get Category
+            category_prop = props.get("Category", {})
+            category_select = category_prop.get("select", {})
+            category = category_select.get("name") if category_select else None
+
+            # Get Priority
+            priority_prop = props.get("Priority", {})
+            priority_select = priority_prop.get("select", {})
+            priority = priority_select.get("name") if priority_select else None
+
+            return {
+                "id": page_id,
+                "text": text,
+                "date": date_str[:10] if date_str else None,
+                "start_time": start_time,
+                "end_time": end_time,
+                "category": category,
+                "priority": priority
+            }
+
+        except Exception as e:
+            logger.error(f"Error fetching reminder by ID: {e}")
+            return None
 
     def create_reminder(self, text: str, date: str = None, start_time: str = None,
                         end_time: str = None, priority: str = None, category: str = None) -> dict:
@@ -1039,14 +1096,15 @@ class HabitHandler:
                     skipped += 1
                     continue
 
-                # Create the block
+                # Create the block - always use "Block" category for recurring time blocks
+                # This ensures they show in timeline but not in "Tasks needing action"
                 result = self.create_reminder(
                     text=name,
                     date=target_str,
                     start_time=block.get("start_time"),
                     end_time=block.get("end_time"),
                     priority=block.get("priority"),
-                    category=block.get("category")
+                    category="Block"  # Override to Block category
                 )
 
                 if result.get("success"):
@@ -1156,9 +1214,10 @@ class HabitHandler:
             if task["start_time"]:
                 timeline.append(task)
 
-            # Add to actionable if NOT Life or Health category
+            # Add to actionable if NOT Block category
+            # Block = recurring time blocks (Sleep, Family Time) that can't be marked done
             category = (task.get("category") or "").lower()
-            if category not in ["life", "health"]:
+            if category != "block":
                 actionable_tasks.append(task)
 
         # Sort timeline by start_time
