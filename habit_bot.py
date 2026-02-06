@@ -253,7 +253,8 @@ def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: b
     from datetime import datetime
 
     lines = []
-    current_hour = datetime.now().hour
+    tz = pytz.timezone(task_config.get("timezone", TIMEZONE) if task_config else TIMEZONE)
+    current_hour = datetime.now(tz).hour
 
     # Timeline section with date header (combines greeting + schedule)
     timeline = schedule.get("timeline", [])
@@ -398,9 +399,9 @@ def build_schedule_message_for_date(schedule: dict, date_str: str) -> str:
     # Format date display
     from datetime import datetime
     date_display = datetime.strptime(date_str, "%Y-%m-%d").strftime("%b %d (%a)")
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    effective_today = get_effective_date()
 
-    if date_str == today_str:
+    if date_str == effective_today:
         lines.append(f"📅 Schedule ({date_display}) - Today:")
     else:
         lines.append(f"📅 Schedule ({date_display}):")
@@ -453,8 +454,8 @@ def build_schedule_message_for_date(schedule: dict, date_str: str) -> str:
 
     unfinished.sort(key=get_sort_time)
 
-    # Only store actionable tasks if viewing today
-    if date_str == today_str:
+    # Only store actionable tasks if viewing today (effective date)
+    if date_str == effective_today:
         current_actionable_tasks = unfinished.copy()
 
     if unfinished:
@@ -470,7 +471,7 @@ def build_schedule_message_for_date(schedule: dict, date_str: str) -> str:
                 time_str = ""
             lines.append(f"{i}. {task.get('text', '')}{time_str}")
 
-        if date_str == today_str:
+        if date_str == effective_today:
             lines.append("\n→ Mark done: \"1 3\"")
 
     # Completed tasks
@@ -580,8 +581,9 @@ async def send_morning_reminder():
         return
 
     try:
-        # Get today's schedule
-        schedule = habit_handler.get_today_schedule()
+        # Get today's schedule (using effective date for day boundary)
+        effective = get_effective_date()
+        schedule = habit_handler.get_today_schedule(effective_date=effective)
 
         # Build consolidated message
         message = build_schedule_message(schedule, show_all=True, is_morning=True)
@@ -610,8 +612,9 @@ async def send_practice_checkin():
         return
 
     try:
-        # Get today's schedule
-        schedule = habit_handler.get_today_schedule()
+        # Get today's schedule (using effective date for day boundary)
+        effective = get_effective_date()
+        schedule = habit_handler.get_today_schedule(effective_date=effective)
 
         # Check if all actionable tasks are done
         actionable = schedule.get("actionable_tasks", [])
@@ -649,7 +652,8 @@ async def send_evening_winddown():
         return
 
     try:
-        schedule = habit_handler.get_today_schedule()
+        effective = get_effective_date()
+        schedule = habit_handler.get_today_schedule(effective_date=effective)
         message = build_evening_message(schedule)
 
         await application.bot.send_message(
@@ -771,7 +775,8 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     # Show today's schedule with date selector buttons
-    schedule = habit_handler.get_today_schedule()
+    effective = get_effective_date()
+    schedule = habit_handler.get_today_schedule(effective_date=effective)
     message = build_schedule_message(schedule, show_all=True, is_morning=False)
 
     # Add date selector buttons
@@ -1019,40 +1024,60 @@ def build_category_picker(task_id: str) -> InlineKeyboardMarkup:
 
 
 def build_date_selector_keyboard(selected_date: str = None) -> InlineKeyboardMarkup:
-    """Build date selector buttons for viewing different days' schedules."""
-    today = datetime.now()
+    """Build date selector buttons: Today (✅), Tomorrow, Others."""
+    effective_today = get_effective_date()
+    tz = pytz.timezone(task_config.get("timezone", TIMEZONE) if task_config else TIMEZONE)
+    now = datetime.now(tz)
+
+    # Calculate tomorrow relative to effective date
+    effective_dt = datetime.strptime(effective_today, "%Y-%m-%d")
+    tomorrow_str = (effective_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # Determine which is selected (default to today)
+    if selected_date is None:
+        selected_date = effective_today
+
+    # Build labels with selection indicator
+    today_label = "✅ Today" if selected_date == effective_today else "Today"
+    tomorrow_label = "✅ Tomorrow" if selected_date == tomorrow_str else "Tomorrow"
+
+    # Check if selected date is one of the "others"
+    is_other_selected = selected_date not in (effective_today, tomorrow_str)
+    others_label = "✅ Others" if is_other_selected else "Others"
+
+    row = [
+        InlineKeyboardButton(today_label, callback_data=f"tasks_date_{effective_today}"),
+        InlineKeyboardButton(tomorrow_label, callback_data=f"tasks_date_{tomorrow_str}"),
+        InlineKeyboardButton(others_label, callback_data="tasks_others"),
+    ]
+
+    return InlineKeyboardMarkup([row])
+
+
+def build_others_date_keyboard(selected_date: str = None) -> InlineKeyboardMarkup:
+    """Build expanded date selector showing next 5 days (after tomorrow)."""
+    effective_today = get_effective_date()
+    effective_dt = datetime.strptime(effective_today, "%Y-%m-%d")
+
     rows = []
-
-    # First row: Today, Tomorrow
-    row1 = []
-    for i in range(2):
-        d = today + timedelta(days=i)
-        date_str = d.strftime("%Y-%m-%d")
-        if i == 0:
-            label = "Today"
-        else:
-            label = "Tomorrow"
-
-        # Mark selected date
-        if selected_date == date_str or (selected_date is None and i == 0):
-            label = f"• {label}"
-
-        row1.append(InlineKeyboardButton(label, callback_data=f"tasks_date_{date_str}"))
-    rows.append(row1)
-
-    # Second row: Next 5 days
-    row2 = []
+    row = []
     for i in range(2, 7):
-        d = today + timedelta(days=i)
+        d = effective_dt + timedelta(days=i)
         date_str = d.strftime("%Y-%m-%d")
-        label = d.strftime("%a")  # Mon, Tue, etc.
+        label = d.strftime("%a %d")  # e.g., "Mon 10"
 
         if selected_date == date_str:
-            label = f"• {label}"
+            label = f"✅ {label}"
 
-        row2.append(InlineKeyboardButton(label, callback_data=f"tasks_date_{date_str}"))
-        if len(row2) == 5:
-            rows.append(row2)
+        row.append(InlineKeyboardButton(label, callback_data=f"tasks_date_{date_str}"))
+        if len(row) == 3:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+
+    # Back button
+    rows.append([InlineKeyboardButton("← Back", callback_data="tasks_back")])
 
     return InlineKeyboardMarkup(rows)
 
@@ -1257,7 +1282,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 task_name = task.get("text", "Task")
 
                 # Mark as done (all tasks are from Notion now)
-                success = habit_handler.mark_task_done(task_id)
+                effective = get_effective_date()
+                success = habit_handler.mark_task_done(task_id, effective_date=effective)
                 if success:
                     completed.append(f"✅ {task_name}")
                 else:
@@ -1270,7 +1296,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text("Marked as done:\n" + "\n".join(completed))
 
             # Refresh the actionable tasks list
-            schedule = habit_handler.get_today_schedule()
+            effective = get_effective_date()
+            schedule = habit_handler.get_today_schedule(effective_date=effective)
             current_actionable_tasks = [t for t in schedule.get("actionable_tasks", []) if not t.get("done")]
 
         if errors:
@@ -1339,17 +1366,45 @@ async def handle_tasks_date_callback(update: Update, context: ContextTypes.DEFAU
     if str(query.from_user.id) != HABITS_USER_ID:
         return
 
+    data = query.data
+
+    # Handle "Others" button - show expanded date options
+    if data == "tasks_others":
+        await query.edit_message_text(
+            text=query.message.text,
+            reply_markup=build_others_date_keyboard()
+        )
+        return
+
+    # Handle "Back" button - return to Today/Tomorrow/Others
+    if data == "tasks_back":
+        effective = get_effective_date()
+        schedule = habit_handler.get_today_schedule(effective_date=effective)
+        message = build_schedule_message(schedule, show_all=True, is_morning=False)
+        keyboard = build_date_selector_keyboard()
+        await query.edit_message_text(message, reply_markup=keyboard)
+        return
+
     # Extract date from callback data: tasks_date_YYYY-MM-DD
-    date_str = query.data.replace("tasks_date_", "")
+    date_str = data.replace("tasks_date_", "")
 
     # Get schedule for the selected date
-    schedule = habit_handler.get_schedule_for_date(date_str)
+    effective_today = get_effective_date()
+    if date_str == effective_today:
+        schedule = habit_handler.get_today_schedule(effective_date=effective_today)
+        message = build_schedule_message(schedule, show_all=True, is_morning=False)
+    else:
+        schedule = habit_handler.get_schedule_for_date(date_str)
+        message = build_schedule_message_for_date(schedule, date_str)
 
-    # Build message with the selected date
-    message = build_schedule_message_for_date(schedule, date_str)
+    # Determine which keyboard to show based on whether it's an "others" date
+    effective_dt = datetime.strptime(effective_today, "%Y-%m-%d")
+    tomorrow_str = (effective_dt + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    # Update keyboard with selected date highlighted
-    keyboard = build_date_selector_keyboard(selected_date=date_str)
+    if date_str in (effective_today, tomorrow_str):
+        keyboard = build_date_selector_keyboard(selected_date=date_str)
+    else:
+        keyboard = build_others_date_keyboard(selected_date=date_str)
 
     await query.edit_message_text(message, reply_markup=keyboard)
 
@@ -1508,7 +1563,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 task_name = task_names[task_id]
             else:
                 # Custom task
-                habit_handler.mark_task_done(task_id)
+                effective = get_effective_date()
+                habit_handler.mark_task_done(task_id, effective_date=effective)
                 reminders = habit_handler.get_all_reminders()
                 task_name = next((r["text"] for r in reminders if r["id"] == task_id), "Task")
 
@@ -1658,7 +1714,7 @@ def main():
 
     # Callback handlers - specific patterns first
     application.add_handler(CallbackQueryHandler(handle_settings_callback, pattern="^settings_"))
-    application.add_handler(CallbackQueryHandler(handle_tasks_date_callback, pattern="^tasks_date_"))
+    application.add_handler(CallbackQueryHandler(handle_tasks_date_callback, pattern="^tasks_"))
     application.add_handler(CallbackQueryHandler(handle_edit_callback, pattern="^edit_"))
     application.add_handler(CallbackQueryHandler(handle_callback))
 

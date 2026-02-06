@@ -56,13 +56,16 @@ class HabitHandler:
         """Get today's date as YYYY-MM-DD string."""
         return datetime.now().strftime("%Y-%m-%d")
 
-    def get_or_create_today_habit(self) -> dict:
+    def get_or_create_today_habit(self, effective_date: str = None) -> dict:
         """Get today's habit entry or create it if it doesn't exist.
+
+        Args:
+            effective_date: Override date (YYYY-MM-DD) for day boundary support.
 
         Returns:
             Dictionary with page_id, date, listened, spoke, video fields
         """
-        today = self._get_today_date_str()
+        today = effective_date or self._get_today_date_str()
 
         # Search for existing entry
         try:
@@ -200,16 +203,17 @@ class HabitHandler:
             logger.error(f"Error marking both done: {e}")
             return False
 
-    def mark_task_done(self, task_id: str) -> bool:
+    def mark_task_done(self, task_id: str, effective_date: str = None) -> bool:
         """Mark a custom task as done for today.
 
         Args:
             task_id: The Notion page ID of the reminder/task
+            effective_date: Override date (YYYY-MM-DD) for day boundary support.
 
         Returns:
             True if successful
         """
-        habit = self.get_or_create_today_habit()
+        habit = self.get_or_create_today_habit(effective_date=effective_date)
         page_id = habit.get("page_id")
         completed_tasks = habit.get("completed_tasks", [])
 
@@ -1183,10 +1187,14 @@ class HabitHandler:
             logger.error(f"Error cleaning up reminders: {e}")
             return {"archived": 0, "total": 0, "error": str(e)}
 
-    def get_today_schedule(self) -> dict:
+    def get_today_schedule(self, effective_date: str = None) -> dict:
         """Get today's full schedule from Reminders database only.
 
         No more built-in habits - everything comes from Notion databases.
+
+        Args:
+            effective_date: Override date string (YYYY-MM-DD) for day boundary support.
+                           If before the day boundary (e.g., 4am), this should be yesterday's date.
 
         Returns:
             Dictionary with:
@@ -1194,11 +1202,12 @@ class HabitHandler:
             - actionable_tasks: list of tasks that need action (excludes Life/Health)
             - completed_task_ids: list of already completed task IDs
         """
-        habit = self.get_or_create_today_habit()
+        habit = self.get_or_create_today_habit(effective_date=effective_date)
         completed_task_ids = habit.get("completed_tasks", [])
 
         # Get reminders for today (includes recurring blocks created earlier)
-        reminders = self.get_all_reminders(for_today=True)
+        target_date = effective_date or self._get_today_date_str()
+        reminders = self.get_all_reminders(for_date=target_date)
 
         # Categorize tasks
         timeline = []
