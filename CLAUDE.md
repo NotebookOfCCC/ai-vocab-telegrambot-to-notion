@@ -96,6 +96,7 @@ main.py (Entry Point)
 - Review Count (Number) - tracks review iterations
 - Next Review (Date) - calculated review date
 - Last Reviewed (Date) - most recent review date
+- Mastered (Checkbox) - auto-checked when review_count >= 7, excluded from reviews
 ```
 
 ### Task Tracking Database
@@ -163,6 +164,11 @@ Intervals:
 - **Again (🔴)**: Tomorrow, reset count to 0
 - **Good (🟡)**: 2^count days (1→2→4→8→16→32→60 max)
 - **Easy (🟢)**: 2^(count+1) days, count += 2
+
+Mastery:
+- Words with review_count >= 7 are auto-marked as **Mastered** (checkbox in Notion)
+- Mastered words are excluded from review batches and stats
+- Uncheck Mastered in Notion to bring a word back into review
 
 ## Commands
 
@@ -303,3 +309,4 @@ ADDITIONAL_DATABASE_IDS=second_db_id,third_db_id
 28. **Conflict detection**: Warns when creating task at same time as existing task
 29. **All categories scored**: Life/Health tasks now count toward daily score (only Block excluded)
 30. **Cleaner formatting**: Numbered schedule, sun icon for blocks, no duplicate headers
+31. **Word mastery**: Auto-mark words as Mastered after 7+ reviews, excluded from future reviews, shown in /due stats

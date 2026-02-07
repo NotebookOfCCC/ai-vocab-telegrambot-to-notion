@@ -10,6 +10,9 @@ from notion_client import Client
 
 logger = logging.getLogger(__name__)
 
+# Words with review_count >= this are auto-marked as Mastered
+MASTERY_THRESHOLD = 7
+
 
 class NotionHandler:
     def __init__(self, api_key: str, database_id: str, additional_database_ids: list = None):
@@ -382,11 +385,11 @@ class NotionHandler:
                     logger.warning("Notion query returned no entries")
                     return []
 
-                # Parse all entries
+                # Parse all entries, skip mastered words
                 parsed_entries = []
                 for page in all_entries:
                     entry = self._parse_page_to_entry(page)
-                    if entry:
+                    if entry and not entry.get("mastered", False):
                         parsed_entries.append(entry)
 
                 if not smart:
@@ -532,6 +535,9 @@ class NotionHandler:
                 next_review = today + timedelta(days=interval_days)
                 new_count = current_count + 1
 
+            # Check if word has reached mastery
+            mastered = new_count >= MASTERY_THRESHOLD and response != "again"
+
             # Update properties
             update_props = {}
 
@@ -552,11 +558,14 @@ class NotionHandler:
                     update_props[prop_name] = {
                         "number": new_count
                     }
+                elif prop_type == "checkbox" and "master" in prop_name_lower:
+                    if mastered:
+                        update_props[prop_name] = {"checkbox": True}
 
             if update_props:
                 self.client.pages.update(page_id=page_id, properties=update_props)
 
-            return {"success": True, "next_review": next_review.isoformat()}
+            return {"success": True, "next_review": next_review.isoformat(), "mastered": mastered}
 
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -588,11 +597,16 @@ class NotionHandler:
                 overdue = 0
                 due_today = 0
                 new_words = 0
+                mastered = 0
                 total = len(all_entries)
 
                 for page in all_entries:
                     entry = self._parse_page_to_entry(page)
                     if not entry:
+                        continue
+
+                    if entry.get("mastered", False):
+                        mastered += 1
                         continue
 
                     next_review = entry.get("next_review")
@@ -615,6 +629,7 @@ class NotionHandler:
                     "overdue": overdue,
                     "due_today": due_today,
                     "new_words": new_words,
+                    "mastered": mastered,
                     "total": total
                 }
 
@@ -681,6 +696,11 @@ class NotionHandler:
                 elif prop_type == "number":
                     if "review" in prop_name_lower and "count" in prop_name_lower:
                         entry["review_count"] = prop_value.get("number") or 0
+
+                # Checkbox properties
+                elif prop_type == "checkbox":
+                    if "master" in prop_name_lower:
+                        entry["mastered"] = prop_value.get("checkbox", False)
 
             return entry if entry.get("english") else None
 

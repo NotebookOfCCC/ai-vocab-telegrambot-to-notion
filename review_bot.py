@@ -304,6 +304,7 @@ async def due_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         due_today = stats.get("due_today", 0)
         overdue = stats.get("overdue", 0)
         new_words = stats.get("new_words", 0)
+        mastered = stats.get("mastered", 0)
         total_words = stats.get("total", 0)
 
         message = f"""📊 Review Stats
@@ -311,7 +312,8 @@ async def due_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 🔴 Overdue: {overdue}
 🟡 Due today: {due_today}
 🆕 New: {new_words}
-📚 Total words in database: {total_words}"""
+🎓 Mastered: {mastered}
+📚 Total: {total_words}"""
         await update.message.reply_text(message)
 
     except Exception as e:
@@ -508,11 +510,15 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
         page_id = data[5:]  # Remove "good_" prefix
         result = notion_handler.update_review_stats(page_id, response="good")
         await query.edit_message_reply_markup(reply_markup=None)
+        if result.get("mastered"):
+            await query.message.reply_text("🎓 Word mastered! It won't appear in future reviews.\nYou can uncheck Mastered in Notion to bring it back.")
 
     elif data.startswith("easy_"):
         page_id = data[5:]  # Remove "easy_" prefix
         result = notion_handler.update_review_stats(page_id, response="easy")
         await query.edit_message_reply_markup(reply_markup=None)
+        if result.get("mastered"):
+            await query.message.reply_text("🎓 Word mastered! It won't appear in future reviews.\nYou can uncheck Mastered in Notion to bring it back.")
 
 
 def apply_schedule(sched, config: dict) -> None:
