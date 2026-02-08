@@ -65,6 +65,11 @@ RECURRING_BLOCKS_DB_ID = os.getenv("RECURRING_BLOCKS_DB_ID")  # Optional: Notion
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 
+# Vocab database access (for review stats in reminders)
+VOCAB_DB_ID = os.getenv("NOTION_DATABASE_ID")
+ADDITIONAL_DB_IDS_RAW = os.getenv("ADDITIONAL_DATABASE_IDS", "")
+ADDITIONAL_DB_IDS = [db_id.strip() for db_id in ADDITIONAL_DB_IDS_RAW.split(",") if db_id.strip()]
+
 # Config file for user settings (day boundary, timezone)
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "task_config.json")
 
@@ -96,6 +101,7 @@ def save_config(config: dict) -> None:
 
 # Global state
 habit_handler = None
+vocab_handler = None  # For vocab review stats (optional)
 scheduler = None
 application = None
 is_paused = False
@@ -236,6 +242,40 @@ def get_category_emoji(category: str) -> str:
         "other": "📌"
     }
     return emojis.get((category or "other").lower(), "📌")
+
+
+def get_review_stats_line(is_morning=False, is_weekly=False, week_start=None, week_end=None, for_date=None):
+    """Get formatted review stats line for messages.
+
+    Returns string like "📚 Yesterday: 15 words reviewed" or None if unavailable.
+    """
+    if not vocab_handler:
+        return None
+
+    try:
+        if is_weekly:
+            result = vocab_handler.get_words_reviewed(week_start, week_end)
+            count = result.get("count", 0)
+            return f"📚 Words reviewed this week: {count} unique words"
+        elif for_date:
+            # Specific past date
+            result = vocab_handler.get_words_reviewed(for_date)
+            count = result.get("count", 0)
+            date_display = datetime.strptime(for_date, "%Y-%m-%d").strftime("%b %d")
+            return f"📚 {date_display}: {count} words reviewed"
+        elif is_morning:
+            yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+            result = vocab_handler.get_words_reviewed(yesterday)
+            count = result.get("count", 0)
+            return f"📚 Yesterday: {count} words reviewed"
+        else:
+            today = datetime.now().strftime("%Y-%m-%d")
+            result = vocab_handler.get_words_reviewed(today)
+            count = result.get("count", 0)
+            return f"📚 Today so far: {count} words reviewed"
+    except Exception as e:
+        logger.warning(f"Error getting review stats: {e}")
+        return None
 
 
 def build_schedule_message(schedule: dict, show_all: bool = False, is_morning: bool = False) -> str:
@@ -588,6 +628,11 @@ async def send_morning_reminder():
         # Build consolidated message
         message = build_schedule_message(schedule, show_all=True, is_morning=True)
 
+        # Add vocab review stats
+        review_line = get_review_stats_line(is_morning=True)
+        if review_line:
+            message += f"\n\n{review_line}"
+
         # Send schedule
         await application.bot.send_message(
             chat_id=HABITS_USER_ID,
@@ -621,14 +666,23 @@ async def send_practice_checkin():
         all_done = all(t.get("done") for t in actionable)
 
         if all_done:
+            all_done_msg = "🎉 Check-in: All tasks done today! Great work!"
+            review_line = get_review_stats_line(is_morning=False)
+            if review_line:
+                all_done_msg += f"\n\n{review_line}"
             await application.bot.send_message(
                 chat_id=HABITS_USER_ID,
-                text="🎉 Check-in: All tasks done today! Great work!"
+                text=all_done_msg
             )
             return
 
         # Build consolidated message (only show upcoming/unfinished)
         message = build_schedule_message(schedule, show_all=False, is_morning=False)
+
+        # Add vocab review stats
+        review_line = get_review_stats_line(is_morning=False)
+        if review_line:
+            message += f"\n\n{review_line}"
 
         await application.bot.send_message(
             chat_id=HABITS_USER_ID,
@@ -655,6 +709,11 @@ async def send_evening_winddown():
         effective = get_effective_date()
         schedule = habit_handler.get_today_schedule(effective_date=effective)
         message = build_evening_message(schedule)
+
+        # Add vocab review stats
+        review_line = get_review_stats_line(is_morning=False)
+        if review_line:
+            message += f"\n\n{review_line}"
 
         await application.bot.send_message(
             chat_id=HABITS_USER_ID,
@@ -700,6 +759,15 @@ async def send_weekly_summary():
         # Streak
         if stats['streak'] > 0:
             lines.append(f"\n🔥 Current streak: {stats['streak']} day(s) with 70%+ completion")
+
+        # Vocab review stats for the week (Mon-Sat)
+        today = datetime.now()
+        days_since_monday = today.weekday()  # 0=Mon, 6=Sun
+        monday = (today - timedelta(days=days_since_monday)).strftime("%Y-%m-%d")
+        saturday = (today - timedelta(days=days_since_monday - 5)).strftime("%Y-%m-%d")
+        review_line = get_review_stats_line(is_weekly=True, week_start=monday, week_end=saturday)
+        if review_line:
+            lines.append(f"\n{review_line}")
 
         # Encouragement based on average
         if stats['total_tasks'] > 0:
@@ -778,6 +846,11 @@ async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     effective = get_effective_date()
     schedule = habit_handler.get_today_schedule(effective_date=effective)
     message = build_schedule_message(schedule, show_all=True, is_morning=False)
+
+    # Add vocab review stats
+    review_line = get_review_stats_line(is_morning=False)
+    if review_line:
+        message += f"\n\n{review_line}"
 
     # Add date selector buttons
     keyboard = build_date_selector_keyboard()
@@ -1381,6 +1454,9 @@ async def handle_tasks_date_callback(update: Update, context: ContextTypes.DEFAU
         effective = get_effective_date()
         schedule = habit_handler.get_today_schedule(effective_date=effective)
         message = build_schedule_message(schedule, show_all=True, is_morning=False)
+        review_line = get_review_stats_line(is_morning=False)
+        if review_line:
+            message += f"\n\n{review_line}"
         keyboard = build_date_selector_keyboard()
         await query.edit_message_text(message, reply_markup=keyboard)
         return
@@ -1393,9 +1469,17 @@ async def handle_tasks_date_callback(update: Update, context: ContextTypes.DEFAU
     if date_str == effective_today:
         schedule = habit_handler.get_today_schedule(effective_date=effective_today)
         message = build_schedule_message(schedule, show_all=True, is_morning=False)
+        review_line = get_review_stats_line(is_morning=False)
+        if review_line:
+            message += f"\n\n{review_line}"
     else:
         schedule = habit_handler.get_schedule_for_date(date_str)
         message = build_schedule_message_for_date(schedule, date_str)
+        # Add review stats for today or past dates only
+        if date_str <= effective_today:
+            review_line = get_review_stats_line(for_date=date_str)
+            if review_line:
+                message += f"\n\n{review_line}"
 
     # Determine which keyboard to show based on whether it's an "others" date
     effective_dt = datetime.strptime(effective_today, "%Y-%m-%d")
@@ -1658,7 +1742,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 def main():
     """Main function to run the task bot."""
-    global habit_handler, application, task_config
+    global habit_handler, vocab_handler, application, task_config
 
     # Validate configuration
     if not HABITS_BOT_TOKEN:
@@ -1685,6 +1769,15 @@ def main():
 
     # Initialize handlers
     habit_handler = HabitHandler(NOTION_KEY, TRACKING_DB_ID, REMINDERS_DB_ID, RECURRING_BLOCKS_DB_ID)
+
+    # Vocab handler for review stats (optional - only if vocab DB configured)
+    vocab_handler = None
+    if VOCAB_DB_ID and NOTION_KEY:
+        from notion_handler import NotionHandler
+        vocab_handler = NotionHandler(NOTION_KEY, VOCAB_DB_ID, additional_database_ids=ADDITIONAL_DB_IDS)
+        print(f"Vocab review stats enabled ({1 + len(ADDITIONAL_DB_IDS)} database(s))")
+    else:
+        print("Vocab review stats disabled (NOTION_DATABASE_ID not set)")
 
     # Initialize AI client for task parsing
     init_ai_client()

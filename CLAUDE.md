@@ -310,3 +310,4 @@ ADDITIONAL_DATABASE_IDS=second_db_id,third_db_id
 29. **All categories scored**: Life/Health tasks now count toward daily score (only Block excluded)
 30. **Cleaner formatting**: Numbered schedule, sun icon for blocks, no duplicate headers
 31. **Word mastery**: Auto-mark words as Mastered after 7+ reviews, excluded from future reviews, shown in /due stats
+32. **Vocab review stats in habit bot**: Shows words reviewed count in all habit bot messages (morning: yesterday's count, check-ins/tasks: today's count, weekly summary: week total)

@@ -643,6 +643,62 @@ class NotionHandler:
         logger.error(f"Failed to get review stats after {max_retries} attempts. Last error: {last_error}")
         return {"error": str(last_error)}
 
+    def get_words_reviewed(self, start_date: str, end_date: str = None, max_retries: int = 3) -> dict:
+        """Count unique words reviewed in a date range.
+
+        Args:
+            start_date: YYYY-MM-DD format
+            end_date: YYYY-MM-DD format (defaults to start_date for single day)
+            max_retries: Number of retry attempts
+
+        Returns:
+            {"count": int, "error": str or None}
+        """
+        if end_date is None:
+            end_date = start_date
+
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                count = 0
+
+                for db_id in self.all_database_ids:
+                    has_more = True
+                    start_cursor = None
+
+                    while has_more:
+                        query_params = {
+                            "database_id": db_id,
+                            "page_size": 100,
+                            "filter": {
+                                "property": "Last Reviewed",
+                                "date": {
+                                    "on_or_after": start_date,
+                                    "on_or_before": end_date
+                                }
+                            }
+                        }
+                        if start_cursor:
+                            query_params["start_cursor"] = start_cursor
+
+                        response = self.client.databases.query(**query_params)
+                        count += len(response.get("results", []))
+                        has_more = response.get("has_more", False)
+                        start_cursor = response.get("next_cursor")
+
+                return {"count": count, "error": None}
+
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Notion API error getting words reviewed on attempt {attempt + 1}/{max_retries}: {e}")
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** (attempt + 1)
+                    time.sleep(wait_time)
+
+        logger.error(f"Failed to get words reviewed after {max_retries} attempts. Last error: {last_error}")
+        return {"count": 0, "error": str(last_error)}
+
     def _parse_page_to_entry(self, page: dict) -> dict:
         """Parse a Notion page into an entry dictionary."""
         try:
