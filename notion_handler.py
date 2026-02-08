@@ -668,16 +668,23 @@ class NotionHandler:
                     start_cursor = None
 
                     while has_more:
+                        # Single day: use equals; range: use compound and filter
+                        if start_date == end_date:
+                            date_filter = {
+                                "property": "Last Reviewed",
+                                "date": {"equals": start_date}
+                            }
+                        else:
+                            date_filter = {
+                                "and": [
+                                    {"property": "Last Reviewed", "date": {"on_or_after": start_date}},
+                                    {"property": "Last Reviewed", "date": {"on_or_before": end_date}}
+                                ]
+                            }
                         query_params = {
                             "database_id": db_id,
                             "page_size": 100,
-                            "filter": {
-                                "property": "Last Reviewed",
-                                "date": {
-                                    "on_or_after": start_date,
-                                    "on_or_before": end_date
-                                }
-                            }
+                            "filter": date_filter
                         }
                         if start_cursor:
                             query_params["start_cursor"] = start_cursor
