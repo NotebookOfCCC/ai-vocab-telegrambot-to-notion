@@ -42,7 +42,7 @@ main.py (Entry Point)
 - **Configurable day boundary** - Default 4am, so late night work counts for previous day
 - **Configurable timezone** - Change via /settings (affects all scheduling)
 - **Daily scoring** - Evening wind-down shows A/B/C/D grade for all tasks (except Block)
-- **Weekly summary** - Sunday 8pm summary with daily scores and streak
+- **Weekly summary** - Sunday 7am summary with daily scores and streak
 - **Auto-cleanup** - Monthly cleanup of tasks older than 3 months
 
 ## Key Files
@@ -311,3 +311,5 @@ ADDITIONAL_DATABASE_IDS=second_db_id,third_db_id
 30. **Cleaner formatting**: Numbered schedule, sun icon for blocks, no duplicate headers
 31. **Word mastery**: Auto-mark words as Mastered after 7+ reviews, excluded from future reviews, shown in /due stats
 32. **Vocab review stats in habit bot**: Shows words reviewed count in all habit bot messages (morning: yesterday's count, check-ins/tasks: today's count, weekly summary: week total)
+33. **Config persisted in Notion**: Review schedule and task settings stored as Notion pages (survives Railway redeploys). Config pages use `__CONFIG_` prefix and are filtered from reviews/stats.
+34. **Mobile popup instructions**: /schedule Edit Times/Edit Word Count buttons show popup alert on all platforms (mobile + desktop)

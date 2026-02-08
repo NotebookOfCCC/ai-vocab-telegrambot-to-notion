@@ -5,6 +5,7 @@ import re
 import random
 import logging
 import time
+import json
 from datetime import datetime, date
 from notion_client import Client
 
@@ -241,6 +242,92 @@ class NotionHandler:
                 "success": False,
                 "error": str(e)
             }
+
+    def load_bot_config(self, config_key: str) -> dict:
+        """Load bot config stored as a page in the primary database.
+
+        Config pages use the title property to store the config key
+        (e.g. "__CONFIG_review_schedule__") and the Chinese rich_text
+        property to store JSON data.
+
+        Args:
+            config_key: Unique key like "__CONFIG_review_schedule__"
+
+        Returns:
+            Parsed dict or None if not found
+        """
+        try:
+            response = self.client.databases.query(
+                database_id=self.database_id,
+                filter={
+                    "property": "English",
+                    "title": {"equals": config_key}
+                },
+                page_size=1
+            )
+            if response.get("results"):
+                page = response["results"][0]
+                props = page.get("properties", {})
+                chinese_prop = props.get("Chinese", {})
+                rich_text = chinese_prop.get("rich_text", [])
+                if rich_text:
+                    data_str = rich_text[0].get("plain_text", "")
+                    return json.loads(data_str)
+            return None
+        except Exception as e:
+            logger.error(f"Error loading bot config '{config_key}': {e}")
+            return None
+
+    def save_bot_config(self, config_key: str, data: dict) -> bool:
+        """Save bot config as a page in the primary database.
+
+        Args:
+            config_key: Unique key like "__CONFIG_review_schedule__"
+            data: Dictionary to serialize as JSON
+
+        Returns:
+            True if successful
+        """
+        data_json = json.dumps(data)
+        try:
+            # Check if config page already exists
+            response = self.client.databases.query(
+                database_id=self.database_id,
+                filter={
+                    "property": "English",
+                    "title": {"equals": config_key}
+                },
+                page_size=1
+            )
+            if response.get("results"):
+                # Update existing page
+                page_id = response["results"][0]["id"]
+                self.client.pages.update(
+                    page_id=page_id,
+                    properties={
+                        "Chinese": {
+                            "rich_text": [{"text": {"content": data_json}}]
+                        }
+                    }
+                )
+            else:
+                # Create new page
+                self.client.pages.create(
+                    parent={"database_id": self.database_id},
+                    properties={
+                        "English": {
+                            "title": [{"text": {"content": config_key}}]
+                        },
+                        "Chinese": {
+                            "rich_text": [{"text": {"content": data_json}}]
+                        }
+                    }
+                )
+            logger.info(f"Saved bot config '{config_key}'")
+            return True
+        except Exception as e:
+            logger.error(f"Error saving bot config '{config_key}': {e}")
+            return False
 
     def _lemmatize_word(self, word: str) -> str:
         """Lemmatize a single word by removing common suffixes."""
@@ -722,7 +809,11 @@ class NotionHandler:
                 if prop_type == "title":
                     title_content = prop_value.get("title", [])
                     if title_content:
-                        entry["english"] = title_content[0].get("plain_text", "")
+                        title_text = title_content[0].get("plain_text", "")
+                        # Skip config pages (used for bot settings persistence)
+                        if title_text.startswith("__CONFIG_"):
+                            return None
+                        entry["english"] = title_text
 
                 # Rich text properties
                 elif prop_type == "rich_text":

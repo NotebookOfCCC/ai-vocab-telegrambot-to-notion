@@ -70,8 +70,7 @@ VOCAB_DB_ID = os.getenv("NOTION_DATABASE_ID")
 ADDITIONAL_DB_IDS_RAW = os.getenv("ADDITIONAL_DATABASE_IDS", "")
 ADDITIONAL_DB_IDS = [db_id.strip() for db_id in ADDITIONAL_DB_IDS_RAW.split(",") if db_id.strip()]
 
-# Config file for user settings (day boundary, timezone)
-CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "task_config.json")
+TASK_CONFIG_KEY = "__CONFIG_task_settings__"
 
 def get_default_config() -> dict:
     """Get default config."""
@@ -81,22 +80,22 @@ def get_default_config() -> dict:
     }
 
 def load_config() -> dict:
-    """Load task config from JSON file, falling back to defaults."""
+    """Load task config from Notion, falling back to defaults."""
     default = get_default_config()
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r") as f:
-                config = json.load(f)
-            # Merge with defaults
+    if not habit_handler:
+        return default
+    try:
+        config = habit_handler.load_bot_config(TASK_CONFIG_KEY)
+        if config:
             return {**default, **config}
-        except Exception as e:
-            logger.error(f"Error loading config: {e}")
+    except Exception as e:
+        logger.error(f"Error loading config: {e}")
     return default
 
 def save_config(config: dict) -> None:
-    """Save task config to JSON file."""
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f, indent=2)
+    """Save task config to Notion."""
+    if habit_handler:
+        habit_handler.save_bot_config(TASK_CONFIG_KEY, config)
     logger.info(f"Config saved: {config}")
 
 # Global state
@@ -811,7 +810,7 @@ Schedule ({tz}):
 • 12:00 PM - Check-in
 • 7:00 PM - Check-in
 • 10:00 PM - Evening wind-down + daily score
-• Sunday 8:00 AM - Weekly summary (Mon-Sat)
+• Sunday 7:00 AM - Weekly summary (Mon-Sat)
 
 ⏰ Day Boundary: {boundary}:00 AM
 Work done before {boundary}am counts for the previous day.
@@ -1252,12 +1251,12 @@ def setup_scheduler_jobs(sched: AsyncIOScheduler, timezone: str) -> None:
         name="Evening Wind-down (22:00)"
     )
 
-    # Weekly summary on Sunday at 8:00 AM
+    # Weekly summary on Sunday at 7:00 AM (before morning reminder at 8am)
     sched.add_job(
         send_weekly_summary,
-        CronTrigger(day_of_week="sun", hour=8, minute=0, timezone=timezone),
+        CronTrigger(day_of_week="sun", hour=7, minute=0, timezone=timezone),
         id="weekly_summary",
-        name="Weekly Summary (Sunday 08:00)"
+        name="Weekly Summary (Sunday 07:00)"
     )
 
     # Monthly cleanup on 1st of each month at 3 AM
@@ -1722,7 +1721,7 @@ async def post_init(app: Application) -> None:
     global scheduler
 
     tz = task_config.get("timezone", TIMEZONE) if task_config else TIMEZONE
-    scheduler = AsyncIOScheduler(timezone=tz)
+    scheduler = AsyncIOScheduler(timezone=tz, misfire_grace_time=120)
 
     # Set up all scheduled jobs
     setup_scheduler_jobs(scheduler, tz)
@@ -1761,14 +1760,14 @@ def main():
         print("ERROR: HABITS_REMINDERS_DB_ID not set")
         return
 
-    # Load task config (day boundary, timezone)
+    # Initialize handlers (must be before load_config which uses habit_handler)
+    habit_handler = HabitHandler(NOTION_KEY, TRACKING_DB_ID, REMINDERS_DB_ID, RECURRING_BLOCKS_DB_ID)
+
+    # Load task config (day boundary, timezone) - from Notion via habit_handler
     task_config = load_config()
     tz = task_config.get("timezone", TIMEZONE)
     boundary = task_config.get("day_boundary", 4)
     print(f"Config loaded: timezone={tz}, day_boundary={boundary}am")
-
-    # Initialize handlers
-    habit_handler = HabitHandler(NOTION_KEY, TRACKING_DB_ID, REMINDERS_DB_ID, RECURRING_BLOCKS_DB_ID)
 
     # Vocab handler for review stats (optional - only if vocab DB configured)
     vocab_handler = None
@@ -1820,7 +1819,7 @@ def main():
     # Start polling
     print(f"Task bot starting with timezone {tz}...")
     print(f"Day boundary: {boundary}:00 AM (late night work counts for previous day)")
-    print("Schedule: 8:00 (morning), 12:00/19:00 (check-ins), 22:00 (wind-down), Sunday 20:00 (weekly)")
+    print("Schedule: 8:00 (morning), 12:00/19:00 (check-ins), 22:00 (wind-down), Sunday 07:00 (weekly)")
     print("Send any message to add a task using natural language!")
     print("Press Ctrl+C to stop")
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)

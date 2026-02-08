@@ -52,6 +52,88 @@ class HabitHandler:
         self.reminders_db_id = reminders_db_id
         self.recurring_blocks_db_id = recurring_blocks_db_id
 
+    def load_bot_config(self, config_key: str) -> dict:
+        """Load bot config stored as a page in the tracking database.
+
+        Config pages use the Date title property to store the config key
+        and the Tasks rich_text property to store JSON data.
+
+        Args:
+            config_key: Unique key like "__CONFIG_task_settings__"
+
+        Returns:
+            Parsed dict or None if not found
+        """
+        try:
+            response = self.client.databases.query(
+                database_id=self.tracking_db_id,
+                filter={
+                    "property": "Date",
+                    "title": {"equals": config_key}
+                },
+                page_size=1
+            )
+            if response.get("results"):
+                page = response["results"][0]
+                props = page.get("properties", {})
+                tasks_prop = props.get("Tasks", {})
+                rich_text = tasks_prop.get("rich_text", [])
+                if rich_text:
+                    data_str = rich_text[0].get("plain_text", "")
+                    return json.loads(data_str)
+            return None
+        except Exception as e:
+            logger.error(f"Error loading bot config '{config_key}': {e}")
+            return None
+
+    def save_bot_config(self, config_key: str, data: dict) -> bool:
+        """Save bot config as a page in the tracking database.
+
+        Args:
+            config_key: Unique key like "__CONFIG_task_settings__"
+            data: Dictionary to serialize as JSON
+
+        Returns:
+            True if successful
+        """
+        data_json = json.dumps(data)
+        try:
+            response = self.client.databases.query(
+                database_id=self.tracking_db_id,
+                filter={
+                    "property": "Date",
+                    "title": {"equals": config_key}
+                },
+                page_size=1
+            )
+            if response.get("results"):
+                page_id = response["results"][0]["id"]
+                self.client.pages.update(
+                    page_id=page_id,
+                    properties={
+                        "Tasks": {
+                            "rich_text": [{"text": {"content": data_json}}]
+                        }
+                    }
+                )
+            else:
+                self.client.pages.create(
+                    parent={"database_id": self.tracking_db_id},
+                    properties={
+                        "Date": {
+                            "title": [{"text": {"content": config_key}}]
+                        },
+                        "Tasks": {
+                            "rich_text": [{"text": {"content": data_json}}]
+                        }
+                    }
+                )
+            logger.info(f"Saved bot config '{config_key}'")
+            return True
+        except Exception as e:
+            logger.error(f"Error saving bot config '{config_key}': {e}")
+            return False
+
     def _get_today_date_str(self) -> str:
         """Get today's date as YYYY-MM-DD string."""
         return datetime.now().strftime("%Y-%m-%d")

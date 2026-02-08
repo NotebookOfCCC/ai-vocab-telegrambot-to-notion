@@ -61,15 +61,18 @@ def get_default_config() -> dict:
     return {"review_hours": sorted(set(hours)), "words_per_batch": words}
 
 
-CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "review_config.json")
+REVIEW_CONFIG_KEY = "__CONFIG_review_schedule__"
 
 
 def load_config() -> dict:
-    """Load review config from JSON file, falling back to env var defaults."""
+    """Load review config from Notion, falling back to env var defaults."""
     default = get_default_config()
+    if not notion_handler:
+        return default
     try:
-        with open(CONFIG_FILE, "r") as f:
-            config = json.load(f)
+        config = notion_handler.load_bot_config(REVIEW_CONFIG_KEY)
+        if not config:
+            return default
         # Validate
         hours = config.get("review_hours")
         words = config.get("words_per_batch")
@@ -78,14 +81,14 @@ def load_config() -> dict:
         if not isinstance(words, int) or words < 1 or words > 50:
             words = default["words_per_batch"]
         return {"review_hours": sorted(set(hours)), "words_per_batch": words}
-    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+    except Exception:
         return default
 
 
 def save_config(config: dict) -> None:
-    """Save review config to JSON file."""
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f, indent=2)
+    """Save review config to Notion."""
+    if notion_handler:
+        notion_handler.save_bot_config(REVIEW_CONFIG_KEY, config)
 
 
 # Global state
@@ -444,20 +447,22 @@ async def handle_schedule_callback(update: Update, context: ContextTypes.DEFAULT
     global review_config
 
     query = update.callback_query
-    await query.answer()
 
     if str(query.from_user.id) != REVIEW_USER_ID:
+        await query.answer()
         return
 
     data = query.data
 
     if data == "sched_edit_times":
+        await query.answer("Tap hours to toggle on/off, then press Done", show_alert=True)
         await query.edit_message_text(
             text="Select review hours (tap to toggle):",
             reply_markup=build_hour_grid(review_config["review_hours"])
         )
 
     elif data.startswith("sched_toggle_"):
+        await query.answer()
         hour = int(data.split("_")[-1])
         hours = review_config["review_hours"]
         if hour in hours:
@@ -470,24 +475,28 @@ async def handle_schedule_callback(update: Update, context: ContextTypes.DEFAULT
         await query.edit_message_reply_markup(reply_markup=build_hour_grid(hours))
 
     elif data == "sched_done_times":
+        await query.answer()
         save_config(review_config)
         if scheduler:
             apply_schedule(scheduler, review_config)
         await send_schedule_display(query, review_config, edit=True)
 
     elif data == "sched_edit_words":
+        await query.answer("Tap to select words per batch", show_alert=True)
         await query.edit_message_text(
             text="Select words per batch:",
             reply_markup=build_word_options(review_config["words_per_batch"])
         )
 
     elif data.startswith("sched_words_"):
+        await query.answer()
         n = int(data.split("_")[-1])
         review_config["words_per_batch"] = n
         save_config(review_config)
         await send_schedule_display(query, review_config, edit=True)
 
     elif data == "sched_back":
+        await query.answer()
         await send_schedule_display(query, review_config, edit=True)
 
 
