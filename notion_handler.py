@@ -6,7 +6,7 @@ import random
 import logging
 import time
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from notion_client import Client
 
 logger = logging.getLogger(__name__)
@@ -430,6 +430,36 @@ class NotionHandler:
 
         return None
 
+    def _fetch_filtered_entries(self, filter_obj: dict, max_pages: int = 5) -> list:
+        """Fetch entries from all databases with a Notion filter.
+
+        Args:
+            filter_obj: Notion filter object
+            max_pages: Max pagination pages per database (safety limit)
+        """
+        all_results = []
+        for db_id in self.all_database_ids:
+            has_more = True
+            start_cursor = None
+            pages_fetched = 0
+
+            while has_more and pages_fetched < max_pages:
+                query_params = {
+                    "database_id": db_id,
+                    "page_size": 100,
+                    "filter": filter_obj
+                }
+                if start_cursor:
+                    query_params["start_cursor"] = start_cursor
+
+                response = self.client.databases.query(**query_params)
+                all_results.extend(response.get("results", []))
+                has_more = response.get("has_more", False)
+                start_cursor = response.get("next_cursor")
+                pages_fetched += 1
+
+        return all_results
+
     def fetch_random_entries(self, count: int = 10) -> list:
         """Fetch random entries from the database (no smart selection)."""
         return self.fetch_entries_for_review(count, smart=False)
@@ -439,79 +469,106 @@ class NotionHandler:
         Fetch entries for review with optional spaced repetition.
         Queries from ALL configured databases (primary + additional).
 
-        Smart selection prioritizes:
-        1. Never reviewed entries (Last Reviewed is empty)
-        2. Entries not reviewed recently (older Last Reviewed date)
-        3. Entries with lower review count
-        4. Newer entries (by Date added) get slight priority
+        Uses targeted Notion filters to fetch only review candidates
+        instead of loading the entire database.
         """
         last_error = None
 
         for attempt in range(max_retries):
             try:
-                # Query all entries from ALL databases
-                all_entries = []
-
-                for db_id in self.all_database_ids:
-                    has_more = True
-                    start_cursor = None
-
-                    while has_more:
-                        query_params = {"database_id": db_id, "page_size": 100}
-                        if start_cursor:
-                            query_params["start_cursor"] = start_cursor
-
-                        response = self.client.databases.query(**query_params)
-                        all_entries.extend(response.get("results", []))
-                        has_more = response.get("has_more", False)
-                        start_cursor = response.get("next_cursor")
-
-                    logger.info(f"Fetched entries from database {db_id[:8]}...")
-
-                if not all_entries:
-                    logger.warning("Notion query returned no entries")
-                    return []
-
-                # Parse all entries, skip mastered words
-                parsed_entries = []
-                for page in all_entries:
-                    entry = self._parse_page_to_entry(page)
-                    if entry and not entry.get("mastered", False):
-                        parsed_entries.append(entry)
+                today = date.today()
+                today_str = today.isoformat()
 
                 if not smart:
-                    # Random selection
-                    selected = random.sample(parsed_entries, min(count, len(parsed_entries)))
-                    return selected
+                    # Random selection: only fetch non-mastered entries
+                    pages = self._fetch_filtered_entries({
+                        "property": "Mastered",
+                        "checkbox": {"equals": False}
+                    })
+                    parsed = []
+                    for page in pages:
+                        entry = self._parse_page_to_entry(page)
+                        if entry:
+                            parsed.append(entry)
+                    return random.sample(parsed, min(count, len(parsed)))
 
-                # Smart selection with spaced repetition scoring
-                today = date.today()
-                scored_entries = []
+                # Smart selection: fetch only candidates, not everything
+                candidates = []
+                seen_ids = set()
 
-                for entry in parsed_entries:
-                    score = self._calculate_review_priority(entry, today)
-                    scored_entries.append((score, entry))
+                def _add_candidates(pages):
+                    for page in pages:
+                        entry = self._parse_page_to_entry(page)
+                        if entry and entry["page_id"] not in seen_ids:
+                            seen_ids.add(entry["page_id"])
+                            candidates.append(entry)
 
-                # Weighted random selection: prioritizes high-score words
-                # but doesn't always pick the exact same top-N, reducing
-                # duplicates across consecutive unreviewed batches.
-                entries_pool = list(scored_entries)
-                weights = [max(score, 1.0) for score, _ in entries_pool]
+                # 1. Due/overdue words: Next Review <= today, not mastered
+                due_pages = self._fetch_filtered_entries({
+                    "and": [
+                        {"property": "Next Review", "date": {"on_or_before": today_str}},
+                        {"property": "Mastered", "checkbox": {"equals": False}}
+                    ]
+                })
+                _add_candidates(due_pages)
+                logger.info(f"Due/overdue candidates: {len(candidates)}")
+
+                # 2. New words: never reviewed, not mastered
+                new_pages = self._fetch_filtered_entries({
+                    "and": [
+                        {"property": "Last Reviewed", "date": {"is_empty": True}},
+                        {"property": "Next Review", "date": {"is_empty": True}},
+                        {"property": "Mastered", "checkbox": {"equals": False}}
+                    ]
+                })
+                _add_candidates(new_pages)
+                logger.info(f"Total candidates after new words: {len(candidates)}")
+
+                # 3. Legacy entries (reviewed but no Next Review set)
+                if len(candidates) < count:
+                    legacy_pages = self._fetch_filtered_entries({
+                        "and": [
+                            {"property": "Last Reviewed", "date": {"is_not_empty": True}},
+                            {"property": "Next Review", "date": {"is_empty": True}},
+                            {"property": "Mastered", "checkbox": {"equals": False}}
+                        ]
+                    })
+                    _add_candidates(legacy_pages)
+
+                # 4. If still not enough, fetch words due within 3 days
+                if len(candidates) < count:
+                    upcoming_pages = self._fetch_filtered_entries({
+                        "and": [
+                            {"property": "Next Review", "date": {"after": today_str}},
+                            {"property": "Next Review", "date": {"on_or_before": (today + timedelta(days=3)).isoformat()}},
+                            {"property": "Mastered", "checkbox": {"equals": False}}
+                        ]
+                    })
+                    _add_candidates(upcoming_pages)
+
+                if not candidates:
+                    logger.warning("No review candidates found")
+                    return []
+
+                # Weighted random selection from candidates
+                scored = [(self._calculate_review_priority(e, today), e) for e in candidates]
+                weights = [max(s, 1.0) for s, _ in scored]
                 selected = []
+                pool = list(scored)
 
-                for _ in range(min(count, len(entries_pool))):
-                    idx = random.choices(range(len(entries_pool)), weights=weights, k=1)[0]
-                    selected.append(entries_pool[idx][1])
-                    entries_pool.pop(idx)
+                for _ in range(min(count, len(pool))):
+                    idx = random.choices(range(len(pool)), weights=weights, k=1)[0]
+                    selected.append(pool[idx][1])
+                    pool.pop(idx)
                     weights.pop(idx)
-                logger.info(f"Successfully fetched {len(selected)} entries for review")
+
+                logger.info(f"Selected {len(selected)} entries from {len(candidates)} candidates")
                 return selected
 
             except Exception as e:
                 last_error = e
                 logger.warning(f"Notion API error on attempt {attempt + 1}/{max_retries}: {e}")
                 if attempt < max_retries - 1:
-                    # Wait before retry (exponential backoff: 2s, 4s)
                     wait_time = 2 ** (attempt + 1)
                     logger.info(f"Retrying in {wait_time} seconds...")
                     time.sleep(wait_time)
@@ -594,7 +651,6 @@ class NotionHandler:
             - Good: Next review = 2^count days (1, 2, 4, 8, 16, 32, 60 max)
             - Easy: Next review = 2^(count+1) days, count +2 (skip ahead)
         """
-        from datetime import timedelta
 
         # Backward compatibility
         if knew is not None:
