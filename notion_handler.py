@@ -490,13 +490,20 @@ class NotionHandler:
 
                 for entry in parsed_entries:
                     score = self._calculate_review_priority(entry, today)
-                    scored_entries.append((score, random.random(), entry))  # random for tie-breaking
+                    scored_entries.append((score, entry))
 
-                # Sort by score (higher = more urgent to review)
-                scored_entries.sort(key=lambda x: (x[0], x[1]), reverse=True)
+                # Weighted random selection: prioritizes high-score words
+                # but doesn't always pick the exact same top-N, reducing
+                # duplicates across consecutive unreviewed batches.
+                entries_pool = list(scored_entries)
+                weights = [max(score, 1.0) for score, _ in entries_pool]
+                selected = []
 
-                # Select top entries
-                selected = [entry for _, _, entry in scored_entries[:count]]
+                for _ in range(min(count, len(entries_pool))):
+                    idx = random.choices(range(len(entries_pool)), weights=weights, k=1)[0]
+                    selected.append(entries_pool[idx][1])
+                    entries_pool.pop(idx)
+                    weights.pop(idx)
                 logger.info(f"Successfully fetched {len(selected)} entries for review")
                 return selected
 
