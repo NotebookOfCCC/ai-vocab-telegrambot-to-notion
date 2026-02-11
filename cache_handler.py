@@ -57,6 +57,15 @@ class CacheHandler:
         }
         self._save_cache()
 
+    def remove(self, text: str) -> bool:
+        """Remove a single entry from cache. Returns True if found and removed."""
+        key = self._normalize_key(text)
+        if key in self.cache:
+            del self.cache[key]
+            self._save_cache()
+            return True
+        return False
+
     def clear(self) -> int:
         """Clear all cache entries. Returns number of entries removed."""
         count = len(self.cache)

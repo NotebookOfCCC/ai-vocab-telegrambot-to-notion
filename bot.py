@@ -570,6 +570,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             else:
                 failed_count += 1
 
+        # Invalidate cache for saved words so duplicate detection works next time
+        original_input = session.get("original_input", "")
+        if original_input and saved_entries:
+            cache_handler.remove(original_input)
+
         # Clear session
         user_sessions[user_id] = {}
 

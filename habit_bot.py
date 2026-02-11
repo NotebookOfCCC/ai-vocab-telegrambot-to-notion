@@ -597,10 +597,8 @@ def build_evening_message(schedule: dict) -> str:
 
     if unfinished:
         lines.append(f"\n⏳ Still pending ({len(unfinished)}):")
-        for t in unfinished[:3]:  # Show max 3
-            lines.append(f"  • {t.get('text', '')}")
-        if len(unfinished) > 3:
-            lines.append(f"  ... and {len(unfinished) - 3} more")
+        for i, t in enumerate(unfinished, 1):
+            lines.append(f"  {i}. {t.get('text', '')}")
 
     lines.append("\n😴 Rest well and recharge for tomorrow!")
 
