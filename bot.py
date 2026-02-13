@@ -33,6 +33,8 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY")
 NOTION_KEY = os.getenv("NOTION_API_KEY")
 NOTION_DB_ID = os.getenv("NOTION_DATABASE_ID")
+ADDITIONAL_DB_IDS_RAW = os.getenv("ADDITIONAL_DATABASE_IDS", "")
+ADDITIONAL_DB_IDS = [db_id.strip() for db_id in ADDITIONAL_DB_IDS_RAW.split(",") if db_id.strip()]
 USE_CHEAP_MODEL = os.getenv("USE_CHEAP_MODEL", "false").lower() == "true"  # Set to "true" to save ~90% on API costs
 ALLOWED_USERS = os.getenv("ALLOWED_USER_IDS", "").split(",")
 ALLOWED_USERS = [uid.strip() for uid in ALLOWED_USERS if uid.strip()]
@@ -686,7 +688,7 @@ def main():
     ai_handler = AIHandler(ANTHROPIC_KEY, use_cheap_model=USE_CHEAP_MODEL)
     if USE_CHEAP_MODEL:
         print("Using Haiku model (cheap mode) - ~90% cost savings")
-    notion_handler = NotionHandler(NOTION_KEY, NOTION_DB_ID)
+    notion_handler = NotionHandler(NOTION_KEY, NOTION_DB_ID, additional_database_ids=ADDITIONAL_DB_IDS)
     cache_handler = CacheHandler()
     print(f"Cache loaded: {len(cache_handler.cache)} entries")
 

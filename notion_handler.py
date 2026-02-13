@@ -417,7 +417,7 @@ class NotionHandler:
         return False
 
     def find_entry_by_english(self, text: str):
-        """Search Notion database for an existing entry matching the English word/phrase.
+        """Search ALL Notion databases for an existing entry matching the English word/phrase.
 
         Returns the entry dict with english, chinese, date fields, or None if not found.
         Matches base words (blow = blowing) but not phrases containing the word
@@ -429,45 +429,50 @@ class NotionHandler:
             search_text = re.sub(r'\([^)]*\)', '', search_text).strip()  # Remove (pos.)
             search_text = search_text.strip('.!?,;:…"\'')  # Strip trailing punctuation
 
-            response = self.client.databases.query(
-                database_id=self.database_id,
-                filter={
-                    "property": "English",
-                    "title": {
-                        "contains": search_text
+            for db_id in self.all_database_ids:
+                response = self.client.databases.query(
+                    database_id=db_id,
+                    filter={
+                        "property": "English",
+                        "title": {
+                            "contains": search_text
+                        }
+                    },
+                    page_size=10  # Get more results to filter
+                )
+
+                for page in response["results"]:
+                    props = page["properties"]
+
+                    # Extract English title
+                    english = ""
+                    if props.get("English", {}).get("title"):
+                        english = props["English"]["title"][0]["plain_text"]
+
+                    # Skip config pages
+                    if english.startswith("__CONFIG_"):
+                        continue
+
+                    # Check if it's actually the same word (not just substring)
+                    if not self._is_same_word(text, english):
+                        continue
+
+                    # Extract date
+                    date_val = ""
+                    if props.get("Date", {}).get("date"):
+                        date_val = props["Date"]["date"].get("start", "")
+
+                    # Extract Chinese
+                    chinese = ""
+                    if props.get("Chinese", {}).get("rich_text"):
+                        chinese = props["Chinese"]["rich_text"][0]["plain_text"]
+
+                    return {
+                        "english": english,
+                        "chinese": chinese,
+                        "date": date_val,
+                        "page_id": page["id"],
                     }
-                },
-                page_size=10  # Get more results to filter
-            )
-
-            for page in response["results"]:
-                props = page["properties"]
-
-                # Extract English title
-                english = ""
-                if props.get("English", {}).get("title"):
-                    english = props["English"]["title"][0]["plain_text"]
-
-                # Check if it's actually the same word (not just substring)
-                if not self._is_same_word(text, english):
-                    continue
-
-                # Extract date
-                date_val = ""
-                if props.get("Date", {}).get("date"):
-                    date_val = props["Date"]["date"].get("start", "")
-
-                # Extract Chinese
-                chinese = ""
-                if props.get("Chinese", {}).get("rich_text"):
-                    chinese = props["Chinese"]["rich_text"][0]["plain_text"]
-
-                return {
-                    "english": english,
-                    "chinese": chinese,
-                    "date": date_val,
-                    "page_id": page["id"],
-                }
         except Exception as e:
             logger.error(f"Error checking for duplicate in Notion: {e}")
 
