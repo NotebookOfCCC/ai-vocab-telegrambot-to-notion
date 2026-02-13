@@ -199,7 +199,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         response = ai_handler.format_entries_for_display(cached_result)
         entries = cached_result.get("entries", [])
 
-        reply_markup = _build_save_keyboard(entries)
+        # Duplicate check on cached entries
+        dup_notes = []
+        dup_page_ids = {}
+        for i, entry in enumerate(entries):
+            dup = notion_handler.find_entry_by_english(entry.get("english", ""))
+            if dup:
+                date_str = f" ({dup['date']})" if dup.get('date') else ""
+                dup_notes.append(f"⚠️ #{i+1} already in Notion{date_str}")
+                dup_page_ids[i] = dup["page_id"]
+
+        user_sessions[user_id]["dup_page_ids"] = dup_page_ids
+
+        if dup_notes:
+            response = "\n".join(dup_notes) + "\n\n" + response
+
+        reply_markup = _build_save_keyboard(entries, dup_indices=set(dup_page_ids.keys()))
         sent_message = await update.message.reply_text(
             f"(cached)\n{response}", reply_markup=reply_markup
         )
@@ -256,16 +271,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         # Post-AI duplicate check on extracted phrases
         dup_notes = []
+        dup_page_ids = {}  # index -> page_id
         for i, entry in enumerate(entries):
             dup = notion_handler.find_entry_by_english(entry.get("english", ""))
             if dup:
                 date_str = f" ({dup['date']})" if dup.get('date') else ""
                 dup_notes.append(f"⚠️ #{i+1} already in Notion{date_str}")
+                dup_page_ids[i] = dup["page_id"]
+
+        user_sessions[user_id]["dup_page_ids"] = dup_page_ids
 
         if dup_notes:
             response = "\n".join(dup_notes) + "\n\n" + response
 
-        reply_markup = _build_save_keyboard(entries)
+        reply_markup = _build_save_keyboard(entries, dup_indices=set(dup_page_ids.keys()))
         sent_message = await update.message.reply_text(response, reply_markup=reply_markup)
 
         # Store message info so we can remove buttons later
@@ -441,18 +460,21 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
         user_sessions[user_id]["last_button_message_chat_id"] = sent_message.chat_id
 
 
-def _build_save_keyboard(entries: list) -> InlineKeyboardMarkup:
+def _build_save_keyboard(entries: list, dup_indices: set = None) -> InlineKeyboardMarkup:
     """Build inline keyboard for save/cancel after analysis."""
+    dup_indices = dup_indices or set()
     keyboard = []
     if len(entries) == 1:
+        label = "Replace" if 0 in dup_indices else "Save"
         keyboard.append([
-            InlineKeyboardButton("Save", callback_data="save_1"),
+            InlineKeyboardButton(label, callback_data="save_1"),
             InlineKeyboardButton("Cancel", callback_data="cancel")
         ])
     else:
         row = []
         for i in range(len(entries)):
-            row.append(InlineKeyboardButton(f"Save {i+1}", callback_data=f"save_{i+1}"))
+            label = f"Replace {i+1}" if i in dup_indices else f"Save {i+1}"
+            row.append(InlineKeyboardButton(label, callback_data=f"save_{i+1}"))
             if len(row) == 3:
                 keyboard.append(row)
                 row = []
@@ -520,7 +542,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             response = ai_handler.format_entries_for_display(analysis)
             entries = analysis.get("entries", [])
 
-            reply_markup = _build_save_keyboard(entries)
+            # Duplicate check on re-analyzed entries
+            dup_notes = []
+            dup_page_ids = {}
+            for i, entry in enumerate(entries):
+                dup = notion_handler.find_entry_by_english(entry.get("english", ""))
+                if dup:
+                    date_str = f" ({dup['date']})" if dup.get('date') else ""
+                    dup_notes.append(f"⚠️ #{i+1} already in Notion{date_str}")
+                    dup_page_ids[i] = dup["page_id"]
+
+            user_sessions[user_id]["dup_page_ids"] = dup_page_ids
+
+            if dup_notes:
+                response = "\n".join(dup_notes) + "\n\n" + response
+
+            reply_markup = _build_save_keyboard(entries, dup_indices=set(dup_page_ids.keys()))
             sent_message = await query.message.reply_text(response, reply_markup=reply_markup)
 
             user_sessions[user_id]["last_button_message_id"] = sent_message.message_id
@@ -569,21 +606,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             idx = int(data.split("_")[1])
             indices = [idx]
 
+        dup_page_ids = session.get("dup_page_ids", {})
         saved_entries = []
+        replaced_entries = []
         failed_count = 0
 
         for idx in indices:
             entry = pending_entries[idx - 1]
-            result = notion_handler.save_entry(entry)
+            page_id = dup_page_ids.get(idx - 1)  # 0-indexed
+
+            if page_id:
+                result = notion_handler.update_entry_content(page_id, entry)
+            else:
+                result = notion_handler.save_entry(entry)
 
             if result["success"]:
-                saved_entries.append(entry)
+                if page_id:
+                    replaced_entries.append(entry)
+                else:
+                    saved_entries.append(entry)
             else:
                 failed_count += 1
 
         # Invalidate cache for saved words so duplicate detection works next time
         original_input = session.get("original_input", "")
-        if original_input and saved_entries:
+        if original_input and (saved_entries or replaced_entries):
             cache_handler.remove(original_input)
 
         # Clear session
@@ -593,7 +640,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text(query.message.text, reply_markup=None)
 
         # Send save confirmation as separate message
-        if saved_entries:
+        if saved_entries or replaced_entries:
+            for entry in replaced_entries:
+                chinese = entry.get('chinese', '')
+                short_chinese = chinese.split('；')[0].split(';')[0].split('，')[0].split(',')[0].strip()
+                await query.message.reply_text(f"— Replaced in Notion: {entry['english']} - {short_chinese} ({entry['category']})")
             for entry in saved_entries:
                 chinese = entry.get('chinese', '')
                 short_chinese = chinese.split('；')[0].split(';')[0].split('，')[0].split(',')[0].strip()

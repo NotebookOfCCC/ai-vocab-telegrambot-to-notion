@@ -146,6 +146,32 @@ class NotionHandler:
                 "error": error_msg
             }
 
+    def update_entry_content(self, page_id: str, entry: dict) -> dict:
+        """Update content fields of an existing entry, preserving review progress."""
+        properties = {
+            "English": {
+                "title": [{"text": {"content": entry.get("english", "")}}]
+            },
+            "Chinese": {
+                "rich_text": [{"text": {"content": entry.get("chinese", "")}}]
+            },
+            "Explanation": {
+                "rich_text": [{"text": {"content": entry.get("explanation", "")}}]
+            },
+            "Example": {
+                "rich_text": [{"text": {"content": f"{entry.get('example_en', '')}\n{entry.get('example_zh', '')}"}}]
+            },
+            "Category": {
+                "select": {"name": entry.get("category", "其他")}
+            },
+        }
+        # Does NOT touch: Review Count, Next Review, Last Reviewed, Mastered, Date
+        try:
+            response = self.client.pages.update(page_id=page_id, properties=properties)
+            return {"success": True, "page_id": response["id"]}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def _save_with_auto_detect(self, entry: dict) -> dict:
         """Try to save by auto-detecting database schema."""
         try:
@@ -440,6 +466,7 @@ class NotionHandler:
                     "english": english,
                     "chinese": chinese,
                     "date": date_val,
+                    "page_id": page["id"],
                 }
         except Exception as e:
             logger.error(f"Error checking for duplicate in Notion: {e}")
