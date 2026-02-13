@@ -356,8 +356,11 @@ class NotionHandler:
         base = re.sub(r'/[^/]+/', '', text).strip()
         base = re.sub(r'\([^)]*\)', '', base).strip().lower()
 
+        # Strip punctuation from each word
+        words = [w.strip('.!?,;:…"\'') for w in base.split()]
+        words = [w for w in words if w]  # Remove empty strings
+
         # Lemmatize each word in the phrase
-        words = base.split()
         lemmatized = [self._lemmatize_word(w) for w in words]
         return ' '.join(lemmatized)
 
@@ -373,7 +376,19 @@ class NotionHandler:
 
         # Compare base phrases directly
         # Both single words or both phrases must have same lemmatized form
-        return input_base == stored_base
+        if input_base == stored_base:
+            return True
+
+        # Handle "be + adj/phrase" dictionary forms
+        # e.g., "well aware of" should match "be well aware of"
+        prefix = "be "
+        for a, b in [(input_base, stored_base), (stored_base, input_base)]:
+            if b.startswith(prefix):
+                remainder = b[len(prefix):]
+                if len(remainder.split()) >= 2 and a == remainder:
+                    return True
+
+        return False
 
     def find_entry_by_english(self, text: str):
         """Search Notion database for an existing entry matching the English word/phrase.
@@ -386,6 +401,7 @@ class NotionHandler:
             # Normalize: strip phonetics/part-of-speech for search
             search_text = re.sub(r'/[^/]+/', '', text).strip()  # Remove /IPA/
             search_text = re.sub(r'\([^)]*\)', '', search_text).strip()  # Remove (pos.)
+            search_text = search_text.strip('.!?,;:…"\'')  # Strip trailing punctuation
 
             response = self.client.databases.query(
                 database_id=self.database_id,

@@ -254,6 +254,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         response = ai_handler.format_entries_for_display(analysis)
         entries = analysis.get("entries", [])
 
+        # Post-AI duplicate check on extracted phrases
+        dup_notes = []
+        for i, entry in enumerate(entries):
+            dup = notion_handler.find_entry_by_english(entry.get("english", ""))
+            if dup:
+                date_str = f" ({dup['date']})" if dup.get('date') else ""
+                dup_notes.append(f"⚠️ #{i+1} already in Notion{date_str}")
+
+        if dup_notes:
+            response = "\n".join(dup_notes) + "\n\n" + response
+
         reply_markup = _build_save_keyboard(entries)
         sent_message = await update.message.reply_text(response, reply_markup=reply_markup)
 

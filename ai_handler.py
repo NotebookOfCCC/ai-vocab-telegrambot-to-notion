@@ -233,6 +233,11 @@ CRITICAL RULES:
      example_en: "1. The company's revenue undershoots expectations. 2. The archer undershot the target. 3. The pilot undershot the runway."
      example_zh: "1. 公司收入未达预期。 2. 弓箭手射偏了目标。 3. 飞行员降落时未到达跑道。"
 
+7. CONTEXT-INDEPENDENT ANALYSIS:
+   - When extracting a word/phrase from a sentence, provide ALL distinct meanings of the extracted word, not just the meaning used in the given context
+   - The entry should be as comprehensive as if the user looked up the word directly
+   - Example: from "hookup the microphone", extract "hook up" with ALL meanings (1. connect 2. casual relationship), not just "connect"
+
 OUTPUT FORMAT (strict JSON):
 {{
   "is_sentence": true/false,
