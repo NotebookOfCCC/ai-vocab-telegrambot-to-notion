@@ -520,14 +520,17 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
         result = notion_handler.update_review_stats(page_id, response="good")
         await query.edit_message_reply_markup(reply_markup=None)
         if result.get("mastered"):
-            await query.message.reply_text("🎓 Word mastered! It won't appear in future reviews.\nYou can uncheck Mastered in Notion to bring it back.")
+            # Extract word from review message (3rd line: after header and blank line)
+            word = query.message.text.split("\n")[2].strip() if query.message.text else ""
+            await query.message.reply_text(f"🎓 Mastered: {word}")
 
     elif data.startswith("easy_"):
         page_id = data[5:]  # Remove "easy_" prefix
         result = notion_handler.update_review_stats(page_id, response="easy")
         await query.edit_message_reply_markup(reply_markup=None)
         if result.get("mastered"):
-            await query.message.reply_text("🎓 Word mastered! It won't appear in future reviews.\nYou can uncheck Mastered in Notion to bring it back.")
+            word = query.message.text.split("\n")[2].strip() if query.message.text else ""
+            await query.message.reply_text(f"🎓 Mastered: {word}")
 
 
 def apply_schedule(sched, config: dict) -> None:

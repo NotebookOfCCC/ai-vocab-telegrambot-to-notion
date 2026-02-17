@@ -574,6 +574,8 @@ def calculate_daily_score(schedule: dict) -> dict:
 
 def build_evening_message(schedule: dict) -> str:
     """Build evening wind-down message with daily score."""
+    global current_actionable_tasks
+
     lines = []
     lines.append("🌙 Time to wind down...\n")
 
@@ -584,6 +586,9 @@ def build_evening_message(schedule: dict) -> str:
     actionable = schedule.get("actionable_tasks", [])
     finished = [t for t in actionable if t.get("done")]
     unfinished = [t for t in actionable if not t.get("done")]
+
+    # Allow marking tasks done after wind-down
+    current_actionable_tasks = unfinished.copy()
 
     # Show score if there were gradeable tasks
     if score["total"] > 0:
@@ -599,6 +604,7 @@ def build_evening_message(schedule: dict) -> str:
         lines.append(f"\n⏳ Still pending ({len(unfinished)}):")
         for i, t in enumerate(unfinished, 1):
             lines.append(f"  {i}. {t.get('text', '')}")
+        lines.append("\n→ Mark done: \"1 3\"")
 
     lines.append("\n😴 Rest well and recharge for tomorrow!")
 
