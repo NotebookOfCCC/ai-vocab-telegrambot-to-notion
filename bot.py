@@ -398,8 +398,16 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
             entry = pending_entries[target_idx]
             response = ai_handler._format_single_entry(entry)
 
-            # Build appropriate keyboard based on number of entries
-            keyboard = _build_edit_keyboard(len(pending_entries), target_idx)
+            # Re-check duplicate status
+            dup_page_ids = session.get("dup_page_ids", {})
+            dup = notion_handler.find_entry_by_english(entry.get("english", ""))
+            if dup:
+                dup_page_ids[target_idx] = dup["page_id"]
+            else:
+                dup_page_ids.pop(target_idx, None)
+            user_sessions[user_id]["dup_page_ids"] = dup_page_ids
+
+            keyboard = _build_edit_keyboard(len(pending_entries), target_idx, is_dup=target_idx in dup_page_ids)
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             entry_label = f"[{target_idx + 1}] " if len(pending_entries) > 1 else ""
@@ -432,8 +440,16 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         response = ai_handler._format_single_entry(result["entry"])
 
-        # Build appropriate keyboard based on number of entries
-        keyboard = _build_edit_keyboard(len(pending_entries), target_idx)
+        # Re-check duplicate status after edit
+        dup_page_ids = session.get("dup_page_ids", {})
+        dup = notion_handler.find_entry_by_english(result["entry"].get("english", ""))
+        if dup:
+            dup_page_ids[target_idx] = dup["page_id"]
+        else:
+            dup_page_ids.pop(target_idx, None)
+        user_sessions[user_id]["dup_page_ids"] = dup_page_ids
+
+        keyboard = _build_edit_keyboard(len(pending_entries), target_idx, is_dup=target_idx in dup_page_ids)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         entry_label = f"[{target_idx + 1}] " if len(pending_entries) > 1 else ""
@@ -489,18 +505,19 @@ def _build_save_keyboard(entries: list, dup_indices: set = None) -> InlineKeyboa
     return InlineKeyboardMarkup(keyboard)
 
 
-def _build_edit_keyboard(num_entries: int, current_idx: int) -> list:
+def _build_edit_keyboard(num_entries: int, current_idx: int, is_dup: bool = False) -> list:
     """Build inline keyboard for edit mode based on number of entries."""
     if num_entries == 1:
+        label = "Replace" if is_dup else "Save"
         return [[
-            InlineKeyboardButton("Save", callback_data="save_1"),
+            InlineKeyboardButton(label, callback_data="save_1"),
             InlineKeyboardButton("Cancel", callback_data="cancel")
         ]]
     else:
-        # Show save button for current entry and save all option
+        label = f"Replace [{current_idx + 1}]" if is_dup else f"Save [{current_idx + 1}]"
         return [
             [
-                InlineKeyboardButton(f"Save [{current_idx + 1}]", callback_data=f"save_{current_idx + 1}"),
+                InlineKeyboardButton(label, callback_data=f"save_{current_idx + 1}"),
                 InlineKeyboardButton("Save All", callback_data="save_all"),
             ],
             [InlineKeyboardButton("Cancel", callback_data="cancel")]
