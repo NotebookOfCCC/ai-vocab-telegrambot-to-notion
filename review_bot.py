@@ -98,9 +98,28 @@ application = None
 is_paused = False
 review_config = None
 
+# Store full card text for flashcard reveal (page_id -> full_message)
+pending_reveals = {}
+
+
+def format_entry_front(entry: dict, index: int, total: int) -> str:
+    """Format flashcard front - English only for active recall."""
+    english = entry.get("english", "")
+    review_count = entry.get("review_count", 0) or 0
+    last_reviewed = entry.get("last_reviewed")
+
+    if not last_reviewed:
+        status = "🆕 New"
+    elif review_count <= 3:
+        status = f"📖 Review #{review_count + 1}"
+    else:
+        status = f"✅ Review #{review_count + 1}"
+
+    return f"Review {index}/{total}  •  {status}\n\n{english}"
+
 
 def format_entry_for_review(entry: dict, index: int, total: int) -> str:
-    """Format a single entry for display in review message."""
+    """Format full card - all details shown after reveal."""
     english = entry.get("english", "")
     chinese = entry.get("chinese", "")
     explanation = entry.get("explanation", "")
@@ -109,9 +128,6 @@ def format_entry_for_review(entry: dict, index: int, total: int) -> str:
     review_count = entry.get("review_count", 0) or 0
     last_reviewed = entry.get("last_reviewed")
 
-    # Show review status based on whether word has EVER been reviewed
-    # "New" = never reviewed before (last_reviewed is empty)
-    # This is different from review_count==0, which can happen after hitting "Again"
     if not last_reviewed:
         status = "🆕 New"
     elif review_count <= 3:
@@ -172,20 +188,20 @@ async def send_review_batch(manual: bool = False):
 
         total = len(entries)
         for i, entry in enumerate(entries, 1):
-            message = format_entry_for_review(entry, i, total)
             page_id = entry.get("page_id", "")
 
-            # Add Again/Good/Easy buttons
-            keyboard = [[
-                InlineKeyboardButton("🔴 Again", callback_data=f"again_{page_id}"),
-                InlineKeyboardButton("🟡 Good", callback_data=f"good_{page_id}"),
-                InlineKeyboardButton("🟢 Easy", callback_data=f"easy_{page_id}")
-            ]]
+            # Store full card for reveal
+            full_message = format_entry_for_review(entry, i, total)
+            pending_reveals[page_id] = full_message
+
+            # Send front side (English only) with "Show Answer" button
+            front_message = format_entry_front(entry, i, total)
+            keyboard = [[InlineKeyboardButton("Show Answer", callback_data=f"reveal_{page_id}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await application.bot.send_message(
                 chat_id=REVIEW_USER_ID,
-                text=message,
+                text=front_message,
                 reply_markup=reply_markup
             )
 
@@ -501,7 +517,7 @@ async def handle_schedule_callback(update: Update, context: ContextTypes.DEFAULT
 
 
 async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle Again/Good/Easy button presses."""
+    """Handle Show Answer and Again/Good/Easy button presses."""
     query = update.callback_query
     await query.answer()
 
@@ -510,17 +526,44 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     data = query.data
 
+    if data.startswith("reveal_"):
+        page_id = data[7:]  # Remove "reveal_" prefix
+        full_text = pending_reveals.pop(page_id, None)
+
+        if not full_text:
+            # Bot may have restarted - fetch from Notion as fallback
+            try:
+                page = notion_handler.client.pages.retrieve(page_id=page_id)
+                entry = notion_handler._parse_page_to_entry(page)
+                if entry:
+                    full_text = format_entry_for_review(entry, 1, 1)
+            except Exception:
+                pass
+            if not full_text:
+                full_text = query.message.text
+
+        # Replace front with full card + rating buttons
+        keyboard = [[
+            InlineKeyboardButton("🔴 Again", callback_data=f"again_{page_id}"),
+            InlineKeyboardButton("🟡 Good", callback_data=f"good_{page_id}"),
+            InlineKeyboardButton("🟢 Easy", callback_data=f"easy_{page_id}")
+        ]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(text=full_text, reply_markup=reply_markup)
+        return
+
     if data.startswith("again_"):
         page_id = data[6:]  # Remove "again_" prefix
         result = notion_handler.update_review_stats(page_id, response="again")
         await query.edit_message_reply_markup(reply_markup=None)
+        pending_reveals.pop(page_id, None)
 
     elif data.startswith("good_"):
         page_id = data[5:]  # Remove "good_" prefix
         result = notion_handler.update_review_stats(page_id, response="good")
         await query.edit_message_reply_markup(reply_markup=None)
+        pending_reveals.pop(page_id, None)
         if result.get("mastered"):
-            # Extract word from review message (3rd line: after header and blank line)
             word = query.message.text.split("\n")[2].strip() if query.message.text else ""
             await query.message.reply_text(f"🎓 Mastered: {word}")
 
@@ -528,6 +571,7 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
         page_id = data[5:]  # Remove "easy_" prefix
         result = notion_handler.update_review_stats(page_id, response="easy")
         await query.edit_message_reply_markup(reply_markup=None)
+        pending_reveals.pop(page_id, None)
         if result.get("mastered"):
             word = query.message.text.split("\n")[2].strip() if query.message.text else ""
             await query.message.reply_text(f"🎓 Mastered: {word}")
