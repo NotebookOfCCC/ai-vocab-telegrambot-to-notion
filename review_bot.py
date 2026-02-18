@@ -5,6 +5,7 @@ Sends scheduled vocabulary review messages from Notion database.
 import os
 import json
 import re
+import html
 import logging
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -98,33 +99,17 @@ application = None
 is_paused = False
 review_config = None
 
-# Store full card text for flashcard reveal (page_id -> full_message)
-pending_reveals = {}
-
-
-def format_entry_front(entry: dict, index: int, total: int) -> str:
-    """Format flashcard front - English only for active recall."""
-    english = entry.get("english", "")
-    review_count = entry.get("review_count", 0) or 0
-    last_reviewed = entry.get("last_reviewed")
-
-    if not last_reviewed:
-        status = "🆕 New"
-    elif review_count <= 3:
-        status = f"📖 Review #{review_count + 1}"
-    else:
-        status = f"✅ Review #{review_count + 1}"
-
-    return f"Review {index}/{total}  •  {status}\n\n{english}"
-
-
 def format_entry_for_review(entry: dict, index: int, total: int) -> str:
-    """Format full card - all details shown after reveal."""
-    english = entry.get("english", "")
-    chinese = entry.get("chinese", "")
-    explanation = entry.get("explanation", "")
-    example = entry.get("example", "")
-    category = entry.get("category", "")
+    """Format a flashcard with spoiler-hidden answer (HTML).
+
+    English word is visible; Chinese, explanation, examples are hidden
+    behind Telegram's native spoiler tap-to-reveal.
+    """
+    english = html.escape(entry.get("english", ""))
+    chinese = html.escape(entry.get("chinese", ""))
+    explanation = html.escape(entry.get("explanation", ""))
+    example = html.escape(entry.get("example", ""))
+    category = html.escape(entry.get("category", ""))
     review_count = entry.get("review_count", 0) or 0
     last_reviewed = entry.get("last_reviewed")
 
@@ -135,19 +120,22 @@ def format_entry_for_review(entry: dict, index: int, total: int) -> str:
     else:
         status = f"✅ Review #{review_count + 1}"
 
-    lines = [f"Review {index}/{total}  •  {status}", "", f"{english}"]
+    lines = [f"Review {index}/{total}  •  {status}", "", f"<b>{english}</b>"]
 
+    # Build answer section (hidden behind spoiler)
+    answer_lines = []
     if chinese:
-        lines.append(chinese)
-
+        answer_lines.append(chinese)
     if explanation:
-        lines.extend(["", "Explanation:", explanation])
-
+        answer_lines.extend(["", f"<b>Explanation:</b>", explanation])
     if example:
-        lines.extend(["", "Example:", example])
-
+        answer_lines.extend(["", f"<b>Example:</b>", example])
     if category:
-        lines.extend(["", f"Category: {category}"])
+        answer_lines.extend(["", f"Category: {category}"])
+
+    if answer_lines:
+        answer_text = "\n".join(answer_lines)
+        lines.extend(["", f"<tg-spoiler>{answer_text}</tg-spoiler>"])
 
     return "\n".join(lines)
 
@@ -188,21 +176,22 @@ async def send_review_batch(manual: bool = False):
 
         total = len(entries)
         for i, entry in enumerate(entries, 1):
+            message = format_entry_for_review(entry, i, total)
             page_id = entry.get("page_id", "")
 
-            # Store full card for reveal
-            full_message = format_entry_for_review(entry, i, total)
-            pending_reveals[page_id] = full_message
-
-            # Send front side (English only) with "Show Answer" button
-            front_message = format_entry_front(entry, i, total)
-            keyboard = [[InlineKeyboardButton("Show Answer", callback_data=f"reveal_{page_id}")]]
+            # Rating buttons shown alongside spoiler-hidden answer
+            keyboard = [[
+                InlineKeyboardButton("🔴 Again", callback_data=f"again_{page_id}"),
+                InlineKeyboardButton("🟡 Good", callback_data=f"good_{page_id}"),
+                InlineKeyboardButton("🟢 Easy", callback_data=f"easy_{page_id}")
+            ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await application.bot.send_message(
                 chat_id=REVIEW_USER_ID,
-                text=front_message,
-                reply_markup=reply_markup
+                text=message,
+                reply_markup=reply_markup,
+                parse_mode="HTML"
             )
 
         logger.info(f"Sent {total} review entries to user {REVIEW_USER_ID}")
@@ -517,7 +506,7 @@ async def handle_schedule_callback(update: Update, context: ContextTypes.DEFAULT
 
 
 async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle Show Answer and Again/Good/Easy button presses."""
+    """Handle Again/Good/Easy button presses."""
     query = update.callback_query
     await query.answer()
 
@@ -526,43 +515,15 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     data = query.data
 
-    if data.startswith("reveal_"):
-        page_id = data[7:]  # Remove "reveal_" prefix
-        full_text = pending_reveals.pop(page_id, None)
-
-        if not full_text:
-            # Bot may have restarted - fetch from Notion as fallback
-            try:
-                page = notion_handler.client.pages.retrieve(page_id=page_id)
-                entry = notion_handler._parse_page_to_entry(page)
-                if entry:
-                    full_text = format_entry_for_review(entry, 1, 1)
-            except Exception:
-                pass
-            if not full_text:
-                full_text = query.message.text
-
-        # Replace front with full card + rating buttons
-        keyboard = [[
-            InlineKeyboardButton("🔴 Again", callback_data=f"again_{page_id}"),
-            InlineKeyboardButton("🟡 Good", callback_data=f"good_{page_id}"),
-            InlineKeyboardButton("🟢 Easy", callback_data=f"easy_{page_id}")
-        ]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(text=full_text, reply_markup=reply_markup)
-        return
-
     if data.startswith("again_"):
         page_id = data[6:]  # Remove "again_" prefix
         result = notion_handler.update_review_stats(page_id, response="again")
         await query.edit_message_reply_markup(reply_markup=None)
-        pending_reveals.pop(page_id, None)
 
     elif data.startswith("good_"):
         page_id = data[5:]  # Remove "good_" prefix
         result = notion_handler.update_review_stats(page_id, response="good")
         await query.edit_message_reply_markup(reply_markup=None)
-        pending_reveals.pop(page_id, None)
         if result.get("mastered"):
             word = query.message.text.split("\n")[2].strip() if query.message.text else ""
             await query.message.reply_text(f"🎓 Mastered: {word}")
@@ -571,7 +532,6 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
         page_id = data[5:]  # Remove "easy_" prefix
         result = notion_handler.update_review_stats(page_id, response="easy")
         await query.edit_message_reply_markup(reply_markup=None)
-        pending_reveals.pop(page_id, None)
         if result.get("mastered"):
             word = query.message.text.split("\n")[2].strip() if query.message.text else ""
             await query.message.reply_text(f"🎓 Mastered: {word}")
