@@ -505,6 +505,14 @@ async def handle_schedule_callback(update: Update, context: ContextTypes.DEFAULT
         await send_schedule_display(query, review_config, edit=True)
 
 
+def _unspoiler_html(message) -> str:
+    """Strip spoiler formatting from message to reveal full content."""
+    text = message.text_html
+    text = text.replace("<tg-spoiler>", "").replace("</tg-spoiler>", "")
+    text = re.sub(r'<span class="tg-spoiler">(.*?)</span>', r'\1', text, flags=re.DOTALL)
+    return text
+
+
 async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle Again/Good/Easy button presses."""
     query = update.callback_query
@@ -518,12 +526,14 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
     if data.startswith("again_"):
         page_id = data[6:]  # Remove "again_" prefix
         result = notion_handler.update_review_stats(page_id, response="again")
-        await query.edit_message_reply_markup(reply_markup=None)
+        revealed = _unspoiler_html(query.message)
+        await query.edit_message_text(text=revealed, parse_mode="HTML", reply_markup=None)
 
     elif data.startswith("good_"):
         page_id = data[5:]  # Remove "good_" prefix
         result = notion_handler.update_review_stats(page_id, response="good")
-        await query.edit_message_reply_markup(reply_markup=None)
+        revealed = _unspoiler_html(query.message)
+        await query.edit_message_text(text=revealed, parse_mode="HTML", reply_markup=None)
         if result.get("mastered"):
             word = query.message.text.split("\n")[2].strip() if query.message.text else ""
             await query.message.reply_text(f"🎓 Mastered: {word}")
@@ -531,7 +541,8 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif data.startswith("easy_"):
         page_id = data[5:]  # Remove "easy_" prefix
         result = notion_handler.update_review_stats(page_id, response="easy")
-        await query.edit_message_reply_markup(reply_markup=None)
+        revealed = _unspoiler_html(query.message)
+        await query.edit_message_text(text=revealed, parse_mode="HTML", reply_markup=None)
         if result.get("mastered"):
             word = query.message.text.split("\n")[2].strip() if query.message.text else ""
             await query.message.reply_text(f"🎓 Mastered: {word}")
