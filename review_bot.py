@@ -8,8 +8,8 @@ import re
 import html
 import logging
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from notion_handler import NotionHandler
@@ -98,6 +98,15 @@ scheduler = None
 application = None
 is_paused = False
 review_config = None
+
+def get_main_keyboard() -> ReplyKeyboardMarkup:
+    """Persistent reply keyboard with the two most-used actions."""
+    return ReplyKeyboardMarkup(
+        [["📖 Review", "📊 Due"]],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
+
 
 def format_entry_for_review(entry: dict, index: int, total: int) -> str:
     """Format a flashcard with spoiler-hidden answer (HTML).
@@ -232,7 +241,7 @@ Buttons:
 🟡 Good - Normal interval
 🟢 Easy - Longer interval
 """
-    await update.message.reply_text(info_message)
+    await update.message.reply_text(info_message, reply_markup=get_main_keyboard())
 
 
 async def review_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -548,6 +557,18 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
             await query.message.reply_text(f"🎓 Mastered: {word}")
 
 
+async def handle_keyboard_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle taps on the persistent reply keyboard buttons."""
+    if str(update.effective_user.id) != REVIEW_USER_ID:
+        return
+    text = update.message.text.strip()
+    if text == "📖 Review":
+        await update.message.reply_text("Fetching review entries...")
+        await send_review_batch(manual=True)
+    elif text == "📊 Due":
+        await due_command(update, context)
+
+
 def apply_schedule(sched, config: dict) -> None:
     """Apply review schedule from config, removing old review jobs first."""
     # Remove existing review jobs
@@ -641,6 +662,10 @@ def main():
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CallbackQueryHandler(handle_schedule_callback, pattern=r"^sched_"))
     application.add_handler(CallbackQueryHandler(handle_review_callback, pattern=r"^(again|good|easy)_"))
+    application.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.Regex(r"^(📖 Review|📊 Due)$"),
+        handle_keyboard_button
+    ))
 
     # Add error handler
     application.add_error_handler(error_handler)
