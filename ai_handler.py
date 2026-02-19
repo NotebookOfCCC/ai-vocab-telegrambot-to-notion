@@ -10,6 +10,8 @@ import anthropic
 from datetime import date
 import json
 import re
+import time
+import logging
 
 
 # =============================================================================
@@ -275,6 +277,23 @@ class AIHandler:
         self.main_model = "claude-sonnet-4-20250514"  # Main vocab analysis
         self.cheap_model = "claude-haiku-4-5-20251001"  # For modifications & detection (~4x cheaper)
 
+    def _create_message_with_retry(self, **kwargs) -> object:
+        """Call client.messages.create with retry for overloaded/rate-limit errors."""
+        max_retries = 3
+        base_delay = 5  # seconds
+        for attempt in range(max_retries):
+            try:
+                return self.client.messages.create(**kwargs)
+            except anthropic.APIStatusError as e:
+                # 529 = overloaded, 529 or 429 = rate limit
+                if e.status_code in (429, 529) and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)  # 5s, 10s, 20s
+                    logging.warning(f"Anthropic API overloaded (attempt {attempt+1}/{max_retries}), retrying in {delay}s...")
+                    time.sleep(delay)
+                else:
+                    raise
+        raise RuntimeError("Unreachable")
+
     def _sanitize_json_response(self, text: str) -> str:
         """Fix special characters that break JSON parsing."""
         # Replace curly/smart quotes with straight quotes
@@ -497,7 +516,7 @@ class AIHandler:
         # Use cheap model (Haiku) if enabled, otherwise main model (Sonnet)
         model = self.cheap_model if self.use_cheap_model else self.main_model
 
-        message = self.client.messages.create(
+        message = self._create_message_with_retry(
             model=model,
             max_tokens=max_tokens,
             system=SYSTEM_PROMPT,
@@ -518,9 +537,9 @@ class AIHandler:
         except json.JSONDecodeError as e:
             # Retry once with explicit JSON request
             try:
-                retry_message = self.client.messages.create(
+                retry_message = self._create_message_with_retry(
                     model=model,
-                    max_tokens=max_tokens,  # Use same limit as original
+                    max_tokens=max_tokens,
                     messages=[
                         {"role": "user", "content": user_input},
                         {"role": "assistant", "content": response_text},
@@ -643,7 +662,7 @@ JSON format:
 
         try:
             # Use cheaper model for modifications
-            message = self.client.messages.create(
+            message = self._create_message_with_retry(
                 model=self.cheap_model,
                 max_tokens=800,
                 messages=[
@@ -653,7 +672,6 @@ JSON format:
             response_text = message.content[0].text
         except Exception as e:
             # Log and return error if API call fails
-            import logging
             logging.error(f"API error in modify_entry: {e}")
             return {"success": False, "error": f"API error: {str(e)}"}
 
@@ -668,7 +686,6 @@ JSON format:
                 "question_answer": result.get("question_answer")
             }
         except json.JSONDecodeError as e:
-            import logging
             logging.error(f"JSON parse error in modify_entry: {e}, response: {response_text[:200]}")
             return {"success": False, "error": f"JSON parse error: {str(e)}"}
 
@@ -735,7 +752,7 @@ Which entry (1-{len(entries)}) is the user referring to? Reply with ONLY one num
 
         try:
             # Use cheaper model for simple number detection
-            message = self.client.messages.create(
+            message = self._create_message_with_retry(
                 model=self.cheap_model,
                 max_tokens=10,
                 messages=[{"role": "user", "content": detect_prompt}]
@@ -748,7 +765,6 @@ Which entry (1-{len(entries)}) is the user referring to? Reply with ONLY one num
                 if 1 <= num <= len(entries):
                     return num - 1
         except Exception as e:
-            import logging
             logging.error(f"Error in detect_target_entry: {e}")
 
         # Default to first entry
