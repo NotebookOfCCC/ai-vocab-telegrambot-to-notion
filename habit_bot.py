@@ -34,7 +34,7 @@ Environment variables required:
 import os
 import logging
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -114,6 +114,15 @@ editing_task = {}
 
 # AI client for task parsing
 ai_client = None
+
+
+def get_main_keyboard() -> ReplyKeyboardMarkup:
+    """Persistent reply keyboard with the two most-used actions."""
+    return ReplyKeyboardMarkup(
+        [["📋 Tasks", "📊 Score"]],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
 
 
 def get_effective_date() -> str:
@@ -636,10 +645,11 @@ async def send_morning_reminder():
         if review_line:
             message += f"\n\n{review_line}"
 
-        # Send schedule
+        # Send schedule (include keyboard so it reappears after bot restarts)
         await application.bot.send_message(
             chat_id=HABITS_USER_ID,
-            text=message
+            text=message,
+            reply_markup=get_main_keyboard()
         )
 
         logger.info("Sent morning reminder")
@@ -792,6 +802,34 @@ async def send_weekly_summary():
         logger.error(f"Error sending weekly summary: {e}")
 
 
+async def handle_keyboard_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle taps on the persistent reply keyboard buttons."""
+    if str(update.effective_user.id) != HABITS_USER_ID:
+        return
+    text = update.message.text.strip()
+    if text == "📋 Tasks":
+        await tasks_command(update, context)
+    elif text == "📊 Score":
+        effective = get_effective_date()
+        schedule = habit_handler.get_today_schedule(effective_date=effective)
+        actionable = schedule.get("actionable_tasks", [])
+        if not actionable:
+            await update.message.reply_text("No tasks scheduled for today yet.")
+            return
+        done = sum(1 for t in actionable if t.get("done"))
+        total = len(actionable)
+        pct = int((done / total) * 100) if total > 0 else 0
+        if pct >= 90:
+            grade = "A"
+        elif pct >= 75:
+            grade = "B"
+        elif pct >= 60:
+            grade = "C"
+        else:
+            grade = "D"
+        await update.message.reply_text(f"📊 Today: {done}/{total} tasks done ({pct}%) — {grade}")
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
     user_id = str(update.effective_user.id)
@@ -836,7 +874,7 @@ Commands:
 /settings - Day boundary & timezone
 /stop /resume /status"""
 
-    await update.message.reply_text(info_message)
+    await update.message.reply_text(info_message, reply_markup=get_main_keyboard())
 
 
 async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1813,6 +1851,12 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_tasks_date_callback, pattern="^tasks_"))
     application.add_handler(CallbackQueryHandler(handle_edit_callback, pattern="^edit_"))
     application.add_handler(CallbackQueryHandler(handle_callback))
+
+    # Persistent keyboard button handler (must be before general message handler)
+    application.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.Regex(r"^(📋 Tasks|📊 Score)$"),
+        handle_keyboard_button
+    ))
 
     # Add message handler for natural language tasks (must be last)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

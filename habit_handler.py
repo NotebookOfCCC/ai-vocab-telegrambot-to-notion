@@ -635,10 +635,23 @@ class HabitHandler:
             date_prop_name = self._get_date_property_name()
             logger.info(f"Reading reminders using date property: '{date_prop_name}'")
 
-            response = self.client.databases.query(
-                database_id=self.reminders_db_id,
-                filter={"property": "Enabled", "checkbox": {"equals": True}}
-            )
+            # Paginate through all results (Notion returns max 100 per request)
+            all_pages = []
+            has_more = True
+            start_cursor = None
+            while has_more:
+                kwargs = {
+                    "database_id": self.reminders_db_id,
+                    "filter": {"property": "Enabled", "checkbox": {"equals": True}}
+                }
+                if start_cursor:
+                    kwargs["start_cursor"] = start_cursor
+                response = self.client.databases.query(**kwargs)
+                all_pages.extend(response.get("results", []))
+                has_more = response.get("has_more", False)
+                start_cursor = response.get("next_cursor")
+
+            logger.info(f"Fetched {len(all_pages)} total enabled reminders")
 
             # Determine target date
             if for_date:
@@ -648,7 +661,7 @@ class HabitHandler:
 
             reminders = []
 
-            for page in response.get("results", []):
+            for page in all_pages:
                 props = page.get("properties", {})
 
                 # Get Reminder (title)
