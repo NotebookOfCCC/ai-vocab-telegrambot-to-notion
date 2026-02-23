@@ -5,3 +5,4 @@ python-dotenv==1.0.1
 APScheduler>=3.10.0
 google-api-python-client>=2.0.0
 pytz>=2024.1
+gTTS>=2.5.0

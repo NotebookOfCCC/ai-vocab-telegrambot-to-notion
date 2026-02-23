@@ -3,8 +3,11 @@ Telegram Vocabulary Learning Bot
 Main entry point - handles Telegram interactions
 """
 import os
+import io
+import re
 import logging
 from dotenv import load_dotenv
+from gtts import gTTS
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -478,6 +481,12 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
         user_sessions[user_id]["last_button_message_chat_id"] = sent_message.chat_id
 
 
+def _extract_pronounce_text(english: str) -> str:
+    """Extract just the word/phrase from 'word /phonetics/ (pos.)' format for TTS."""
+    text = re.split(r'\s+[/(]', english)[0].strip()
+    return text[:58]  # Leave room for "tts_" prefix in 64-byte callback_data limit
+
+
 def _build_save_keyboard(entries: list, dup_indices: set = None) -> InlineKeyboardMarkup:
     """Build inline keyboard for save/cancel after analysis."""
     dup_indices = dup_indices or set()
@@ -488,6 +497,8 @@ def _build_save_keyboard(entries: list, dup_indices: set = None) -> InlineKeyboa
             InlineKeyboardButton(label, callback_data="save_1"),
             InlineKeyboardButton("Cancel", callback_data="cancel")
         ])
+        word = _extract_pronounce_text(entries[0].get("english", ""))
+        keyboard.append([InlineKeyboardButton("🔊 Pronounce", callback_data=f"tts_{word}")])
     else:
         row = []
         for i in range(len(entries)):
@@ -502,6 +513,16 @@ def _build_save_keyboard(entries: list, dup_indices: set = None) -> InlineKeyboa
             InlineKeyboardButton("Save All", callback_data="save_all"),
             InlineKeyboardButton("Cancel", callback_data="cancel")
         ])
+        # 🔊 row for each entry
+        tts_row = []
+        for i, entry in enumerate(entries):
+            word = _extract_pronounce_text(entry.get("english", ""))
+            tts_row.append(InlineKeyboardButton(f"🔊 {i+1}", callback_data=f"tts_{word}"))
+            if len(tts_row) == 4:
+                keyboard.append(tts_row)
+                tts_row = []
+        if tts_row:
+            keyboard.append(tts_row)
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -533,6 +554,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     data = query.data
     session = user_sessions.get(user_id, {})
     pending_entries = session.get("pending_entries", [])
+
+    # Handle pronunciation (TTS) - works independently of session state
+    if data.startswith("tts_"):
+        word = data[4:]  # Remove "tts_" prefix
+        if not word:
+            return
+        try:
+            tts = gTTS(word, lang="en")
+            audio = io.BytesIO()
+            tts.write_to_fp(audio)
+            audio.seek(0)
+            await query.message.reply_voice(voice=audio)
+        except Exception as e:
+            logger.error(f"TTS error for '{word}': {e}")
+            await query.answer("Failed to generate audio", show_alert=True)
+        return
 
     # Handle re-analyze (duplicate override)
     if data == "reanalyze":
