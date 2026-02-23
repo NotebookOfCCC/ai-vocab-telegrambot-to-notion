@@ -164,6 +164,7 @@ CATEGORIES = {
     "写作": "Literary, formal writing",
     "情绪": "Emotions, feelings",
     "科技": "Technology, computing, software, internet",
+    "精美句子": "Inspirational, poetic, or beautifully crafted sentences worth saving as a whole",
     "其他": "Other",
 }
 
@@ -186,6 +187,7 @@ CRITICAL RULES:
    - Exception: Keep the original form if it has a distinct meaning (e.g., "broken" as adjective meaning 损坏的)
    - For phrasal verbs and fixed expressions, use the base verb form: "putting off" → "put off"
    - For "adj + to" patterns (e.g., "analogous to", "akin to", "prone to"), ALWAYS save as "be + adj + to" form: "be analogous to"
+   - Exception for 精美句子 entries: keep the full sentence exactly as written (do NOT lemmatize)
 
 1. SENTENCE INPUT - Process in this order:
    a) GRAMMAR CHECK: Check for grammar errors. If found, correct them (keep original meaning).
@@ -208,6 +210,22 @@ CRITICAL RULES:
    - For a sentence like "tear down existing structure", only "tear down" is worth learning.
    - "existing" and "structure" are basic words - DO NOT include them.
    - Quality over quantity: 1 good entry is better than 3 mediocre ones.
+
+3b. BEAUTIFUL SENTENCES (精美句子):
+   - Detect when input is an inspirational, poetic, or beautifully crafted sentence (or set of sentences)
+     with vivid imagery, metaphors, or empowering literary style.
+   - Examples: "She grabbed life by the reins.", "She commanded her life.", "She turned life into what she wanted to."
+   - When detected, create ONE 精美句子 entry for the ENTIRE input:
+     - english: the full sentence(s) exactly as given, grammar-corrected if needed (NOT lemmatized)
+     - chinese: natural, fluent Chinese translation of the whole sentence(s)
+     - explanation: 2-3 sentence Chinese analysis — what imagery/metaphor is used, the emotional tone, why it's memorable
+     - example_en: "" (empty — the sentence itself is in the english field)
+     - example_zh: "" (empty)
+     - category: "精美句子"
+   - Do NOT add /IPA/ or (pos.) to 精美句子 entries — the english field is the full sentence.
+   - If the sentence also contains extractable non-obvious vocabulary/phrases (e.g., "grab by the reins"),
+     add those as SEPARATE entries AFTER the 精美句子 entry.
+   - Normal sentences about everyday topics are NOT 精美句子 — use this for literary/inspirational sentences only.
 
 4. PHONETICS - ADD LIBERALLY:
    - Add phonetic notation /IPA/ for ANY word that is NOT in the 3000 most common English words
