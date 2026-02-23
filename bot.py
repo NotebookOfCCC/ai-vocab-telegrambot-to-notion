@@ -48,6 +48,7 @@ cache_handler = None
 
 # Store user session data (pending entries to save)
 user_sessions = {}
+tts_last_msg = {}  # user_id -> (chat_id, message_id) for last TTS voice message
 
 
 def is_user_allowed(user_id: int) -> bool:
@@ -556,11 +557,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not word:
             return
         try:
+            # Delete previous TTS message if exists
+            if user_id in tts_last_msg:
+                old_chat_id, old_msg_id = tts_last_msg[user_id]
+                try:
+                    await context.bot.delete_message(chat_id=old_chat_id, message_id=old_msg_id)
+                except Exception:
+                    pass
             tts = gTTS(word, lang="en")
             audio = io.BytesIO()
             tts.write_to_fp(audio)
             audio.seek(0)
-            await query.message.reply_voice(voice=audio)
+            msg = await query.message.reply_voice(voice=audio)
+            tts_last_msg[user_id] = (msg.chat_id, msg.message_id)
         except Exception as e:
             logger.error(f"TTS error for '{word}': {e}")
             await query.answer("Failed to generate audio", show_alert=True)

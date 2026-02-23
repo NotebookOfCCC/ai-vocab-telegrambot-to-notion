@@ -100,6 +100,7 @@ scheduler = None
 application = None
 is_paused = False
 review_config = None
+tts_last_msg = {}  # user_id -> (chat_id, message_id) for last TTS voice message
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
     """Persistent reply keyboard with the two most-used actions."""
@@ -547,11 +548,20 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
         if not word:
             return
         try:
+            # Delete previous TTS message if exists
+            user_id = query.from_user.id
+            if user_id in tts_last_msg:
+                old_chat_id, old_msg_id = tts_last_msg[user_id]
+                try:
+                    await context.bot.delete_message(chat_id=old_chat_id, message_id=old_msg_id)
+                except Exception:
+                    pass
             tts = gTTS(word, lang="en")
             audio = io.BytesIO()
             tts.write_to_fp(audio)
             audio.seek(0)
-            await query.message.reply_voice(voice=audio)
+            msg = await query.message.reply_voice(voice=audio)
+            tts_last_msg[user_id] = (msg.chat_id, msg.message_id)
         except Exception as e:
             logger.error(f"TTS error for '{word}': {e}")
             await query.answer("Failed to generate audio", show_alert=True)
