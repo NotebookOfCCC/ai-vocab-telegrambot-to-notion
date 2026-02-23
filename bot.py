@@ -5,6 +5,7 @@ Main entry point - handles Telegram interactions
 import os
 import io
 import re
+import asyncio
 import logging
 from dotenv import load_dotenv
 from gtts import gTTS
@@ -255,7 +256,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.reply_text("Analyzing...")
 
     try:
-        analysis = ai_handler.analyze_input(text)
+        loop = asyncio.get_running_loop()
+        analysis = await loop.run_in_executor(None, ai_handler.analyze_input, text)
 
         if "error" in analysis:
             await update.message.reply_text(f"Error: {analysis['error']}")
@@ -429,7 +431,8 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text("Modifying...")
 
     entry = pending_entries[target_idx]
-    result = ai_handler.modify_entry(entry, text)
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, ai_handler.modify_entry, entry, text)
 
     if result["success"]:
         # Remove buttons from previous message before showing new one
@@ -585,7 +588,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text("Re-analyzing...", reply_markup=None)
 
         try:
-            analysis = ai_handler.analyze_input(text)
+            loop = asyncio.get_running_loop()
+            analysis = await loop.run_in_executor(None, ai_handler.analyze_input, text)
             if "error" in analysis:
                 await query.message.reply_text(f"Error: {analysis['error']}")
                 return
