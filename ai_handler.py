@@ -318,14 +318,26 @@ class AIHandler:
                 else:
                     raise
 
-        # All retries failed — try fallback model once before giving up
-        fallback_model = "claude-3-5-sonnet-20241022"
+        # All retries failed — try fallback models before giving up
+        # Fallback chain: Sonnet 4 → Sonnet 3.5 → Haiku
         current_model = kwargs.get("model", "")
-        if last_overload_error and current_model not in (fallback_model, self.cheap_model):
-            logging.warning(f"Primary model {current_model} still overloaded, falling back to {fallback_model}")
-            fallback_kwargs = dict(kwargs)
-            fallback_kwargs["model"] = fallback_model
-            return self.client.messages.create(**fallback_kwargs)
+        fallback_chain = [
+            "claude-3-5-sonnet-20241022",
+            self.cheap_model,  # Haiku — smallest, least likely to be overloaded
+        ]
+        for fallback_model in fallback_chain:
+            if current_model == fallback_model:
+                break  # Don't retry the same model or go backwards
+            try:
+                logging.warning(f"Model {current_model} overloaded, trying {fallback_model}")
+                fallback_kwargs = dict(kwargs)
+                fallback_kwargs["model"] = fallback_model
+                return self.client.messages.create(**fallback_kwargs)
+            except anthropic.APIStatusError as e:
+                if e.status_code in (429, 529):
+                    current_model = fallback_model  # Continue down the chain
+                    continue
+                raise
 
         raise last_overload_error or RuntimeError("Unreachable")
 
