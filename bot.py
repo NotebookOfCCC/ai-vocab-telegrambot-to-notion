@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 # Initialize handlers
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY")
+OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 NOTION_KEY = os.getenv("NOTION_API_KEY")
 NOTION_DB_ID = os.getenv("NOTION_DATABASE_ID")
 ADDITIONAL_DB_IDS_RAW = os.getenv("ADDITIONAL_DATABASE_IDS", "")
@@ -747,7 +748,7 @@ def main():
     user_sessions.clear()
 
     # Initialize handlers
-    ai_handler = AIHandler(ANTHROPIC_KEY, use_cheap_model=USE_CHEAP_MODEL)
+    ai_handler = AIHandler(ANTHROPIC_KEY, use_cheap_model=USE_CHEAP_MODEL, openai_api_key=OPENAI_KEY)
     if USE_CHEAP_MODEL:
         print("Using Haiku model (cheap mode) - ~90% cost savings")
     notion_handler = NotionHandler(NOTION_KEY, NOTION_DB_ID, additional_database_ids=ADDITIONAL_DB_IDS)

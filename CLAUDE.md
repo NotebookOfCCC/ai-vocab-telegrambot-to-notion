@@ -20,6 +20,7 @@ main.py (Entry Point)
 - Grammar checking for sentences
 - Saves to Notion vocabulary database
 - **Cost optimized**: Skips API for ~300 common words
+- **AI fallback chain**: Sonnet 4 → Sonnet 3.5 → OpenAI GPT-4o-mini (when Anthropic is overloaded)
 
 ### 2. Review Bot (`review_bot.py`)
 - Spaced repetition system (SM-2 variant)
@@ -64,8 +65,14 @@ main.py (Entry Point)
   - Sentences: 1000 tokens
 - **Model selection by task**:
   - Main analysis: Claude Sonnet 4 (`claude-sonnet-4-20250514`) - quality matters
-  - Modifications: Claude Sonnet 3.5 (`claude-3-5-sonnet-20241022`) - ~2x cheaper
-  - Entry detection: Claude Sonnet 3.5 - ~2x cheaper
+  - Modifications: Claude Haiku (`claude-haiku-4-5-20251001`) - ~4x cheaper
+  - Entry detection: Claude Haiku - ~4x cheaper
+- **Overload fallback chain** (automatic, no user action needed):
+  1. Claude Sonnet 4 (3 retries: 5s → 10s → 20s backoff)
+  2. Claude Sonnet 3.5 (`claude-3-5-sonnet-20241022`) — different capacity pool
+  3. OpenAI GPT-4o-mini — completely separate infrastructure
+  - Applies to ALL AI calls: main analysis, modifications, entry detection
+  - Requires `OPENAI_API_KEY` env var for step 3 (optional but recommended)
 
 ### Task Bot (habit_bot.py)
 - **Primary**: Claude Haiku for AI parsing (~$0.001/task)
@@ -91,7 +98,7 @@ main.py (Entry Point)
 - Chinese (Rich text) - translation
 - Explanation (Rich text) - 2-3 sentence Chinese explanation
 - Example (Rich text) - English + Chinese examples (numbered if multiple meanings)
-- Category (Select) - 固定词组, 口语, 新闻, 职场, 学术词汇, 写作, 情绪, 科技, 其他
+- Category (Select) - 固定词组, 口语, 新闻, 职场, 学术词汇, 写作, 情绪, 科技, 精美句子, 其他
 - Date (Date) - when added
 - Review Count (Number) - tracks review iterations
 - Next Review (Date) - calculated review date
@@ -131,6 +138,7 @@ HABITS_BOT_TOKEN=         # Habit bot token
 
 # API Keys
 ANTHROPIC_API_KEY=        # Claude API key (for vocab analysis + task parsing)
+OPENAI_API_KEY=           # Optional: OpenAI key — used as final fallback when Anthropic is overloaded
 NOTION_API_KEY=           # Notion integration token
 
 # Notion Databases
@@ -313,3 +321,6 @@ ADDITIONAL_DATABASE_IDS=second_db_id,third_db_id
 32. **Vocab review stats in habit bot**: Shows words reviewed count in all habit bot messages (morning: yesterday's count, check-ins/tasks: today's count, weekly summary: week total)
 33. **Config persisted in Notion**: Review schedule and task settings stored as Notion pages (survives Railway redeploys). Config pages use `__CONFIG_` prefix and are filtered from reviews/stats.
 34. **Mobile popup instructions**: /schedule Edit Times/Edit Word Count buttons show popup alert on all platforms (mobile + desktop)
+35. **精美句子 category**: New category for beautiful/inspirational sentences — saves the whole sentence as one entry with Chinese translation and literary analysis
+36. **OpenAI fallback**: When Anthropic is overloaded (529), vocab bot automatically falls back: Sonnet 4 → Sonnet 3.5 → OpenAI GPT-4o-mini. Requires OPENAI_API_KEY env var.
+37. **Non-blocking AI calls**: AI calls run in thread executor so bot stays responsive during retries

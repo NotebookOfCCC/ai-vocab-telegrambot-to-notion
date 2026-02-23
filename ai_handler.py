@@ -282,12 +282,13 @@ Respond with valid JSON only, no markdown."""
 
 
 class AIHandler:
-    def __init__(self, api_key: str, use_cheap_model: bool = False):
+    def __init__(self, api_key: str, use_cheap_model: bool = False, openai_api_key: str = None):
         """Initialize AI handler.
 
         Args:
             api_key: Anthropic API key
             use_cheap_model: If True, use Haiku for all requests (4x cheaper but slightly lower quality)
+            openai_api_key: Optional OpenAI API key used as final fallback when Anthropic is overloaded
         """
         self.client = anthropic.Anthropic(api_key=api_key)
         self.use_cheap_model = use_cheap_model
@@ -295,51 +296,84 @@ class AIHandler:
         self.main_model = "claude-sonnet-4-20250514"  # Main vocab analysis
         self.cheap_model = "claude-haiku-4-5-20251001"  # For modifications & detection (~4x cheaper)
 
-    def _create_message_with_retry(self, **kwargs) -> object:
-        """Call client.messages.create with retry for overloaded/rate-limit errors.
+        # OpenAI fallback (optional) — used when all Anthropic models are overloaded
+        self.openai_client = None
+        self.openai_model = "gpt-4o-mini"
+        if openai_api_key:
+            try:
+                from openai import OpenAI
+                self.openai_client = OpenAI(api_key=openai_api_key)
+                logging.info("OpenAI fallback client initialised (gpt-4o-mini)")
+            except ImportError:
+                logging.warning("openai package not installed — OpenAI fallback disabled")
 
-        If the primary model is consistently overloaded, falls back to
-        claude-3-5-sonnet-20241022 before giving up.
-        """
+    def _retry_anthropic(self, **kwargs) -> object:
+        """Call Anthropic API with up to 3 retries for 429/529 errors."""
         max_retries = 3
         base_delay = 5  # seconds
-        last_overload_error = None
+        last_error = None
 
         for attempt in range(max_retries):
             try:
                 return self.client.messages.create(**kwargs)
             except anthropic.APIStatusError as e:
                 if e.status_code in (429, 529):
-                    last_overload_error = e
+                    last_error = e
                     if attempt < max_retries - 1:
                         delay = base_delay * (2 ** attempt)  # 5s, 10s, 20s
-                        logging.warning(f"Anthropic API overloaded (attempt {attempt+1}/{max_retries}), retrying in {delay}s...")
+                        logging.warning(f"Anthropic overloaded (attempt {attempt+1}/{max_retries}), retrying in {delay}s...")
                         time.sleep(delay)
                 else:
                     raise
 
-        # All retries failed — try fallback models before giving up
-        # Fallback chain: Sonnet 4 → Sonnet 3.5 → Haiku
-        current_model = kwargs.get("model", "")
-        fallback_chain = [
-            "claude-3-5-sonnet-20241022",
-            self.cheap_model,  # Haiku — smallest, least likely to be overloaded
-        ]
-        for fallback_model in fallback_chain:
-            if current_model == fallback_model:
-                break  # Don't retry the same model or go backwards
+        raise last_error or RuntimeError("Unreachable")
+
+    def _get_response_text(self, model: str, messages: list, max_tokens: int, system: str = None) -> str:
+        """Get AI response text with full fallback chain.
+
+        Fallback order:
+          1. Requested Anthropic model (3 retries with backoff)
+          2. claude-3-5-sonnet-20241022 (if not already that model)
+          3. OpenAI gpt-4o-mini (if OPENAI_API_KEY is configured)
+
+        Returns response text string.
+        Raises the last error if all providers fail.
+        """
+        # Build Anthropic model chain
+        anthropic_models = [model]
+        if model != "claude-3-5-sonnet-20241022":
+            anthropic_models.append("claude-3-5-sonnet-20241022")
+
+        last_overload_error = None
+        for attempt_model in anthropic_models:
             try:
-                logging.warning(f"Model {current_model} overloaded, trying {fallback_model}")
-                fallback_kwargs = dict(kwargs)
-                fallback_kwargs["model"] = fallback_model
-                return self.client.messages.create(**fallback_kwargs)
+                kwargs = {"model": attempt_model, "max_tokens": max_tokens, "messages": messages}
+                if system:
+                    kwargs["system"] = system
+                response = self._retry_anthropic(**kwargs)
+                return response.content[0].text
             except anthropic.APIStatusError as e:
                 if e.status_code in (429, 529):
-                    current_model = fallback_model  # Continue down the chain
+                    last_overload_error = e
+                    logging.warning(f"Anthropic {attempt_model} overloaded, trying next fallback")
                     continue
                 raise
 
-        raise last_overload_error or RuntimeError("Unreachable")
+        # All Anthropic models overloaded — try OpenAI as final fallback
+        if self.openai_client:
+            logging.warning("All Anthropic models overloaded, falling back to OpenAI gpt-4o-mini")
+            openai_messages = []
+            if system:
+                openai_messages.append({"role": "system", "content": system})
+            openai_messages.extend(messages)
+            response = self.openai_client.chat.completions.create(
+                model=self.openai_model,
+                max_tokens=max_tokens,
+                messages=openai_messages
+            )
+            return response.choices[0].message.content
+
+        raise last_overload_error or RuntimeError("All AI providers unavailable")
 
     def _sanitize_json_response(self, text: str) -> str:
         """Fix special characters that break JSON parsing."""
@@ -563,16 +597,12 @@ class AIHandler:
         # Use cheap model (Haiku) if enabled, otherwise main model (Sonnet)
         model = self.cheap_model if self.use_cheap_model else self.main_model
 
-        message = self._create_message_with_retry(
+        response_text = self._get_response_text(
             model=model,
+            messages=[{"role": "user", "content": user_input}],
             max_tokens=max_tokens,
             system=SYSTEM_PROMPT,
-            messages=[
-                {"role": "user", "content": user_input}
-            ]
         )
-
-        response_text = message.content[0].text
 
         try:
             result = self._try_parse_json(response_text)
@@ -584,17 +614,16 @@ class AIHandler:
         except json.JSONDecodeError as e:
             # Retry once with explicit JSON request
             try:
-                retry_message = self._create_message_with_retry(
+                retry_text = self._get_response_text(
                     model=model,
-                    max_tokens=max_tokens,
                     messages=[
                         {"role": "user", "content": user_input},
                         {"role": "assistant", "content": response_text},
                         {"role": "user", "content": "Your response had invalid JSON. Please respond with ONLY valid JSON, no extra text."}
                     ],
-                    system=SYSTEM_PROMPT
+                    max_tokens=max_tokens,
+                    system=SYSTEM_PROMPT,
                 )
-                retry_text = retry_message.content[0].text
                 result = self._try_parse_json(retry_text)
                 today = date.today().isoformat()
                 for entry in result.get("entries", []):
@@ -708,15 +737,12 @@ JSON format:
 {{"question_answer": null, "entry": {{"english": "...", "chinese": "...", "explanation": "...", "example_en": "...", "example_zh": "...", "category": "..."}}}}"""
 
         try:
-            # Use cheaper model for modifications
-            message = self._create_message_with_retry(
+            # Use cheaper model for modifications (falls back to Sonnet 3.5 / OpenAI if overloaded)
+            response_text = self._get_response_text(
                 model=self.cheap_model,
+                messages=[{"role": "user", "content": modify_prompt}],
                 max_tokens=800,
-                messages=[
-                    {"role": "user", "content": modify_prompt}
-                ]
             )
-            response_text = message.content[0].text
         except Exception as e:
             # Log and return error if API call fails
             logging.error(f"API error in modify_entry: {e}")
@@ -799,12 +825,11 @@ Which entry (1-{len(entries)}) is the user referring to? Reply with ONLY one num
 
         try:
             # Use cheaper model for simple number detection
-            message = self._create_message_with_retry(
+            response = self._get_response_text(
                 model=self.cheap_model,
+                messages=[{"role": "user", "content": detect_prompt}],
                 max_tokens=10,
-                messages=[{"role": "user", "content": detect_prompt}]
-            )
-            response = message.content[0].text.strip()
+            ).strip()
             # Extract number from response
             num_match = re.search(r'(\d+)', response)
             if num_match:
