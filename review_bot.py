@@ -3,11 +3,13 @@ Vocabulary Review Bot
 Sends scheduled vocabulary review messages from Notion database.
 """
 import os
+import io
 import json
 import re
 import html
 import logging
 from dotenv import load_dotenv
+from gtts import gTTS
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -108,6 +110,12 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def _extract_pronounce_text(english: str) -> str:
+    """Extract just the word/phrase from 'word /phonetics/ (pos.)' format for TTS."""
+    text = re.split(r'\s+[/(]', english)[0].strip()
+    return text[:58]  # Leave room for "tts_" prefix in 64-byte callback_data limit
+
+
 def format_entry_for_review(entry: dict, index: int, total: int) -> str:
     """Format a flashcard with spoiler-hidden answer (HTML).
 
@@ -189,11 +197,15 @@ async def send_review_batch(manual: bool = False):
             page_id = entry.get("page_id", "")
 
             # Rating buttons shown alongside spoiler-hidden answer
-            keyboard = [[
-                InlineKeyboardButton("🔴 Again", callback_data=f"again_{page_id}"),
-                InlineKeyboardButton("🟡 Good", callback_data=f"good_{page_id}"),
-                InlineKeyboardButton("🟢 Easy", callback_data=f"easy_{page_id}")
-            ]]
+            word = _extract_pronounce_text(entry.get("english", ""))
+            keyboard = [
+                [
+                    InlineKeyboardButton("🔴 Again", callback_data=f"again_{page_id}"),
+                    InlineKeyboardButton("🟡 Good", callback_data=f"good_{page_id}"),
+                    InlineKeyboardButton("🟢 Easy", callback_data=f"easy_{page_id}")
+                ],
+                [InlineKeyboardButton("🔊 Pronounce", callback_data=f"tts_{word}")]
+            ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await application.bot.send_message(
@@ -531,6 +543,21 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     data = query.data
+
+    if data.startswith("tts_"):
+        word = data[4:]
+        if not word:
+            return
+        try:
+            tts = gTTS(word, lang="en")
+            audio = io.BytesIO()
+            tts.write_to_fp(audio)
+            audio.seek(0)
+            await query.message.reply_voice(voice=audio)
+        except Exception as e:
+            logger.error(f"TTS error for '{word}': {e}")
+            await query.answer("Failed to generate audio", show_alert=True)
+        return
 
     if data.startswith("again_"):
         page_id = data[6:]  # Remove "again_" prefix
