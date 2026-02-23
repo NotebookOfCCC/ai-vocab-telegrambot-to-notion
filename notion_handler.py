@@ -7,6 +7,7 @@ import logging
 import time
 import json
 from datetime import datetime, date, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from notion_client import Client
 
 logger = logging.getLogger(__name__)
@@ -478,33 +479,53 @@ class NotionHandler:
 
         return None
 
+    def _fetch_from_single_db(self, db_id: str, filter_obj: dict, max_pages: int = 5) -> list:
+        """Fetch filtered entries from a single database with pagination."""
+        results = []
+        has_more = True
+        start_cursor = None
+        pages_fetched = 0
+
+        while has_more and pages_fetched < max_pages:
+            query_params = {
+                "database_id": db_id,
+                "page_size": 100,
+                "filter": filter_obj
+            }
+            if start_cursor:
+                query_params["start_cursor"] = start_cursor
+
+            response = self.client.databases.query(**query_params)
+            results.extend(response.get("results", []))
+            has_more = response.get("has_more", False)
+            start_cursor = response.get("next_cursor")
+            pages_fetched += 1
+
+        return results
+
     def _fetch_filtered_entries(self, filter_obj: dict, max_pages: int = 5) -> list:
         """Fetch entries from all databases with a Notion filter.
+
+        Queries all databases in parallel for faster results.
 
         Args:
             filter_obj: Notion filter object
             max_pages: Max pagination pages per database (safety limit)
         """
+        if len(self.all_database_ids) == 1:
+            return self._fetch_from_single_db(self.all_database_ids[0], filter_obj, max_pages)
+
         all_results = []
-        for db_id in self.all_database_ids:
-            has_more = True
-            start_cursor = None
-            pages_fetched = 0
-
-            while has_more and pages_fetched < max_pages:
-                query_params = {
-                    "database_id": db_id,
-                    "page_size": 100,
-                    "filter": filter_obj
-                }
-                if start_cursor:
-                    query_params["start_cursor"] = start_cursor
-
-                response = self.client.databases.query(**query_params)
-                all_results.extend(response.get("results", []))
-                has_more = response.get("has_more", False)
-                start_cursor = response.get("next_cursor")
-                pages_fetched += 1
+        with ThreadPoolExecutor(max_workers=len(self.all_database_ids)) as executor:
+            futures = {
+                executor.submit(self._fetch_from_single_db, db_id, filter_obj, max_pages): db_id
+                for db_id in self.all_database_ids
+            }
+            for future in as_completed(futures):
+                try:
+                    all_results.extend(future.result())
+                except Exception as e:
+                    logger.error(f"Error fetching from db {futures[future]}: {e}")
 
         return all_results
 
