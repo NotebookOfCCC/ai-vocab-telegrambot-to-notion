@@ -3,13 +3,11 @@ Vocabulary Review Bot
 Sends scheduled vocabulary review messages from Notion database.
 """
 import os
-import io
 import json
 import re
 import html
 import logging
 from dotenv import load_dotenv
-from gtts import gTTS
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -100,7 +98,6 @@ scheduler = None
 application = None
 is_paused = False
 review_config = None
-tts_last_msg = {}  # user_id -> (chat_id, message_id) for last TTS voice message
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
     """Persistent reply keyboard with the two most-used actions."""
@@ -111,10 +108,13 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-def _extract_pronounce_text(english: str) -> str:
-    """Extract just the word/phrase from 'word /phonetics/ (pos.)' format for TTS."""
-    text = re.split(r'\s+[/(]', english)[0].strip()
-    return text[:58]  # Leave room for "tts_" prefix in 64-byte callback_data limit
+def _cambridge_url(english: str) -> str:
+    """Build a Cambridge Dictionary URL for the word/phrase."""
+    # Strip phonetics and part-of-speech annotation
+    word = re.split(r'\s+[/(]', english)[0].strip().lower()
+    # Cambridge uses hyphens for multi-word entries
+    word = word.replace(" ", "-")
+    return f"https://dictionary.cambridge.org/dictionary/english/{word}"
 
 
 def format_entry_for_review(entry: dict, index: int, total: int) -> str:
@@ -198,12 +198,11 @@ async def send_review_batch(manual: bool = False):
             page_id = entry.get("page_id", "")
 
             # Rating buttons shown alongside spoiler-hidden answer
-            word = _extract_pronounce_text(entry.get("english", ""))
             keyboard = [[
                 InlineKeyboardButton("🔴 Again", callback_data=f"again_{page_id}"),
                 InlineKeyboardButton("🟡 Good", callback_data=f"good_{page_id}"),
                 InlineKeyboardButton("🟢 Easy", callback_data=f"easy_{page_id}"),
-                InlineKeyboardButton("🔊", callback_data=f"tts_{word}")
+                InlineKeyboardButton("🔊", url=_cambridge_url(entry.get("english", "")))
             ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -542,30 +541,6 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     data = query.data
-
-    if data.startswith("tts_"):
-        word = data[4:]
-        if not word:
-            return
-        try:
-            # Delete previous TTS message if exists
-            user_id = query.from_user.id
-            if user_id in tts_last_msg:
-                old_chat_id, old_msg_id = tts_last_msg[user_id]
-                try:
-                    await context.bot.delete_message(chat_id=old_chat_id, message_id=old_msg_id)
-                except Exception:
-                    pass
-            tts = gTTS(word, lang="en")
-            audio = io.BytesIO()
-            tts.write_to_fp(audio)
-            audio.seek(0)
-            msg = await query.message.reply_voice(voice=audio)
-            tts_last_msg[user_id] = (msg.chat_id, msg.message_id)
-        except Exception as e:
-            logger.error(f"TTS error for '{word}': {e}")
-            await query.answer("Failed to generate audio", show_alert=True)
-        return
 
     if data.startswith("again_"):
         page_id = data[6:]  # Remove "again_" prefix
