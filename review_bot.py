@@ -108,14 +108,6 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-def _cambridge_url(english: str) -> str:
-    """Build a Cambridge Dictionary URL for the word/phrase."""
-    # Strip phonetics and part-of-speech annotation
-    word = re.split(r'\s+[/(]', english)[0].strip().lower()
-    # Cambridge uses hyphens for multi-word entries
-    word = word.replace(" ", "-")
-    return f"https://dictionary.cambridge.org/dictionary/english/{word}"
-
 
 def format_entry_for_review(entry: dict, index: int, total: int) -> str:
     """Format a flashcard with spoiler-hidden answer (HTML).
@@ -202,7 +194,6 @@ async def send_review_batch(manual: bool = False):
                 InlineKeyboardButton("🔴 Again", callback_data=f"again_{page_id}"),
                 InlineKeyboardButton("🟡 Good", callback_data=f"good_{page_id}"),
                 InlineKeyboardButton("🟢 Easy", callback_data=f"easy_{page_id}"),
-                InlineKeyboardButton("🔊", url=_cambridge_url(entry.get("english", "")))
             ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
