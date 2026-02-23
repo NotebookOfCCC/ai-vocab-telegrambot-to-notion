@@ -296,21 +296,38 @@ class AIHandler:
         self.cheap_model = "claude-haiku-4-5-20251001"  # For modifications & detection (~4x cheaper)
 
     def _create_message_with_retry(self, **kwargs) -> object:
-        """Call client.messages.create with retry for overloaded/rate-limit errors."""
+        """Call client.messages.create with retry for overloaded/rate-limit errors.
+
+        If the primary model is consistently overloaded, falls back to
+        claude-3-5-sonnet-20241022 before giving up.
+        """
         max_retries = 3
         base_delay = 5  # seconds
+        last_overload_error = None
+
         for attempt in range(max_retries):
             try:
                 return self.client.messages.create(**kwargs)
             except anthropic.APIStatusError as e:
-                # 529 = overloaded, 529 or 429 = rate limit
-                if e.status_code in (429, 529) and attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)  # 5s, 10s, 20s
-                    logging.warning(f"Anthropic API overloaded (attempt {attempt+1}/{max_retries}), retrying in {delay}s...")
-                    time.sleep(delay)
+                if e.status_code in (429, 529):
+                    last_overload_error = e
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)  # 5s, 10s, 20s
+                        logging.warning(f"Anthropic API overloaded (attempt {attempt+1}/{max_retries}), retrying in {delay}s...")
+                        time.sleep(delay)
                 else:
                     raise
-        raise RuntimeError("Unreachable")
+
+        # All retries failed — try fallback model once before giving up
+        fallback_model = "claude-3-5-sonnet-20241022"
+        current_model = kwargs.get("model", "")
+        if last_overload_error and current_model not in (fallback_model, self.cheap_model):
+            logging.warning(f"Primary model {current_model} still overloaded, falling back to {fallback_model}")
+            fallback_kwargs = dict(kwargs)
+            fallback_kwargs["model"] = fallback_model
+            return self.client.messages.create(**fallback_kwargs)
+
+        raise last_overload_error or RuntimeError("Unreachable")
 
     def _sanitize_json_response(self, text: str) -> str:
         """Fix special characters that break JSON parsing."""
