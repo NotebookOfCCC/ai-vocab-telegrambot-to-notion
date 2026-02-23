@@ -493,12 +493,12 @@ def _build_save_keyboard(entries: list, dup_indices: set = None) -> InlineKeyboa
     keyboard = []
     if len(entries) == 1:
         label = "Replace" if 0 in dup_indices else "Save"
+        word = _extract_pronounce_text(entries[0].get("english", ""))
         keyboard.append([
             InlineKeyboardButton(label, callback_data="save_1"),
-            InlineKeyboardButton("Cancel", callback_data="cancel")
+            InlineKeyboardButton("Cancel", callback_data="cancel"),
+            InlineKeyboardButton("🔊", callback_data=f"tts_{word}")
         ])
-        word = _extract_pronounce_text(entries[0].get("english", ""))
-        keyboard.append([InlineKeyboardButton("🔊 Pronounce", callback_data=f"tts_{word}")])
     else:
         row = []
         for i in range(len(entries)):
@@ -509,20 +509,15 @@ def _build_save_keyboard(entries: list, dup_indices: set = None) -> InlineKeyboa
                 row = []
         if row:
             keyboard.append(row)
-        keyboard.append([
+        # Save All / Cancel + 🔊 per entry in same row
+        last_row = [
             InlineKeyboardButton("Save All", callback_data="save_all"),
-            InlineKeyboardButton("Cancel", callback_data="cancel")
-        ])
-        # 🔊 row for each entry
-        tts_row = []
+            InlineKeyboardButton("Cancel", callback_data="cancel"),
+        ]
         for i, entry in enumerate(entries):
             word = _extract_pronounce_text(entry.get("english", ""))
-            tts_row.append(InlineKeyboardButton(f"🔊 {i+1}", callback_data=f"tts_{word}"))
-            if len(tts_row) == 4:
-                keyboard.append(tts_row)
-                tts_row = []
-        if tts_row:
-            keyboard.append(tts_row)
+            last_row.append(InlineKeyboardButton(f"🔊{i+1}", callback_data=f"tts_{word}"))
+        keyboard.append(last_row)
     return InlineKeyboardMarkup(keyboard)
 
 

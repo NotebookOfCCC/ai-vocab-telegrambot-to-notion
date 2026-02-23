@@ -198,14 +198,12 @@ async def send_review_batch(manual: bool = False):
 
             # Rating buttons shown alongside spoiler-hidden answer
             word = _extract_pronounce_text(entry.get("english", ""))
-            keyboard = [
-                [
-                    InlineKeyboardButton("🔴 Again", callback_data=f"again_{page_id}"),
-                    InlineKeyboardButton("🟡 Good", callback_data=f"good_{page_id}"),
-                    InlineKeyboardButton("🟢 Easy", callback_data=f"easy_{page_id}")
-                ],
-                [InlineKeyboardButton("🔊 Pronounce", callback_data=f"tts_{word}")]
-            ]
+            keyboard = [[
+                InlineKeyboardButton("🔴 Again", callback_data=f"again_{page_id}"),
+                InlineKeyboardButton("🟡 Good", callback_data=f"good_{page_id}"),
+                InlineKeyboardButton("🟢 Easy", callback_data=f"easy_{page_id}"),
+                InlineKeyboardButton("🔊", callback_data=f"tts_{word}")
+            ]]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await application.bot.send_message(
