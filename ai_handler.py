@@ -353,15 +353,19 @@ class AIHandler:
                 response = self._retry_anthropic(**kwargs)
                 return response.content[0].text
             except anthropic.APIStatusError as e:
-                if e.status_code in (429, 529):
+                # 429/529 = overloaded/rate-limited; 400 with usage limit = monthly cap hit
+                is_usage_limit = e.status_code == 400 and "usage" in str(e).lower()
+                if e.status_code in (429, 529) or is_usage_limit:
                     last_overload_error = e
-                    logging.warning(f"Anthropic {attempt_model} overloaded, trying next fallback")
+                    logging.warning(f"Anthropic {attempt_model} unavailable ({e.status_code}), trying next fallback")
+                    if is_usage_limit:
+                        break  # No point trying other Anthropic models — whole account is capped
                     continue
                 raise
 
-        # All Anthropic models overloaded — try OpenAI as final fallback
+        # All Anthropic models unavailable — try OpenAI as final fallback
         if self.openai_client:
-            logging.warning("All Anthropic models overloaded, falling back to OpenAI gpt-4o-mini")
+            logging.warning("Anthropic unavailable, falling back to OpenAI gpt-4o-mini")
             openai_messages = []
             if system:
                 openai_messages.append({"role": "system", "content": system})
