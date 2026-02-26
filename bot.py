@@ -414,7 +414,7 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
                 dup_page_ids.pop(target_idx, None)
             user_sessions[user_id]["dup_page_ids"] = dup_page_ids
 
-            keyboard = _build_edit_keyboard(len(pending_entries), target_idx, is_dup=target_idx in dup_page_ids)
+            keyboard = _build_edit_keyboard(len(pending_entries), target_idx, is_dup=target_idx in dup_page_ids, entries=pending_entries)
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             entry_label = f"[{target_idx + 1}] " if len(pending_entries) > 1 else ""
@@ -457,7 +457,7 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
             dup_page_ids.pop(target_idx, None)
         user_sessions[user_id]["dup_page_ids"] = dup_page_ids
 
-        keyboard = _build_edit_keyboard(len(pending_entries), target_idx, is_dup=target_idx in dup_page_ids)
+        keyboard = _build_edit_keyboard(len(pending_entries), target_idx, is_dup=target_idx in dup_page_ids, entries=pending_entries)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         entry_label = f"[{target_idx + 1}] " if len(pending_entries) > 1 else ""
@@ -474,7 +474,7 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
         await _remove_previous_buttons(context, session)
 
         # Show buttons so user can escape the loop
-        keyboard = _build_edit_keyboard(len(pending_entries), target_idx)
+        keyboard = _build_edit_keyboard(len(pending_entries), target_idx, entries=pending_entries)
         reply_markup = InlineKeyboardMarkup(keyboard)
         sent_message = await update.message.reply_text(
             "Couldn't understand that. Try again, Save current entry, or Start New.",
@@ -526,22 +526,32 @@ def _build_save_keyboard(entries: list, dup_indices: set = None) -> InlineKeyboa
     return InlineKeyboardMarkup(keyboard)
 
 
-def _build_edit_keyboard(num_entries: int, current_idx: int, is_dup: bool = False) -> list:
+def _build_edit_keyboard(num_entries: int, current_idx: int, is_dup: bool = False, entries: list = None) -> list:
     """Build inline keyboard for edit mode based on number of entries."""
+    tts_word = ""
+    if entries and current_idx < len(entries):
+        tts_word = _extract_pronounce_text(entries[current_idx].get("english", ""))
+
     if num_entries == 1:
         label = "Replace" if is_dup else "Save"
-        return [[
+        row = [
             InlineKeyboardButton(label, callback_data="save_1"),
-            InlineKeyboardButton("Cancel", callback_data="cancel")
-        ]]
+            InlineKeyboardButton("Cancel", callback_data="cancel"),
+        ]
+        if tts_word:
+            row.append(InlineKeyboardButton("🔊", callback_data=f"tts_{tts_word}"))
+        return [row]
     else:
         label = f"Replace [{current_idx + 1}]" if is_dup else f"Save [{current_idx + 1}]"
+        first_row = [
+            InlineKeyboardButton(label, callback_data=f"save_{current_idx + 1}"),
+            InlineKeyboardButton("Save All", callback_data="save_all"),
+        ]
+        if tts_word:
+            first_row.append(InlineKeyboardButton("🔊", callback_data=f"tts_{tts_word}"))
         return [
-            [
-                InlineKeyboardButton(label, callback_data=f"save_{current_idx + 1}"),
-                InlineKeyboardButton("Save All", callback_data="save_all"),
-            ],
-            [InlineKeyboardButton("Cancel", callback_data="cancel")]
+            first_row,
+            [InlineKeyboardButton("Cancel", callback_data="cancel")],
         ]
 
 
