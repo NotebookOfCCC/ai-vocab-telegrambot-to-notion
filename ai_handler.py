@@ -245,18 +245,15 @@ CRITICAL RULES:
    - For idioms: "break the ice (idiom)"
    - Common abbreviations: n. (noun), v. (verb), adj. (adjective), adv. (adverb), phr. v. (phrasal verb), idiom, prep. (preposition)
 
-6. MULTIPLE MEANINGS:
-   - If a word/phrase has MULTIPLE distinct meanings (like "put up", "undershoot"), list ALL meanings numbered
-   - IMPORTANT: For EACH numbered meaning in explanation, provide a CORRESPONDING numbered example
-   - Example format for multi-meaning words:
-     explanation: "1. 未达到目标 2. 射击偏低 3. 飞机降落时未达到预定位置"
-     example_en: "1. The company's revenue undershoots expectations. 2. The archer undershot the target. 3. The pilot undershot the runway."
-     example_zh: "1. 公司收入未达预期。 2. 弓箭手射偏了目标。 3. 飞行员降落时未到达跑道。"
-
-7. CONTEXT-INDEPENDENT ANALYSIS:
-   - When extracting a word/phrase from a sentence, provide ALL distinct meanings of the extracted word, not just the meaning used in the given context
-   - The entry should be as comprehensive as if the user looked up the word directly
-   - Example: from "hookup the microphone", extract "hook up" with ALL meanings (1. connect 2. casual relationship), not just "connect"
+6. ALL MEANINGS + CONTEXT-INDEPENDENT ANALYSIS — THIS IS CRITICAL, NEVER SKIP:
+   - ALWAYS provide ALL distinct meanings of a word/phrase — never limit to just the meaning used in the sentence
+   - Treat every entry as if the user looked it up in a dictionary: comprehensive, context-independent
+   - THIS APPLIES EVEN WHEN INPUT IS A SENTENCE — the sentence only tells you WHICH phrase to extract, NOT which meanings to include
+   - ✗ WRONG: input "blocking out an hour" → "block out" explanation only covers "为某项活动预留时间"
+   - ✓ CORRECT: input "blocking out an hour" → "block out" covers ALL meanings:
+       1. 遮挡或阻隔光线、声音等 2. 忽视或压制某种感受、记忆、干扰 3. 划掉或删除文本 4. 为某项活动预留时间
+   - Another example: "hook up the microphone" → "hook up" must include ALL meanings (1. connect/接上 2. casual relationship/约炮 3. meet up/碰面), not just "connect"
+   - For EACH numbered meaning, provide a CORRESPONDING numbered example sentence
 
 OUTPUT FORMAT (strict JSON):
 {{

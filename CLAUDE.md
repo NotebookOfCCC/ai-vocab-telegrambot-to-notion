@@ -282,6 +282,41 @@ ADDITIONAL_DATABASE_IDS=second_db_id,third_db_id
 4. Set the new database ID as `NOTION_DATABASE_ID`
 5. New words save to the new database, reviews pull from all databases
 
+## Vocab Bot Prompt Specifications (DO NOT CHANGE)
+
+These are the core behaviours of the vocab bot's AI prompt in `ai_handler.py → SYSTEM_PROMPT`. They were deliberately designed and must be preserved through any future edits or model changes.
+
+### 1. All meanings — context-independent analysis (MOST IMPORTANT)
+When a phrase is extracted from a sentence, the entry must cover **all** dictionary meanings of that phrase, not just the one relevant to the input sentence. The sentence only tells the model *which phrase to extract*, not *which meanings to include*.
+
+- ✗ Wrong: "blocking out an hour" → `block out` only explains "预留时间"
+- ✓ Correct: "blocking out an hour" → `block out` explains all 4 meanings (遮挡光线/声音, 忽视感受/记忆, 划掉文本, 预留时间)
+
+This rule lives in the prompt as **Rule 6** and must stay there. Do not weaken, move, or remove it.
+
+### 2. Multiple meanings format
+When a word/phrase has multiple meanings, explanation and examples must both be numbered and matched 1-to-1.
+- `explanation`: "1. 含义一 2. 含义二 3. 含义三"
+- `example_en`: "1. Example one. 2. Example two. 3. Example three."
+- `example_zh`: "1. 翻译一 2. 翻译二 3. 翻译三"
+
+### 3. Base/dictionary form
+Words are always saved in their base form: "blocking out" → "block out", "running" → "run", "fidelities" → "fidelity". Exception: 精美句子 entries keep the full original sentence.
+
+### 4. Selectivity
+For sentence input, only extract truly worth-learning items (phrasal verbs, idioms, non-obvious collocations, advanced vocabulary). Do not extract basic words like "important", "people", "make".
+
+### 5. Phonetics
+Add IPA phonetics liberally for any word not in the 3000 most common English words.
+
+### 6. Part of speech
+List ALL parts of speech a word can be used as, e.g. "time (n./v.)".
+
+### 7. 精美句子 category
+For inspirational/poetic sentences: save the entire sentence as one entry with Chinese translation and literary analysis. Normal everyday sentences are NOT 精美句子.
+
+---
+
 ## Recent Changes
 
 1. **Phonetics**: Added IPA for uncommon words
@@ -295,7 +330,7 @@ ADDITIONAL_DATABASE_IDS=second_db_id,third_db_id
 9. **Multi-database review**: Review bot can query from multiple Notion databases
 10. **Fixed "New" label**: Now means "never reviewed" (not just review_count=0)
 11. **Phrase override**: When modifying entries, explicit phrases in quotes are preserved exactly
-12. **Sonnet 3.5 for secondary tasks**: Modifications and detection use Sonnet 3.5 (~2x cheaper), main analysis uses Sonnet 4
+12. **Haiku for all tasks**: All vocab analysis, modifications, and detection use claude-haiku-4-5-20251001
 13. **Time blocking**: Tasks with time ranges appear in Notion Calendar (use with Notion Calendar app)
 14. **Simplified commands**: Removed `/add` and `/tmr` - use natural language instead (e.g., "明天3点开会")
 15. **Recurring blocks**: Auto-create daily time blocks from Notion database
@@ -319,5 +354,5 @@ ADDITIONAL_DATABASE_IDS=second_db_id,third_db_id
 33. **Config persisted in Notion**: Review schedule and task settings stored as Notion pages (survives Railway redeploys). Config pages use `__CONFIG_` prefix and are filtered from reviews/stats.
 34. **Mobile popup instructions**: /schedule Edit Times/Edit Word Count buttons show popup alert on all platforms (mobile + desktop)
 35. **精美句子 category**: New category for beautiful/inspirational sentences — saves the whole sentence as one entry with Chinese translation and literary analysis
-36. **OpenAI fallback**: When Anthropic is overloaded (529), vocab bot automatically falls back: Sonnet 4 → Sonnet 3.5 → OpenAI GPT-4o-mini. Requires OPENAI_API_KEY env var.
+36. **OpenAI fallback**: When Anthropic is overloaded (529), vocab bot automatically falls back: Haiku → Sonnet 3.5 → OpenAI GPT-4o-mini. Requires OPENAI_API_KEY env var.
 37. **Non-blocking AI calls**: AI calls run in thread executor so bot stays responsive during retries
