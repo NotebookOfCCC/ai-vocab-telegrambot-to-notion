@@ -293,8 +293,8 @@ class AIHandler:
         self.client = anthropic.Anthropic(api_key=api_key)
         self.use_cheap_model = use_cheap_model
         # Sonnet 4 for main analysis (quality matters), Haiku for secondary tasks (cost savings)
-        self.main_model = "claude-sonnet-4-20250514"  # Main vocab analysis
-        self.cheap_model = "claude-haiku-4-5-20251001"  # For modifications & detection (~4x cheaper)
+        self.main_model = "claude-haiku-4-5-20251001"  # All vocab analysis
+        self.cheap_model = "claude-haiku-4-5-20251001"  # For modifications & detection
 
         # OpenAI fallback (optional) — used when all Anthropic models are overloaded
         self.openai_client = None

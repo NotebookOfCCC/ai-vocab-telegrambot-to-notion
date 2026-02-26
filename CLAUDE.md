@@ -14,13 +14,13 @@ main.py (Entry Point)
 ## Bots Overview
 
 ### 1. Vocab Learner Bot (`bot.py`)
-- Analyzes English text using Claude AI (Sonnet)
+- Analyzes English text using Claude AI (Haiku)
 - Extracts worth-learning phrases with phonetics, part of speech, examples
 - Multiple meanings shown with numbered examples
 - Grammar checking for sentences
 - Saves to Notion vocabulary database
 - **Cost optimized**: Skips API for ~300 common words
-- **AI fallback chain**: Sonnet 4 → Sonnet 3.5 → OpenAI GPT-4o-mini (when Anthropic is overloaded)
+- **AI fallback chain**: Haiku → Sonnet 3.5 → OpenAI GPT-4o-mini (when Anthropic is overloaded)
 
 ### 2. Review Bot (`review_bot.py`)
 - Spaced repetition system (SM-2 variant)
@@ -50,7 +50,7 @@ main.py (Entry Point)
 
 | File | Purpose | API Cost |
 |------|---------|----------|
-| `ai_handler.py` | Claude API for vocab analysis | ~$0.01/word |
+| `ai_handler.py` | Claude API for vocab analysis | ~$0.002/word |
 | `task_parser.py` | Regex task parsing (fallback) | **FREE** |
 | `notion_handler.py` | Notion database operations (with retry) | FREE |
 | `habit_handler.py` | Task tracking, task management | FREE |
@@ -63,12 +63,9 @@ main.py (Entry Point)
 - **Dynamic max_tokens**:
   - Short phrases (1-3 words): 800 tokens
   - Sentences: 1000 tokens
-- **Model selection by task**:
-  - Main analysis: Claude Sonnet 4 (`claude-sonnet-4-20250514`) - quality matters
-  - Modifications: Claude Haiku (`claude-haiku-4-5-20251001`) - ~4x cheaper
-  - Entry detection: Claude Haiku - ~4x cheaper
+- **Model**: Claude Haiku (`claude-haiku-4-5-20251001`) for all tasks — analysis, modifications, entry detection
 - **Overload fallback chain** (automatic, no user action needed):
-  1. Claude Sonnet 4 (3 retries: 5s → 10s → 20s backoff)
+  1. Claude Haiku (3 retries: 5s → 10s → 20s backoff)
   2. Claude Sonnet 3.5 (`claude-3-5-sonnet-20241022`) — different capacity pool
   3. OpenAI GPT-4o-mini — completely separate infrastructure
   - Applies to ALL AI calls: main analysis, modifications, entry detection
