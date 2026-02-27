@@ -513,8 +513,8 @@ def _build_save_keyboard(entries: list, dup_indices: set = None) -> InlineKeyboa
         keyboard.append([
             InlineKeyboardButton(label, callback_data="save_1"),
             InlineKeyboardButton("Cancel", callback_data="cancel"),
-            InlineKeyboardButton("🔊", callback_data=f"tts_{word}"),
             InlineKeyboardButton("🔄", callback_data="model_select"),
+            InlineKeyboardButton("🔊", callback_data=f"tts_{word}"),
         ])
     else:
         row = []
@@ -530,11 +530,11 @@ def _build_save_keyboard(entries: list, dup_indices: set = None) -> InlineKeyboa
         last_row = [
             InlineKeyboardButton("Save All", callback_data="save_all"),
             InlineKeyboardButton("Cancel", callback_data="cancel"),
+            InlineKeyboardButton("🔄", callback_data="model_select"),
         ]
         for i, entry in enumerate(entries):
             word = _extract_pronounce_text(entry.get("english", ""))
             last_row.append(InlineKeyboardButton(f"🔊{i+1}", callback_data=f"tts_{word}"))
-        last_row.append(InlineKeyboardButton("🔄", callback_data="model_select"))
         keyboard.append(last_row)
     return InlineKeyboardMarkup(keyboard)
 
