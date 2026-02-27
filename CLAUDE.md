@@ -340,11 +340,18 @@ This is in **Rule 0** of the system prompt. If editing the prompt, these example
 ### 4. Selectivity
 For sentence input, only extract truly worth-learning items (phrasal verbs, idioms, non-obvious collocations, advanced vocabulary). Do not extract basic words like "important", "people", "make".
 
-### 5. Phonetics
-Add IPA phonetics for **every** entry without exception — common words and uncommon words alike.
+### 5. Phonetics — British English (RP), every entry
+Add IPA phonetics for **every** entry without exception using **British English (Received Pronunciation)** — NOT American English.
+- British: `/ɡəʊ/` not `/ɡoʊ/`, `/bɑːθ/` not `/bæθ/`, `/ˈwɔːtə/` not `/ˈwɔːtər/`
 - Single word: `run /rʌn/ (v./n.)`
 - Phrasal verb: `give up /ɡɪv ʌp/ (phr. v.)`
 - Do NOT skip phonetics for "easy" or common words.
+
+### 5b. Phrase verification (spell-check)
+Before saving the `english` field, verify it is a real standard English phrase. If it looks like a typo of a known phrase, silently correct it and note the correction in `grammar_note`.
+- `"trail balloon"` → `"trial balloon"`
+- `"blessing in the disguise"` → `"blessing in disguise"`
+- `"take for granite"` → `"take for granted"`
 
 ### 6. Part of speech
 List ALL parts of speech a word can be used as, e.g. "time (n./v.)".
@@ -439,3 +446,5 @@ Row 2: [Cancel]  [🔄]
 37. **Non-blocking AI calls**: AI calls run in thread executor so bot stays responsive during retries
 38. **Model selector button**: 🔄 button lets user re-analyze with Haiku / Sonnet / GPT-4o; chosen model persists for follow-up edits in the session
 39. **Keyboard layout standardised**: Single-entry [Save][Cancel][🔄][🔊]; multi-entry all on one row [Save1..N][Save All][Cancel][🔄][🔊1..N]
+40. **Phrase spell-check**: AI verifies extracted phrase is a real English phrase; corrects typos (e.g., "trail balloon" → "trial balloon") and notes in grammar_note
+41. **British English IPA**: All phonetics now use Received Pronunciation (RP), not American English

@@ -199,6 +199,11 @@ CRITICAL RULES:
      Do NOT put this note in the chinese field — it belongs in the explanation field only.
    - For "adj + to" patterns (e.g., "analogous to", "akin to", "prone to"), ALWAYS save as "be + adj + to" form: "be analogous to"
    - Exception for 精美句子 entries: keep the full sentence exactly as written (do NOT lemmatize)
+   - PHRASE VERIFICATION: Before finalising the "english" field, verify it is a real, standard English phrase/idiom.
+     If it appears to be a typo or misspelling of a well-known phrase, silently correct it to the proper standard form.
+     Examples: "trail balloon" → "trial balloon", "blessing in the disguise" → "blessing in disguise",
+     "take for granite" → "take for granted", "on the spurt of the moment" → "on the spur of the moment"
+     If corrected, add a brief note in grammar_note (e.g., "Corrected 'trail balloon' → 'trial balloon'")
 
 1. SENTENCE INPUT - Process in this order:
    a) GRAMMAR CHECK: Check for grammar errors. If found, correct them (keep original meaning).
@@ -238,8 +243,11 @@ CRITICAL RULES:
      add those as SEPARATE entries AFTER the 精美句子 entry.
    - Normal sentences about everyday topics are NOT 精美句子 — use this for literary/inspirational sentences only.
 
-4. PHONETICS - ALWAYS ADD FOR EVERY ENTRY:
+4. PHONETICS - ALWAYS ADD FOR EVERY ENTRY, BRITISH ENGLISH (RP):
    - Add IPA phonetic notation for EVERY word or phrase, no exceptions
+   - Use BRITISH ENGLISH (Received Pronunciation / RP) IPA — NOT American English
+     - British: "go /ɡəʊ/", "bath /bɑːθ/", "can't /kɑːnt/", "dance /dɑːns/"  (NOT /ɡoʊ/, /bæθ/, /kænt/, /dæns/)
+     - British: "trial /ˈtraɪəl/", "balloon /bəˈluːn/", "water /ˈwɔːtə/", "butter /ˈbʌtə/"
    - For single words: "word /IPA/" e.g., "niche /niːʃ/", "run /rʌn/", "go /ɡəʊ/"
    - For phrasal verbs: include IPA for the main verb: "bear down /beər daʊn/", "give up /ɡɪv ʌp/"
    - For multi-word phrases: include IPA for the full phrase or at least the key word
