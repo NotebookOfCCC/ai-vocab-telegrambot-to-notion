@@ -303,7 +303,25 @@ When a word/phrase has multiple meanings, explanation and examples must both be 
 ### 3. Base/dictionary form
 Words are always saved in their base form: "blocking out" → "block out", "running" → "run", "fidelities" → "fidelity". Exception: 精美句子 entries keep the full original sentence.
 
-Irregular past tense phrasal verbs must also be converted: "bore down" → "bear down", "tore apart" → "tear apart", "drove away" → "drive away". "bore down" is the past tense of "bear down" — never save it as "bore down".
+**Irregular past tense phrasal verbs — this is a known failure point, always check:**
+The model tends to save the past tense form as-is without recognising it as irregular. Always convert:
+
+| Seen in sentence | Save as (base form) |
+|---|---|
+| bore down | bear down |
+| tore apart / tore into | tear apart / tear into |
+| drove away / drove up | drive away / drive up |
+| wore out / wore down | wear out / wear down |
+| swore by / swore off | swear by / swear off |
+| strove for / strove to | strive for / strive to |
+| wove through | weave through |
+| shone through | shine through |
+| spoke up / spoke out | speak up / speak out |
+
+- ✗ Wrong: user's sentence contains "bore down" → saved as `bore down (phr. v.)`
+- ✓ Correct: user's sentence contains "bore down" → saved as `bear down (phr. v.)`
+
+This is in **Rule 0** of the system prompt. If editing the prompt, these examples must stay.
 
 ### 4. Selectivity
 For sentence input, only extract truly worth-learning items (phrasal verbs, idioms, non-obvious collocations, advanced vocabulary). Do not extract basic words like "important", "people", "make".
