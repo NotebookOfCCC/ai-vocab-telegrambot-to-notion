@@ -2,6 +2,17 @@
 
 A 3-bot Telegram ecosystem for English vocabulary learning with AI-powered analysis, spaced repetition, and habit tracking - all integrated with Notion.
 
+---
+
+## Standing Instructions for Claude (ALWAYS follow these)
+
+1. **After every code change**, commit and push to GitHub immediately — do not wait to be asked.
+2. **After every new requirement** (UI change, behaviour change, rule, preference), update this CLAUDE.md file to record the spec, then commit and push.
+3. Keep specs under the relevant section (e.g. keyboard layout under "Vocab Bot Keyboard Layout Spec", prompt rules under "Vocab Bot Prompt Specifications").
+4. The Recent Changes list at the bottom should also be updated with a one-liner for each change.
+
+---
+
 ## Architecture
 
 ```
@@ -343,6 +354,51 @@ For inspirational/poetic sentences: save the entire sentence as one entry with C
 
 ---
 
+## Vocab Bot Keyboard Layout Spec (DO NOT CHANGE without updating this section)
+
+### Single-entry keyboard (1 result)
+One row, left to right:
+```
+[Save]  [Cancel]  [🔄]  [🔊]
+```
+- **Save** — saves the entry to Notion (shows "Replace" if duplicate)
+- **Cancel** — clears the session
+- **🔄** — opens model selector (Haiku / Sonnet / GPT-4o)
+- **🔊** — plays TTS pronunciation
+
+### Multi-entry keyboard (2+ results)
+Single row, left to right:
+```
+[Save 1]  [Save 2]  [Save 3]  [Save All]  [Cancel]  [🔄]  [🔊1]  [🔊2]  [🔊3]
+```
+- Individual **Save N** buttons come first (one per entry)
+- Then **Save All**
+- Then **Cancel** and **🔄** in the middle
+- **🔊N** pronunciation buttons last (one per entry)
+- All buttons are on a single row — no separate rows for individual saves
+
+### Model selector (shown when 🔄 is tapped)
+```
+[🤖 Haiku ✓]  [🧠 Sonnet]  [💡 GPT-4o]
+[← Back]
+```
+- Checkmark (✓) shows currently active model
+- Selected model persists for all follow-up modifications in the same session
+- Session resets to Haiku when entries are saved or a new input is typed
+
+### Edit-mode keyboard (after modifying an entry)
+Single entry:
+```
+[Save]  [Cancel]  [🔊]
+```
+Multi-entry:
+```
+[Save [N]]  [Save All]  [🔊]
+[Cancel]
+```
+
+---
+
 ## Recent Changes
 
 1. **Phonetics**: Added IPA for uncommon words
@@ -382,3 +438,5 @@ For inspirational/poetic sentences: save the entire sentence as one entry with C
 35. **精美句子 category**: New category for beautiful/inspirational sentences — saves the whole sentence as one entry with Chinese translation and literary analysis
 36. **OpenAI fallback**: When Anthropic is overloaded (529), vocab bot automatically falls back: Haiku → Sonnet 3.5 → OpenAI GPT-4o-mini. Requires OPENAI_API_KEY env var.
 37. **Non-blocking AI calls**: AI calls run in thread executor so bot stays responsive during retries
+38. **Model selector button**: 🔄 button lets user re-analyze with Haiku / Sonnet / GPT-4o; chosen model persists for follow-up edits in the session
+39. **Keyboard layout standardised**: Single-entry [Save][Cancel][🔄][🔊]; multi-entry all on one row [Save1..N][Save All][Cancel][🔄][🔊1..N]
