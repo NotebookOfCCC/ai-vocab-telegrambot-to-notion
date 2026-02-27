@@ -517,18 +517,22 @@ def _build_save_keyboard(entries: list, dup_indices: set = None) -> InlineKeyboa
             InlineKeyboardButton("🔊", callback_data=f"tts_{word}"),
         ])
     else:
-        # Single row: [Save1] [Save2] [Save3] [Save All] [Cancel] [🔄] [🔊1] [🔊2] [🔊3]
-        row = []
+        # Row 1: [Save 1] [Save 2] [Save 3] [Save All]
+        row1 = []
         for i in range(len(entries)):
             label = f"Replace {i+1}" if i in dup_indices else f"Save {i+1}"
-            row.append(InlineKeyboardButton(label, callback_data=f"save_{i+1}"))
-        row.append(InlineKeyboardButton("Save All", callback_data="save_all"))
-        row.append(InlineKeyboardButton("Cancel", callback_data="cancel"))
-        row.append(InlineKeyboardButton("🔄", callback_data="model_select"))
+            row1.append(InlineKeyboardButton(label, callback_data=f"save_{i+1}"))
+        row1.append(InlineKeyboardButton("Save All", callback_data="save_all"))
+        keyboard.append(row1)
+        # Row 2: [Cancel] [🔄] [🔊1] [🔊2] [🔊3]
+        row2 = [
+            InlineKeyboardButton("Cancel", callback_data="cancel"),
+            InlineKeyboardButton("🔄", callback_data="model_select"),
+        ]
         for i, entry in enumerate(entries):
             word = _extract_pronounce_text(entry.get("english", ""))
-            row.append(InlineKeyboardButton(f"🔊{i+1}", callback_data=f"tts_{word}"))
-        keyboard.append(row)
+            row2.append(InlineKeyboardButton(f"🔊{i+1}", callback_data=f"tts_{word}"))
+        keyboard.append(row2)
     return InlineKeyboardMarkup(keyboard)
 
 

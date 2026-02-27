@@ -367,15 +367,13 @@ One row, left to right:
 - **🔊** — plays TTS pronunciation
 
 ### Multi-entry keyboard (2+ results)
-Single row, left to right:
+Two rows:
 ```
-[Save 1]  [Save 2]  [Save 3]  [Save All]  [Cancel]  [🔄]  [🔊1]  [🔊2]  [🔊3]
+Row 1: [Save 1]  [Save 2]  [Save 3]  [Save All]
+Row 2: [Cancel]  [🔄]  [🔊1]  [🔊2]  [🔊3]
 ```
-- Individual **Save N** buttons come first (one per entry)
-- Then **Save All**
-- Then **Cancel** and **🔄** in the middle
-- **🔊N** pronunciation buttons last (one per entry)
-- All buttons are on a single row — no separate rows for individual saves
+- Row 1: individual **Save N** buttons + **Save All**
+- Row 2: **Cancel**, **🔄** model selector, then **🔊N** pronunciation buttons (one per entry)
 
 ### Model selector (shown when 🔄 is tapped)
 ```
