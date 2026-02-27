@@ -342,16 +342,18 @@ class AIHandler:
 
         Fallback order:
           1. Requested Anthropic model (3 retries with backoff)
-          2. claude-3-5-sonnet-20241022 (if not already that model)
+          2. claude-sonnet-4-5 (if not already that model)
           3. OpenAI gpt-4o-mini (if OPENAI_API_KEY is configured)
+
+        Triggers fallback on: 429 (rate limit), 529 (overloaded), 404 (model not found), 400 usage limit
 
         Returns response text string.
         Raises the last error if all providers fail.
         """
         # Build Anthropic model chain
         anthropic_models = [model]
-        if model != "claude-3-5-sonnet-20241022":
-            anthropic_models.append("claude-3-5-sonnet-20241022")
+        if model != "claude-sonnet-4-5":
+            anthropic_models.append("claude-sonnet-4-5")
 
         last_overload_error = None
         for attempt_model in anthropic_models:
@@ -363,8 +365,10 @@ class AIHandler:
                 return response.content[0].text
             except anthropic.APIStatusError as e:
                 # 429/529 = overloaded/rate-limited; 400 with usage limit = monthly cap hit
+                # 404 = model not found (deprecated/removed model)
                 is_usage_limit = e.status_code == 400 and "usage" in str(e).lower()
-                if e.status_code in (429, 529) or is_usage_limit:
+                is_fallback_error = e.status_code in (429, 529, 404) or is_usage_limit
+                if is_fallback_error:
                     last_overload_error = e
                     logging.warning(f"Anthropic {attempt_model} unavailable ({e.status_code}), trying next fallback")
                     if is_usage_limit:

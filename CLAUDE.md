@@ -20,7 +20,7 @@ main.py (Entry Point)
 - Grammar checking for sentences
 - Saves to Notion vocabulary database
 - **Cost optimized**: Skips API for ~300 common words
-- **AI fallback chain**: Haiku → Sonnet 3.5 → OpenAI GPT-4o-mini (when Anthropic is overloaded)
+- **AI fallback chain**: Haiku → Sonnet 4.5 → OpenAI GPT-4o-mini (when Anthropic is overloaded or model not found)
 
 ### 2. Review Bot (`review_bot.py`)
 - Spaced repetition system (SM-2 variant)
@@ -66,8 +66,9 @@ main.py (Entry Point)
 - **Model**: Claude Haiku (`claude-haiku-4-5-20251001`) for all tasks — analysis, modifications, entry detection
 - **Overload fallback chain** (automatic, no user action needed):
   1. Claude Haiku (3 retries: 5s → 10s → 20s backoff)
-  2. Claude Sonnet 3.5 (`claude-3-5-sonnet-20241022`) — different capacity pool
+  2. Claude Sonnet 4.5 (`claude-sonnet-4-5`) — different capacity pool
   3. OpenAI GPT-4o-mini — completely separate infrastructure
+  - Triggers on: 429 (rate limit), 529 (overloaded), 404 (model not found/deprecated), 400 usage limit
   - Applies to ALL AI calls: main analysis, modifications, entry detection
   - Requires `OPENAI_API_KEY` env var for step 3 (optional but recommended)
 
