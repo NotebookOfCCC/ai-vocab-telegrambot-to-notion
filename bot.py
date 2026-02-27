@@ -51,6 +51,17 @@ cache_handler = None
 # Store user session data (pending entries to save)
 user_sessions = {}
 
+# Models available for re-analysis via the 🔄 button
+# (key, display label, model ID)
+REANALYZE_MODELS = [
+    ("haiku",    "🤖 Haiku",   "claude-haiku-4-5-20251001"),
+    ("sonnet",   "🧠 Sonnet",  "claude-sonnet-4-5"),
+    ("gpt4mini", "💡 GPT-4o",  "gpt-4o-mini"),
+]
+_MODEL_ID   = {k: mid  for k, _, mid  in REANALYZE_MODELS}
+_MODEL_LABEL = {k: lbl  for k, lbl, _ in REANALYZE_MODELS}
+DEFAULT_MODEL_KEY = "haiku"
+
 
 def is_user_allowed(user_id: int) -> bool:
     """Check if user is allowed to use the bot."""
@@ -432,7 +443,8 @@ async def handle_edit_request(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     entry = pending_entries[target_idx]
     loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, ai_handler.modify_entry, entry, text)
+    session_model = session.get("session_model_id")
+    result = await loop.run_in_executor(None, ai_handler.modify_entry, entry, text, session_model)
 
     if result["success"]:
         # Remove buttons from previous message before showing new one
@@ -501,7 +513,8 @@ def _build_save_keyboard(entries: list, dup_indices: set = None) -> InlineKeyboa
         keyboard.append([
             InlineKeyboardButton(label, callback_data="save_1"),
             InlineKeyboardButton("Cancel", callback_data="cancel"),
-            InlineKeyboardButton("🔊", callback_data=f"tts_{word}")
+            InlineKeyboardButton("🔊", callback_data=f"tts_{word}"),
+            InlineKeyboardButton("🔄", callback_data="model_select"),
         ])
     else:
         row = []
@@ -513,7 +526,7 @@ def _build_save_keyboard(entries: list, dup_indices: set = None) -> InlineKeyboa
                 row = []
         if row:
             keyboard.append(row)
-        # Save All / Cancel + 🔊 per entry in same row
+        # Save All / Cancel + 🔊 per entry + 🔄 model switcher
         last_row = [
             InlineKeyboardButton("Save All", callback_data="save_all"),
             InlineKeyboardButton("Cancel", callback_data="cancel"),
@@ -521,6 +534,7 @@ def _build_save_keyboard(entries: list, dup_indices: set = None) -> InlineKeyboa
         for i, entry in enumerate(entries):
             word = _extract_pronounce_text(entry.get("english", ""))
             last_row.append(InlineKeyboardButton(f"🔊{i+1}", callback_data=f"tts_{word}"))
+        last_row.append(InlineKeyboardButton("🔄", callback_data="model_select"))
         keyboard.append(last_row)
     return InlineKeyboardMarkup(keyboard)
 
@@ -579,6 +593,86 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             logger.error(f"TTS error for '{word}': {e}")
             await query.answer("Failed to generate audio", show_alert=True)
         return
+
+    # ── Model selector ──────────────────────────────────────────────────────
+    if data == "model_select":
+        current_key = session.get("session_model_key", DEFAULT_MODEL_KEY)
+        row = []
+        for key, label, _ in REANALYZE_MODELS:
+            check = " ✓" if key == current_key else ""
+            row.append(InlineKeyboardButton(f"{label}{check}", callback_data=f"use_model_{key}"))
+        picker = InlineKeyboardMarkup([row, [InlineKeyboardButton("← Back", callback_data="model_back")]])
+        await query.edit_message_reply_markup(reply_markup=picker)
+        return
+
+    if data == "model_back":
+        # Restore the normal save keyboard from current session state
+        entries = session.get("pending_entries", [])
+        if not entries:
+            await query.edit_message_reply_markup(reply_markup=None)
+            return
+        dup_page_ids = session.get("dup_page_ids", {})
+        reply_markup = _build_save_keyboard(entries, dup_indices=set(dup_page_ids.keys()))
+        await query.edit_message_reply_markup(reply_markup=reply_markup)
+        return
+
+    if data.startswith("use_model_"):
+        model_key = data[len("use_model_"):]
+        if model_key not in _MODEL_ID:
+            await query.answer("Unknown model", show_alert=True)
+            return
+
+        model_id = _MODEL_ID[model_key]
+        model_label = _MODEL_LABEL[model_key]
+        original_input = session.get("original_input", "")
+        if not original_input:
+            await query.answer("Session expired — send the text again", show_alert=True)
+            return
+
+        # Store chosen model in session BEFORE re-analysis
+        user_sessions[user_id]["session_model_key"] = model_key
+        user_sessions[user_id]["session_model_id"] = model_id
+
+        await query.edit_message_text(f"Re-analyzing with {model_label}...", reply_markup=None)
+
+        try:
+            loop = asyncio.get_running_loop()
+            analysis = await loop.run_in_executor(
+                None, ai_handler.analyze_input, original_input, model_id
+            )
+            if "error" in analysis:
+                await query.message.reply_text(f"Error: {analysis['error']}")
+                return
+
+            entries = analysis.get("entries", [])
+            response = ai_handler.format_entries_for_display(analysis)
+
+            # Duplicate check
+            dup_notes, dup_page_ids = [], {}
+            for i, entry in enumerate(entries):
+                dup = notion_handler.find_entry_by_english(entry.get("english", ""))
+                if dup:
+                    date_str = f" ({dup['date']})" if dup.get("date") else ""
+                    dup_notes.append(f"⚠️ #{i+1} already in Notion{date_str}")
+                    dup_page_ids[i] = dup["page_id"]
+
+            user_sessions[user_id]["pending_entries"] = entries
+            user_sessions[user_id]["dup_page_ids"] = dup_page_ids
+
+            if dup_notes:
+                response = "\n".join(dup_notes) + "\n\n" + response
+
+            model_note = "" if model_key == DEFAULT_MODEL_KEY else f"({model_label})\n"
+            reply_markup = _build_save_keyboard(entries, dup_indices=set(dup_page_ids.keys()))
+            sent = await query.message.reply_text(f"{model_note}{response}", reply_markup=reply_markup)
+            user_sessions[user_id]["last_button_message_id"] = sent.message_id
+            user_sessions[user_id]["last_button_message_chat_id"] = sent.chat_id
+
+        except Exception as e:
+            logger.error(f"Re-analysis error: {e}")
+            await query.message.reply_text(f"Error re-analyzing: {e}")
+        return
+    # ────────────────────────────────────────────────────────────────────────
 
     # Handle re-analyze (duplicate override)
     if data == "reanalyze":

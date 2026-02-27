@@ -597,27 +597,62 @@ class AIHandler:
             "skipped_ai": True  # Flag to indicate no API was called
         }
 
-    def analyze_input(self, user_input: str) -> dict:
-        """Analyze user input and generate learning entries."""
+    def analyze_input(self, user_input: str, model_override: str = None) -> dict:
+        """Analyze user input and generate learning entries.
+
+        Args:
+            user_input: The text to analyze.
+            model_override: Force a specific model ID. If "gpt-4o-mini", calls OpenAI
+                directly. If None, uses the default model chain.
+        """
         # Skip AI for common single words (FREE!)
         if self._is_common_word(user_input):
             return self._common_word_response(user_input.lower().strip())
 
         # Determine max_tokens based on input type
-        # Single word/short phrase = less tokens needed
         word_count = len(user_input.split())
         if word_count <= 3:
-            max_tokens = 800  # Single word or short phrase
+            max_tokens = 800
         else:
-            max_tokens = 1000  # Sentence needs more
+            max_tokens = 1000
 
-        # Use cheap model (Haiku) if enabled, otherwise main model (Sonnet)
-        model = self.cheap_model if self.use_cheap_model else self.main_model
+        # If OpenAI model requested directly, bypass Anthropic entirely
+        if model_override == "gpt-4o-mini":
+            if self.openai_client:
+                try:
+                    logging.info("analyze_input: using OpenAI gpt-4o-mini (user override)")
+                    openai_messages = [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": user_input},
+                    ]
+                    response = self.openai_client.chat.completions.create(
+                        model=self.openai_model,
+                        max_tokens=max_tokens,
+                        messages=openai_messages,
+                    )
+                    response_text = response.choices[0].message.content
+                    result = self._try_parse_json(response_text)
+                    today = date.today().isoformat()
+                    for entry in result.get("entries", []):
+                        entry["date"] = today
+                    return result
+                except Exception as e:
+                    logging.error(f"OpenAI direct call failed: {e}, falling back to Anthropic")
+                    model_override = None  # Fall through to Anthropic
+            else:
+                logging.warning("gpt-4o-mini requested but no OpenAI client — using default")
+                model_override = None
 
-        # Build model fallback chain for JSON parse failures (same as overload fallback)
+        # Determine starting Anthropic model
+        if model_override:
+            model = model_override
+        else:
+            model = self.cheap_model if self.use_cheap_model else self.main_model
+
+        # Build model fallback chain for JSON parse failures
         fallback_models = [model]
-        if model != "claude-3-5-sonnet-20241022":
-            fallback_models.append("claude-3-5-sonnet-20241022")
+        if model != "claude-sonnet-4-5":
+            fallback_models.append("claude-sonnet-4-5")
 
         last_json_error = None
         last_response_text = None
@@ -752,8 +787,14 @@ Date: {entry['date']}
 
 --- Saving to Notion ---"""
 
-    def modify_entry(self, entry: dict, user_request: str) -> dict:
+    def modify_entry(self, entry: dict, user_request: str, model_override: str = None) -> dict:
         """Modify an entry based on user's follow-up request.
+
+        Args:
+            entry: The current vocabulary entry dict.
+            user_request: The user's modification request.
+            model_override: Force a specific Anthropic model ID for this call.
+                            If None, uses self.cheap_model (Haiku).
 
         If user asks a question, returns both the answer and modified entry.
         """
@@ -786,9 +827,9 @@ JSON format:
 {{"question_answer": null, "entry": {{"english": "...", "chinese": "...", "explanation": "...", "example_en": "...", "example_zh": "...", "category": "..."}}}}"""
 
         try:
-            # Use cheaper model for modifications (falls back to Sonnet 3.5 / OpenAI if overloaded)
+            use_model = model_override if model_override and model_override != "gpt-4o-mini" else self.cheap_model
             response_text = self._get_response_text(
-                model=self.cheap_model,
+                model=use_model,
                 messages=[{"role": "user", "content": modify_prompt}],
                 max_tokens=800,
             )
