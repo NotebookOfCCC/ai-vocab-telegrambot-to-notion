@@ -543,26 +543,27 @@ def _build_edit_keyboard(num_entries: int, current_idx: int, is_dup: bool = Fals
         tts_word = _extract_pronounce_text(entries[current_idx].get("english", ""))
 
     if num_entries == 1:
-        label = "Replace" if is_dup else "Save"
         row = [
-            InlineKeyboardButton(label, callback_data="save_1"),
+            InlineKeyboardButton("Replace" if is_dup else "Save", callback_data="save_1"),
             InlineKeyboardButton("Cancel", callback_data="cancel"),
+            InlineKeyboardButton("🔄", callback_data="model_select"),
         ]
         if tts_word:
             row.append(InlineKeyboardButton("🔊", callback_data=f"tts_{tts_word}"))
         return [row]
     else:
         label = f"Replace [{current_idx + 1}]" if is_dup else f"Save [{current_idx + 1}]"
-        first_row = [
+        row1 = [
             InlineKeyboardButton(label, callback_data=f"save_{current_idx + 1}"),
             InlineKeyboardButton("Save All", callback_data="save_all"),
         ]
         if tts_word:
-            first_row.append(InlineKeyboardButton("🔊", callback_data=f"tts_{tts_word}"))
-        return [
-            first_row,
-            [InlineKeyboardButton("Cancel", callback_data="cancel")],
+            row1.append(InlineKeyboardButton("🔊", callback_data=f"tts_{tts_word}"))
+        row2 = [
+            InlineKeyboardButton("Cancel", callback_data="cancel"),
+            InlineKeyboardButton("🔄", callback_data="model_select"),
         ]
+        return [row1, row2]
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

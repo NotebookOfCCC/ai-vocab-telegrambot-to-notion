@@ -387,13 +387,14 @@ Row 2: [Cancel]  [🔄]  [🔊1]  [🔊2]  [🔊3]
 ### Edit-mode keyboard (after modifying an entry)
 Single entry:
 ```
-[Save]  [Cancel]  [🔊]
+[Save]  [Cancel]  [🔄]  [🔊]
 ```
 Multi-entry:
 ```
-[Save [N]]  [Save All]  [🔊]
-[Cancel]
+Row 1: [Save [N]]  [Save All]  [🔊]
+Row 2: [Cancel]  [🔄]
 ```
+- 🔄 must always be present so the user can switch models during edit/modify flow
 
 ---
 
