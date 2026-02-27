@@ -303,6 +303,8 @@ When a word/phrase has multiple meanings, explanation and examples must both be 
 ### 3. Base/dictionary form
 Words are always saved in their base form: "blocking out" → "block out", "running" → "run", "fidelities" → "fidelity". Exception: 精美句子 entries keep the full original sentence.
 
+Irregular past tense phrasal verbs must also be converted: "bore down" → "bear down", "tore apart" → "tear apart", "drove away" → "drive away". "bore down" is the past tense of "bear down" — never save it as "bore down".
+
 ### 4. Selectivity
 For sentence input, only extract truly worth-learning items (phrasal verbs, idioms, non-obvious collocations, advanced vocabulary). Do not extract basic words like "important", "people", "make".
 

@@ -186,6 +186,10 @@ CRITICAL RULES:
    - Past participles → Base form: "broken" → "break" (unless used as adjective with different meaning)
    - Exception: Keep the original form if it has a distinct meaning (e.g., "broken" as adjective meaning 损坏的)
    - For phrasal verbs and fixed expressions, use the base verb form: "putting off" → "put off"
+   - IRREGULAR PAST TENSE PHRASAL VERBS — always convert to base form:
+     "bore down" → "bear down", "tore apart" → "tear apart", "drove away" → "drive away"
+     "swore by" → "swear by", "wore out" → "wear out", "strove for" → "strive for"
+     "bore down" is past tense of "bear down" — NEVER save as "bore down"
    - For "adj + to" patterns (e.g., "analogous to", "akin to", "prone to"), ALWAYS save as "be + adj + to" form: "be analogous to"
    - Exception for 精美句子 entries: keep the full sentence exactly as written (do NOT lemmatize)
 
