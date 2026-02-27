@@ -598,25 +598,36 @@ class AIHandler:
         # Use cheap model (Haiku) if enabled, otherwise main model (Sonnet)
         model = self.cheap_model if self.use_cheap_model else self.main_model
 
-        response_text = self._get_response_text(
-            model=model,
-            messages=[{"role": "user", "content": user_input}],
-            max_tokens=max_tokens,
-            system=SYSTEM_PROMPT,
-        )
+        # Build model fallback chain for JSON parse failures (same as overload fallback)
+        fallback_models = [model]
+        if model != "claude-3-5-sonnet-20241022":
+            fallback_models.append("claude-3-5-sonnet-20241022")
 
-        try:
-            result = self._try_parse_json(response_text)
-            # Add today's date to each entry
-            today = date.today().isoformat()
-            for entry in result.get("entries", []):
-                entry["date"] = today
-            return result
-        except json.JSONDecodeError as e:
-            # Retry once with explicit JSON request
+        last_json_error = None
+        last_response_text = None
+
+        for attempt_model in fallback_models:
+            response_text = self._get_response_text(
+                model=attempt_model,
+                messages=[{"role": "user", "content": user_input}],
+                max_tokens=max_tokens,
+                system=SYSTEM_PROMPT,
+            )
+            last_response_text = response_text
+
+            try:
+                result = self._try_parse_json(response_text)
+                today = date.today().isoformat()
+                for entry in result.get("entries", []):
+                    entry["date"] = today
+                return result
+            except json.JSONDecodeError:
+                pass  # Try JSON-fix retry with same model first
+
+            # Retry once asking the same model to fix its JSON
             try:
                 retry_text = self._get_response_text(
-                    model=model,
+                    model=attempt_model,
                     messages=[
                         {"role": "user", "content": user_input},
                         {"role": "assistant", "content": response_text},
@@ -630,16 +641,37 @@ class AIHandler:
                 for entry in result.get("entries", []):
                     entry["date"] = today
                 return result
-            except json.JSONDecodeError as retry_e:
-                return {
-                    "error": f"Failed to parse AI response: {str(retry_e)}",
-                    "raw_response": response_text
-                }
-            except Exception:
-                return {
-                    "error": f"Failed to parse AI response: {str(e)}",
-                    "raw_response": response_text
-                }
+            except json.JSONDecodeError as e:
+                last_json_error = e
+                logging.warning(f"JSON parse failed with {attempt_model}, trying next fallback model")
+                continue  # Try next model in chain
+
+        # All Anthropic models failed to produce valid JSON — try OpenAI
+        if self.openai_client:
+            try:
+                logging.warning("All Anthropic models returned invalid JSON, falling back to OpenAI")
+                openai_messages = [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_input},
+                ]
+                response = self.openai_client.chat.completions.create(
+                    model=self.openai_model,
+                    max_tokens=max_tokens,
+                    messages=openai_messages,
+                )
+                openai_text = response.choices[0].message.content
+                result = self._try_parse_json(openai_text)
+                today = date.today().isoformat()
+                for entry in result.get("entries", []):
+                    entry["date"] = today
+                return result
+            except Exception as e:
+                logging.error(f"OpenAI fallback also failed: {e}")
+
+        return {
+            "error": f"Failed to parse AI response: {str(last_json_error)}",
+            "raw_response": last_response_text
+        }
 
     def format_entries_for_display(self, analysis: dict) -> str:
         """Format the analysis result for Telegram display."""
