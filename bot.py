@@ -198,6 +198,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 await handle_selection(update, context, text)
                 return
 
+        # Check if user is appending text to an explanation
+        if user_sessions[user_id].get("awaiting_explanation_for") is not None:
+            idx = user_sessions[user_id].pop("awaiting_explanation_for")
+            if idx < len(pending_entries):
+                entry = pending_entries[idx]
+                old_expl = entry.get("explanation", "")
+                entry["explanation"] = old_expl + "\n\n——\n" + text
+                pending_entries[idx] = entry
+                user_sessions[user_id]["pending_entries"] = pending_entries
+
+                await _remove_previous_buttons(context, session)
+                response = ai_handler._format_single_entry(entry)
+                dup_page_ids = session.get("dup_page_ids", {})
+                keyboard = _build_edit_keyboard(len(pending_entries), idx, is_dup=idx in dup_page_ids, entries=pending_entries)
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                entry_label = f"[{idx + 1}] " if len(pending_entries) > 1 else ""
+                sent = await update.message.reply_text(f"{entry_label}Explanation updated!\n{response}", reply_markup=reply_markup)
+                user_sessions[user_id]["last_button_message_id"] = sent.message_id
+                user_sessions[user_id]["last_button_message_chat_id"] = sent.chat_id
+            return
+
         # Anything else = edit request (let AI handle it)
         await handle_edit_request(update, context, text)
         return
@@ -513,7 +534,7 @@ def _build_save_keyboard(entries: list, dup_indices: set = None) -> InlineKeyboa
         keyboard.append([
             InlineKeyboardButton(label, callback_data="save_1"),
             InlineKeyboardButton("Cancel", callback_data="cancel"),
-            InlineKeyboardButton("🔄", callback_data="model_select"),
+            InlineKeyboardButton("⋯", callback_data="others_menu"),
             InlineKeyboardButton("🔊", callback_data=f"tts_{word}"),
         ])
     else:
@@ -527,7 +548,7 @@ def _build_save_keyboard(entries: list, dup_indices: set = None) -> InlineKeyboa
         # Row 2: [Cancel] [🔄] [🔊1] [🔊2] [🔊3]
         row2 = [
             InlineKeyboardButton("Cancel", callback_data="cancel"),
-            InlineKeyboardButton("🔄", callback_data="model_select"),
+            InlineKeyboardButton("⋯", callback_data="others_menu"),
         ]
         for i, entry in enumerate(entries):
             word = _extract_pronounce_text(entry.get("english", ""))
@@ -546,7 +567,7 @@ def _build_edit_keyboard(num_entries: int, current_idx: int, is_dup: bool = Fals
         row = [
             InlineKeyboardButton("Replace" if is_dup else "Save", callback_data="save_1"),
             InlineKeyboardButton("Cancel", callback_data="cancel"),
-            InlineKeyboardButton("🔄", callback_data="model_select"),
+            InlineKeyboardButton("⋯", callback_data="others_menu"),
         ]
         if tts_word:
             row.append(InlineKeyboardButton("🔊", callback_data=f"tts_{tts_word}"))
@@ -561,7 +582,7 @@ def _build_edit_keyboard(num_entries: int, current_idx: int, is_dup: bool = Fals
             row1.append(InlineKeyboardButton("🔊", callback_data=f"tts_{tts_word}"))
         row2 = [
             InlineKeyboardButton("Cancel", callback_data="cancel"),
-            InlineKeyboardButton("🔄", callback_data="model_select"),
+            InlineKeyboardButton("⋯", callback_data="others_menu"),
         ]
         return [row1, row2]
 
@@ -599,12 +620,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         for key, label, _ in REANALYZE_MODELS:
             check = " ✓" if key == current_key else ""
             row.append(InlineKeyboardButton(f"{label}{check}", callback_data=f"use_model_{key}"))
-        picker = InlineKeyboardMarkup([row, [InlineKeyboardButton("← Back", callback_data="model_back")]])
+        picker = InlineKeyboardMarkup([row, [InlineKeyboardButton("← Back", callback_data="others_menu")]])
         await query.edit_message_reply_markup(reply_markup=picker)
         return
 
-    if data == "model_back":
-        # Restore the normal save keyboard from current session state
+    if data == "others_menu":
+        # Show Others submenu: [Select Model] [Add to Explanation] [← Back]
+        markup = InlineKeyboardMarkup([[
+            InlineKeyboardButton("Select Model", callback_data="model_select"),
+            InlineKeyboardButton("Add to Explanation", callback_data="add_to_explanation"),
+            InlineKeyboardButton("← Back", callback_data="others_back"),
+        ]])
+        await query.edit_message_reply_markup(reply_markup=markup)
+        return
+
+    if data in ("others_back", "model_back"):
+        # Restore the normal save keyboard
         entries = session.get("pending_entries", [])
         if not entries:
             await query.edit_message_reply_markup(reply_markup=None)
@@ -612,6 +643,34 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         dup_page_ids = session.get("dup_page_ids", {})
         reply_markup = _build_save_keyboard(entries, dup_indices=set(dup_page_ids.keys()))
         await query.edit_message_reply_markup(reply_markup=reply_markup)
+        return
+
+    if data == "add_to_explanation":
+        entries = session.get("pending_entries", [])
+        if not entries:
+            await query.answer("No pending entries", show_alert=True)
+            return
+        if len(entries) == 1:
+            user_sessions[user_id]["awaiting_explanation_for"] = 0
+            await query.edit_message_reply_markup(reply_markup=None)
+            await query.message.reply_text("Reply with the text to append to the explanation:")
+        else:
+            # Show entry picker — one button per entry + Back
+            row = []
+            for i, entry in enumerate(entries):
+                label = entry.get("english", f"#{i+1}").split("/")[0].strip()[:18]
+                row.append(InlineKeyboardButton(f"{i+1}: {label}", callback_data=f"add_expl_pick_{i}"))
+            markup = InlineKeyboardMarkup([row, [InlineKeyboardButton("← Back", callback_data="others_menu")]])
+            await query.edit_message_reply_markup(reply_markup=markup)
+        return
+
+    if data.startswith("add_expl_pick_"):
+        idx = int(data[len("add_expl_pick_"):])
+        entries = session.get("pending_entries", [])
+        label = entries[idx].get("english", f"#{idx+1}").split("/")[0].strip() if idx < len(entries) else f"#{idx+1}"
+        user_sessions[user_id]["awaiting_explanation_for"] = idx
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(f"Reply with the text to append to the explanation of '{label}':")
         return
 
     if data.startswith("use_model_"):

@@ -366,23 +366,43 @@ For inspirational/poetic sentences: save the entire sentence as one entry with C
 ### Single-entry keyboard (1 result)
 One row, left to right:
 ```
-[Save]  [Cancel]  [🔄]  [🔊]
+[Save]  [Cancel]  [⋯]  [🔊]
 ```
 - **Save** — saves the entry to Notion (shows "Replace" if duplicate)
 - **Cancel** — clears the session
-- **🔄** — opens model selector (Haiku / Sonnet / GPT-4o)
+- **⋯** — opens Others submenu (see below)
 - **🔊** — plays TTS pronunciation
 
 ### Multi-entry keyboard (2+ results)
 Two rows:
 ```
 Row 1: [Save 1]  [Save 2]  [Save 3]  [Save All]
-Row 2: [Cancel]  [🔄]  [🔊1]  [🔊2]  [🔊3]
+Row 2: [Cancel]  [⋯]  [🔊1]  [🔊2]  [🔊3]
 ```
 - Row 1: individual **Save N** buttons + **Save All**
-- Row 2: **Cancel**, **🔄** model selector, then **🔊N** pronunciation buttons (one per entry)
+- Row 2: **Cancel**, **⋯** Others menu, then **🔊N** pronunciation buttons (one per entry)
 
-### Model selector (shown when 🔄 is tapped)
+### Edit-mode keyboard (after modifying an entry)
+Single entry:
+```
+[Save]  [Cancel]  [⋯]  [🔊]
+```
+Multi-entry:
+```
+Row 1: [Save [N]]  [Save All]  [🔊]
+Row 2: [Cancel]  [⋯]
+```
+- ⋯ must always be present so the user can access Others during edit/modify flow
+
+### Others submenu (shown when ⋯ is tapped)
+```
+[Select Model]  [Add to Explanation]  [← Back]
+```
+- **Select Model** → opens model picker
+- **Add to Explanation** → append text to an entry's explanation field
+- **← Back** → restores the main keyboard
+
+### Model selector (shown when Select Model is tapped)
 ```
 [🤖 Haiku ✓]  [🧠 Sonnet]  [💡 GPT-4o]
 [← Back]
@@ -390,18 +410,27 @@ Row 2: [Cancel]  [🔄]  [🔊1]  [🔊2]  [🔊3]
 - Checkmark (✓) shows currently active model
 - Selected model persists for all follow-up modifications in the same session
 - Session resets to Haiku when entries are saved or a new input is typed
+- ← Back returns to Others submenu
 
-### Edit-mode keyboard (after modifying an entry)
-Single entry:
+### Add to Explanation flow
+**Single entry:**
+1. Tap ⋯ → Others submenu
+2. Tap "Add to Explanation" → bot prompts "Reply with the text to append..."
+3. User pastes text → appended to explanation with `\n\n——\n` separator
+
+**Multi-entry:**
+1. Tap ⋯ → Others submenu
+2. Tap "Add to Explanation" → entry picker: `[1: bubble over]  [2: bubble up]  [← Back]`
+3. Tap entry → bot prompts for text
+4. User pastes → appended to that entry's explanation
+
+**Appended format:**
 ```
-[Save]  [Cancel]  [🔄]  [🔊]
+原始解释内容...
+
+——
+用户追加的内容
 ```
-Multi-entry:
-```
-Row 1: [Save [N]]  [Save All]  [🔊]
-Row 2: [Cancel]  [🔄]
-```
-- 🔄 must always be present so the user can switch models during edit/modify flow
 
 ---
 
@@ -448,3 +477,4 @@ Row 2: [Cancel]  [🔄]
 39. **Keyboard layout standardised**: Single-entry [Save][Cancel][🔄][🔊]; multi-entry all on one row [Save1..N][Save All][Cancel][🔄][🔊1..N]
 40. **Phrase spell-check**: AI verifies extracted phrase is a real English phrase; corrects typos (e.g., "trail balloon" → "trial balloon") and notes in grammar_note
 41. **British English IPA**: All phonetics now use Received Pronunciation (RP), not American English
+42. **Others (⋯) submenu**: Replaced 🔄 with ⋯ button; opens submenu with [Select Model] and [Add to Explanation]. Add to Explanation appends user-pasted text to a specific entry's explanation field with a —— separator
