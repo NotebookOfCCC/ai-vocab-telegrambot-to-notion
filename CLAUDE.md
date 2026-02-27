@@ -366,35 +366,35 @@ For inspirational/poetic sentences: save the entire sentence as one entry with C
 ### Single-entry keyboard (1 result)
 One row, left to right:
 ```
-[Save]  [Cancel]  [⋯]  [🔊]
+[Save]  [Cancel]  [More]  [🔊]
 ```
 - **Save** — saves the entry to Notion (shows "Replace" if duplicate)
 - **Cancel** — clears the session
-- **⋯** — opens Others submenu (see below)
+- **More** — opens Others submenu (see below)
 - **🔊** — plays TTS pronunciation
 
 ### Multi-entry keyboard (2+ results)
 Two rows:
 ```
 Row 1: [Save 1]  [Save 2]  [Save 3]  [Save All]
-Row 2: [Cancel]  [⋯]  [🔊1]  [🔊2]  [🔊3]
+Row 2: [Cancel]  [More]  [🔊1]  [🔊2]  [🔊3]
 ```
 - Row 1: individual **Save N** buttons + **Save All**
-- Row 2: **Cancel**, **⋯** Others menu, then **🔊N** pronunciation buttons (one per entry)
+- Row 2: **Cancel**, **More** Others menu, then **🔊N** pronunciation buttons (one per entry)
 
 ### Edit-mode keyboard (after modifying an entry)
 Single entry:
 ```
-[Save]  [Cancel]  [⋯]  [🔊]
+[Save]  [Cancel]  [More]  [🔊]
 ```
 Multi-entry:
 ```
 Row 1: [Save [N]]  [Save All]  [🔊]
-Row 2: [Cancel]  [⋯]
+Row 2: [Cancel]  [More]
 ```
-- ⋯ must always be present so the user can access Others during edit/modify flow
+- More must always be present so the user can access Others during edit/modify flow
 
-### Others submenu (shown when ⋯ is tapped)
+### Others submenu (shown when More is tapped)
 ```
 [Select Model]  [Add to Explanation]  [← Back]
 ```
@@ -414,12 +414,12 @@ Row 2: [Cancel]  [⋯]
 
 ### Add to Explanation flow
 **Single entry:**
-1. Tap ⋯ → Others submenu
+1. Tap More → Others submenu
 2. Tap "Add to Explanation" → bot prompts "Reply with the text to append..."
 3. User pastes text → appended to explanation with `\n\n——\n` separator
 
 **Multi-entry:**
-1. Tap ⋯ → Others submenu
+1. Tap More → Others submenu
 2. Tap "Add to Explanation" → entry picker: `[1: bubble over]  [2: bubble up]  [← Back]`
 3. Tap entry → bot prompts for text
 4. User pastes → appended to that entry's explanation
@@ -477,4 +477,4 @@ Row 2: [Cancel]  [⋯]
 39. **Keyboard layout standardised**: Single-entry [Save][Cancel][🔄][🔊]; multi-entry all on one row [Save1..N][Save All][Cancel][🔄][🔊1..N]
 40. **Phrase spell-check**: AI verifies extracted phrase is a real English phrase; corrects typos (e.g., "trail balloon" → "trial balloon") and notes in grammar_note
 41. **British English IPA**: All phonetics now use Received Pronunciation (RP), not American English
-42. **Others (⋯) submenu**: Replaced 🔄 with ⋯ button; opens submenu with [Select Model] and [Add to Explanation]. Add to Explanation appends user-pasted text to a specific entry's explanation field with a —— separator
+42. **Others (More) submenu**: Replaced 🔄 with More button; opens submenu with [Select Model] and [Add to Explanation]. Add to Explanation appends user-pasted text to a specific entry's explanation field with a —— separator

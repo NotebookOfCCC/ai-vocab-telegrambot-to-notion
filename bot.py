@@ -208,9 +208,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 pending_entries[idx] = entry
                 user_sessions[user_id]["pending_entries"] = pending_entries
 
-                await _remove_previous_buttons(context, session)
+                await _remove_previous_buttons(context, user_sessions[user_id])
                 response = ai_handler._format_single_entry(entry)
-                dup_page_ids = session.get("dup_page_ids", {})
+                dup_page_ids = user_sessions[user_id].get("dup_page_ids", {})
                 keyboard = _build_edit_keyboard(len(pending_entries), idx, is_dup=idx in dup_page_ids, entries=pending_entries)
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 entry_label = f"[{idx + 1}] " if len(pending_entries) > 1 else ""
@@ -534,7 +534,7 @@ def _build_save_keyboard(entries: list, dup_indices: set = None) -> InlineKeyboa
         keyboard.append([
             InlineKeyboardButton(label, callback_data="save_1"),
             InlineKeyboardButton("Cancel", callback_data="cancel"),
-            InlineKeyboardButton("⋯", callback_data="others_menu"),
+            InlineKeyboardButton("More", callback_data="others_menu"),
             InlineKeyboardButton("🔊", callback_data=f"tts_{word}"),
         ])
     else:
@@ -548,7 +548,7 @@ def _build_save_keyboard(entries: list, dup_indices: set = None) -> InlineKeyboa
         # Row 2: [Cancel] [🔄] [🔊1] [🔊2] [🔊3]
         row2 = [
             InlineKeyboardButton("Cancel", callback_data="cancel"),
-            InlineKeyboardButton("⋯", callback_data="others_menu"),
+            InlineKeyboardButton("More", callback_data="others_menu"),
         ]
         for i, entry in enumerate(entries):
             word = _extract_pronounce_text(entry.get("english", ""))
@@ -567,7 +567,7 @@ def _build_edit_keyboard(num_entries: int, current_idx: int, is_dup: bool = Fals
         row = [
             InlineKeyboardButton("Replace" if is_dup else "Save", callback_data="save_1"),
             InlineKeyboardButton("Cancel", callback_data="cancel"),
-            InlineKeyboardButton("⋯", callback_data="others_menu"),
+            InlineKeyboardButton("More", callback_data="others_menu"),
         ]
         if tts_word:
             row.append(InlineKeyboardButton("🔊", callback_data=f"tts_{tts_word}"))
@@ -582,7 +582,7 @@ def _build_edit_keyboard(num_entries: int, current_idx: int, is_dup: bool = Fals
             row1.append(InlineKeyboardButton("🔊", callback_data=f"tts_{tts_word}"))
         row2 = [
             InlineKeyboardButton("Cancel", callback_data="cancel"),
-            InlineKeyboardButton("⋯", callback_data="others_menu"),
+            InlineKeyboardButton("More", callback_data="others_menu"),
         ]
         return [row1, row2]
 
