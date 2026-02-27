@@ -238,11 +238,12 @@ CRITICAL RULES:
      add those as SEPARATE entries AFTER the 精美句子 entry.
    - Normal sentences about everyday topics are NOT 精美句子 — use this for literary/inspirational sentences only.
 
-4. PHONETICS - ADD LIBERALLY:
-   - Add phonetic notation /IPA/ for ANY word that is NOT in the 3000 most common English words
-   - ALWAYS add phonetics for: multi-syllable words, words with unusual stress, silent letters, or non-obvious pronunciation
-   - Examples that NEED phonetics: unrelenting /ˌʌnrɪˈlentɪŋ/, albeit /ɔːlˈbiːɪt/, facade /fəˈsɑːd/, niche /niːʃ/
-   - Format: "word /phonetic/" e.g., "ubiquitous /juːˈbɪkwɪtəs/"
+4. PHONETICS - ALWAYS ADD FOR EVERY ENTRY:
+   - Add IPA phonetic notation for EVERY word or phrase, no exceptions
+   - For single words: "word /IPA/" e.g., "niche /niːʃ/", "run /rʌn/", "go /ɡəʊ/"
+   - For phrasal verbs: include IPA for the main verb: "bear down /beər daʊn/", "give up /ɡɪv ʌp/"
+   - For multi-word phrases: include IPA for the full phrase or at least the key word
+   - Format: "word /phonetic/ (pos.)" e.g., "ubiquitous /juːˈbɪkwɪtəs/ (adj.)", "run /rʌn/ (v./n.)"
 
 5. PART OF SPEECH (词性) - LIST ALL:
    - Add ALL parts of speech the word can be used as

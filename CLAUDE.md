@@ -329,7 +329,10 @@ This is in **Rule 0** of the system prompt. If editing the prompt, these example
 For sentence input, only extract truly worth-learning items (phrasal verbs, idioms, non-obvious collocations, advanced vocabulary). Do not extract basic words like "important", "people", "make".
 
 ### 5. Phonetics
-Add IPA phonetics liberally for any word not in the 3000 most common English words.
+Add IPA phonetics for **every** entry without exception — common words and uncommon words alike.
+- Single word: `run /rʌn/ (v./n.)`
+- Phrasal verb: `give up /ɡɪv ʌp/ (phr. v.)`
+- Do NOT skip phonetics for "easy" or common words.
 
 ### 6. Part of speech
 List ALL parts of speech a word can be used as, e.g. "time (n./v.)".
