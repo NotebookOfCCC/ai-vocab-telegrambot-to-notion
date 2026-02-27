@@ -303,12 +303,10 @@ When a word/phrase has multiple meanings, explanation and examples must both be 
 ### 3. Base/dictionary form
 Words are always saved in their base form: "blocking out" → "block out", "running" → "run", "fidelities" → "fidelity". Exception: 精美句子 entries keep the full original sentence.
 
-**Irregular past tense phrasal verbs — this is a known failure point, always check:**
-The model tends to save the past tense form as-is without recognising it as irregular. Always convert:
+**Irregular past tense phrasal verbs — convert conjugated forms to base form:**
 
 | Seen in sentence | Save as (base form) |
 |---|---|
-| bore down | bear down |
 | tore apart / tore into | tear apart / tear into |
 | drove away / drove up | drive away / drive up |
 | wore out / wore down | wear out / wear down |
@@ -318,11 +316,10 @@ The model tends to save the past tense form as-is without recognising it as irre
 | shone through | shine through |
 | spoke up / spoke out | speak up / speak out |
 
-- ✗ Wrong: user's sentence contains "bore down" → saved as `bore down (phr. v.)`
-- ✓ Correct: user's sentence contains "bore down" → saved as `bear down (phr. v.)`
+**"bore down" is a valid base-form phrasal verb** (meaning: to drill/penetrate through something). Do NOT convert it to "bear down" — they are different phrases.
 
 **Additionally**, when the base form has an irregular past tense, the explanation must include the conjugation with phonetics at the end:
-- Format: `（不规则变化：过去式 bore /bɔːr/，过去分词 borne /bɔːn/）`
+- Format: `（不规则变化：过去式 tore /tɔːr/，过去分词 torn /tɔːrn/）`
 - Do NOT put this note in the chinese field — explanation field only.
 - This applies to any irregular verb: tear/tore/torn, wear/wore/worn, drive/drove/driven, etc.
 
