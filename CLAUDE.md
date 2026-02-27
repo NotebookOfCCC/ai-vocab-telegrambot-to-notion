@@ -321,6 +321,11 @@ The model tends to save the past tense form as-is without recognising it as irre
 - ✗ Wrong: user's sentence contains "bore down" → saved as `bore down (phr. v.)`
 - ✓ Correct: user's sentence contains "bore down" → saved as `bear down (phr. v.)`
 
+**Additionally**, when the base form has an irregular past tense, the explanation must include the conjugation with phonetics at the end:
+- Format: `（不规则变化：过去式 bore /bɔːr/，过去分词 borne /bɔːn/）`
+- Do NOT put this note in the chinese field — explanation field only.
+- This applies to any irregular verb: tear/tore/torn, wear/wore/worn, drive/drove/driven, etc.
+
 This is in **Rule 0** of the system prompt. If editing the prompt, these examples must stay.
 
 ### 4. Selectivity

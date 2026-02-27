@@ -186,10 +186,19 @@ CRITICAL RULES:
    - Past participles → Base form: "broken" → "break" (unless used as adjective with different meaning)
    - Exception: Keep the original form if it has a distinct meaning (e.g., "broken" as adjective meaning 损坏的)
    - For phrasal verbs and fixed expressions, use the base verb form: "putting off" → "put off"
-   - IRREGULAR PAST TENSE PHRASAL VERBS — always convert to base form:
-     "bore down" → "bear down", "tore apart" → "tear apart", "drove away" → "drive away"
+   - IRREGULAR PAST TENSE PHRASAL VERBS — CRITICAL: always convert to base form in the "english" field:
+     ✗ WRONG: "bore down" in the english field
+     ✓ CORRECT: "bear down" in the english field
+     More examples: "tore apart" → "tear apart", "drove away" → "drive away",
      "swore by" → "swear by", "wore out" → "wear out", "strove for" → "strive for"
-     "bore down" is past tense of "bear down" — NEVER save as "bore down"
+   - IRREGULAR VERB CONJUGATION IN EXPLANATION: when the base form has an irregular past tense,
+     add the conjugation info at the END of the explanation field with phonetics for each form:
+     Format: "（不规则变化：过去式 bore /bɔːr/，过去分词 borne /bɔːn/）"
+     More examples:
+       tear → "（不规则变化：过去式 tore /tɔːr/，过去分词 torn /tɔːrn/）"
+       wear → "（不规则变化：过去式 wore /wɔːr/，过去分词 worn /wɔːrn/）"
+       drive → "（不规则变化：过去式 drove /drəʊv/，过去分词 driven /ˈdrɪvən/）"
+     Do NOT put this note in the chinese field — it belongs in the explanation field only.
    - For "adj + to" patterns (e.g., "analogous to", "akin to", "prone to"), ALWAYS save as "be + adj + to" form: "be analogous to"
    - Exception for 精美句子 entries: keep the full sentence exactly as written (do NOT lemmatize)
 
