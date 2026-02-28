@@ -477,4 +477,5 @@ Row 2: [Cancel]  [More]
 39. **Keyboard layout standardised**: Single-entry [Save][Cancel][🔄][🔊]; multi-entry all on one row [Save1..N][Save All][Cancel][🔄][🔊1..N]
 40. **Phrase spell-check**: AI verifies extracted phrase is a real English phrase; corrects typos (e.g., "trail balloon" → "trial balloon") and notes in grammar_note
 41. **British English IPA**: All phonetics now use Received Pronunciation (RP), not American English
+43. **Habit bot bottom buttons**: [📋 Tasks] [📚 Words] — Words shows today's vocab review count via get_review_stats_line()
 42. **Others (More) submenu**: Replaced 🔄 with More button; opens submenu with [Select Model] and [Add to Explanation]. Add to Explanation appends user-pasted text to a specific entry's explanation field with a —— separator

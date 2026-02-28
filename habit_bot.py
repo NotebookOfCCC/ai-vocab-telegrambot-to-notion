@@ -119,7 +119,7 @@ ai_client = None
 def get_main_keyboard() -> ReplyKeyboardMarkup:
     """Persistent reply keyboard with the two most-used actions."""
     return ReplyKeyboardMarkup(
-        [["📋 Tasks", "📊 Score"]],
+        [["📋 Tasks", "📚 Words"]],
         resize_keyboard=True,
         is_persistent=True,
     )
@@ -809,25 +809,9 @@ async def handle_keyboard_button(update: Update, context: ContextTypes.DEFAULT_T
     text = update.message.text.strip()
     if text == "📋 Tasks":
         await tasks_command(update, context)
-    elif text == "📊 Score":
-        effective = get_effective_date()
-        schedule = habit_handler.get_today_schedule(effective_date=effective)
-        actionable = schedule.get("actionable_tasks", [])
-        if not actionable:
-            await update.message.reply_text("No tasks scheduled for today yet.")
-            return
-        done = sum(1 for t in actionable if t.get("done"))
-        total = len(actionable)
-        pct = int((done / total) * 100) if total > 0 else 0
-        if pct >= 90:
-            grade = "A"
-        elif pct >= 75:
-            grade = "B"
-        elif pct >= 60:
-            grade = "C"
-        else:
-            grade = "D"
-        await update.message.reply_text(f"📊 Today: {done}/{total} tasks done ({pct}%) — {grade}")
+    elif text == "📚 Words":
+        line = get_review_stats_line(is_morning=False)
+        await update.message.reply_text(line if line else "📚 No words reviewed yet today.")
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1854,7 +1838,7 @@ def main():
 
     # Persistent keyboard button handler (must be before general message handler)
     application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & filters.Regex(r"^(📋 Tasks|📊 Score)$"),
+        filters.TEXT & ~filters.COMMAND & filters.Regex(r"^(📋 Tasks|📚 Words)$"),
         handle_keyboard_button
     ))
 
