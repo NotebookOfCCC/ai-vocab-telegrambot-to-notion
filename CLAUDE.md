@@ -479,3 +479,6 @@ Row 2: [Cancel]  [More]
 41. **British English IPA**: All phonetics now use Received Pronunciation (RP), not American English
 43. **Habit bot bottom buttons**: [📋 Tasks] [📚 Words] — Words shows today's vocab review count via get_review_stats_line()
 42. **Others (More) submenu**: Replaced 🔄 with More button; opens submenu with [Select Model] and [Add to Explanation]. Add to Explanation appends user-pasted text to a specific entry's explanation field with a —— separator
+44. **Parallel Notion dup checks**: All per-entry duplicate queries now run concurrently (asyncio.gather) instead of sequentially — saves ~300-1000ms per analysis
+45. **Skip pre-check for sentences**: Notion pre-check on raw input is skipped for inputs >3 words (sentences never match stored base-form phrases) — "Analyzing..." now appears immediately for sentence inputs
+46. **Non-blocking pre-check**: Short phrase/word pre-check wrapped in run_in_executor so it no longer blocks the asyncio event loop
