@@ -43,7 +43,7 @@ class CacheHandler:
         entry = self.cache.get(key)
         if entry:
             entry["hit_count"] = entry.get("hit_count", 0) + 1
-            self._save_cache()
+            # hit_count tracked in memory only; no disk write on reads
             return entry["result"]
         return None
 

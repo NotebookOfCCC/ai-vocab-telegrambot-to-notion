@@ -167,6 +167,32 @@ async def clear_cache(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(f"Cache cleared. Removed {count} entries.")
 
 
+async def _check_duplicates_parallel(entries: list) -> tuple:
+    """Check all entries for Notion duplicates in parallel.
+
+    Returns (dup_notes list, dup_page_ids dict).
+    Runs all Notion queries concurrently instead of sequentially.
+    """
+    if not entries:
+        return [], {}
+
+    loop = asyncio.get_running_loop()
+    dup_results = await asyncio.gather(*[
+        loop.run_in_executor(None, notion_handler.find_entry_by_english, entry.get("english", ""))
+        for entry in entries
+    ])
+
+    dup_notes = []
+    dup_page_ids = {}
+    for i, dup in enumerate(dup_results):
+        if dup:
+            date_str = f" ({dup['date']})" if dup.get("date") else ""
+            dup_notes.append(f"⚠️ #{i+1} already in Notion{date_str}")
+            dup_page_ids[i] = dup["page_id"]
+
+    return dup_notes, dup_page_ids
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle incoming text messages."""
     logger.info(f"Received message: {update.message.text} from user {update.effective_user.id}")
@@ -229,25 +255,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     cached_result = cache_handler.get(text)
     if cached_result and "entries" in cached_result:
         # Cache hit - free!
+        entries = cached_result.get("entries", [])
         user_sessions[user_id] = {
-            "pending_entries": cached_result.get("entries", []),
+            "pending_entries": entries,
             "original_input": text,
             "from_cache": True,
         }
 
         response = ai_handler.format_entries_for_display(cached_result)
-        entries = cached_result.get("entries", [])
 
-        # Duplicate check on cached entries
-        dup_notes = []
-        dup_page_ids = {}
-        for i, entry in enumerate(entries):
-            dup = notion_handler.find_entry_by_english(entry.get("english", ""))
-            if dup:
-                date_str = f" ({dup['date']})" if dup.get('date') else ""
-                dup_notes.append(f"⚠️ #{i+1} already in Notion{date_str}")
-                dup_page_ids[i] = dup["page_id"]
-
+        # Duplicate check on cached entries - run in parallel
+        dup_notes, dup_page_ids = await _check_duplicates_parallel(entries)
         user_sessions[user_id]["dup_page_ids"] = dup_page_ids
 
         if dup_notes:
@@ -262,27 +280,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         user_sessions[user_id]["last_button_message_chat_id"] = sent_message.chat_id
         return
 
-    # Step 2: Check Notion for duplicates
-    duplicate = notion_handler.find_entry_by_english(text)
-    if duplicate:
-        user_sessions[user_id] = {
-            "duplicate_text": text,
-        }
-        keyboard = [[
-            InlineKeyboardButton("Re-analyze", callback_data="reanalyze"),
-            InlineKeyboardButton("Cancel", callback_data="cancel")
-        ]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        date_str = f" (saved: {duplicate['date']})" if duplicate.get('date') else ""
-        sent_message = await update.message.reply_text(
-            f"Already in Notion{date_str}:\n\n"
-            f"{duplicate['english']}\n{duplicate['chinese']}\n\n"
-            f"Re-analyze anyway?",
-            reply_markup=reply_markup,
-        )
-        user_sessions[user_id]["last_button_message_id"] = sent_message.message_id
-        user_sessions[user_id]["last_button_message_chat_id"] = sent_message.chat_id
-        return
+    # Step 2: For short phrase/word inputs only, check Notion for exact duplicates.
+    # Skip for sentence-like inputs (>3 words): the raw sentence won't match stored phrases,
+    # so the pre-check is always a miss and just delays "Analyzing..." feedback.
+    word_count = len(text.split())
+    if word_count <= 3:
+        loop = asyncio.get_running_loop()
+        duplicate = await loop.run_in_executor(None, notion_handler.find_entry_by_english, text)
+        if duplicate:
+            user_sessions[user_id] = {
+                "duplicate_text": text,
+            }
+            keyboard = [[
+                InlineKeyboardButton("Re-analyze", callback_data="reanalyze"),
+                InlineKeyboardButton("Cancel", callback_data="cancel")
+            ]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            date_str = f" (saved: {duplicate['date']})" if duplicate.get('date') else ""
+            sent_message = await update.message.reply_text(
+                f"Already in Notion{date_str}:\n\n"
+                f"{duplicate['english']}\n{duplicate['chinese']}\n\n"
+                f"Re-analyze anyway?",
+                reply_markup=reply_markup,
+            )
+            user_sessions[user_id]["last_button_message_id"] = sent_message.message_id
+            user_sessions[user_id]["last_button_message_chat_id"] = sent_message.chat_id
+            return
 
     # Step 3: No cache hit, no duplicate - call AI
     await update.message.reply_text("Analyzing...")
@@ -299,26 +322,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not analysis.get("skipped_ai") and "error" not in analysis:
             cache_handler.put(text, analysis)
 
+        entries = analysis.get("entries", [])
+
         # Store pending entries in session
         user_sessions[user_id] = {
-            "pending_entries": analysis.get("entries", []),
+            "pending_entries": entries,
             "original_input": text
         }
 
         # Format and send response
         response = ai_handler.format_entries_for_display(analysis)
-        entries = analysis.get("entries", [])
 
-        # Post-AI duplicate check on extracted phrases
-        dup_notes = []
-        dup_page_ids = {}  # index -> page_id
-        for i, entry in enumerate(entries):
-            dup = notion_handler.find_entry_by_english(entry.get("english", ""))
-            if dup:
-                date_str = f" ({dup['date']})" if dup.get('date') else ""
-                dup_notes.append(f"⚠️ #{i+1} already in Notion{date_str}")
-                dup_page_ids[i] = dup["page_id"]
-
+        # Post-AI duplicate check on extracted phrases - run in parallel
+        dup_notes, dup_page_ids = await _check_duplicates_parallel(entries)
         user_sessions[user_id]["dup_page_ids"] = dup_page_ids
 
         if dup_notes:
@@ -704,14 +720,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             entries = analysis.get("entries", [])
             response = ai_handler.format_entries_for_display(analysis)
 
-            # Duplicate check
-            dup_notes, dup_page_ids = [], {}
-            for i, entry in enumerate(entries):
-                dup = notion_handler.find_entry_by_english(entry.get("english", ""))
-                if dup:
-                    date_str = f" ({dup['date']})" if dup.get("date") else ""
-                    dup_notes.append(f"⚠️ #{i+1} already in Notion{date_str}")
-                    dup_page_ids[i] = dup["page_id"]
+            # Duplicate check - run in parallel
+            dup_notes, dup_page_ids = await _check_duplicates_parallel(entries)
 
             user_sessions[user_id]["pending_entries"] = entries
             user_sessions[user_id]["dup_page_ids"] = dup_page_ids
@@ -751,24 +761,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             if not analysis.get("skipped_ai") and "error" not in analysis:
                 cache_handler.put(text, analysis)
 
+            entries = analysis.get("entries", [])
             user_sessions[user_id] = {
-                "pending_entries": analysis.get("entries", []),
+                "pending_entries": entries,
                 "original_input": text,
             }
 
             response = ai_handler.format_entries_for_display(analysis)
-            entries = analysis.get("entries", [])
 
-            # Duplicate check on re-analyzed entries
-            dup_notes = []
-            dup_page_ids = {}
-            for i, entry in enumerate(entries):
-                dup = notion_handler.find_entry_by_english(entry.get("english", ""))
-                if dup:
-                    date_str = f" ({dup['date']})" if dup.get('date') else ""
-                    dup_notes.append(f"⚠️ #{i+1} already in Notion{date_str}")
-                    dup_page_ids[i] = dup["page_id"]
-
+            # Duplicate check on re-analyzed entries - run in parallel
+            dup_notes, dup_page_ids = await _check_duplicates_parallel(entries)
             user_sessions[user_id]["dup_page_ids"] = dup_page_ids
 
             if dup_notes:
