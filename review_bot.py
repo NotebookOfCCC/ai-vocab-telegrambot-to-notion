@@ -115,52 +115,46 @@ def _clean_phrase_for_tts(english: str) -> str:
     return re.split(r'\s+[/(]', english)[0].strip()
 
 
-async def _tts_bytes(text: str, voice: str, rate: str = "+0%") -> bytes:
-    """Generate raw MP3 bytes for a single text string via edge-tts."""
-    import edge_tts
-    buf = io.BytesIO()
-    async for chunk in edge_tts.Communicate(text, voice, rate=rate).stream():
-        if chunk["type"] == "audio":
-            buf.write(chunk["data"])
-    return buf.getvalue()
-
-
 async def generate_batch_audio(entries: list) -> io.BytesIO | None:
-    """Generate a single MP3 with all phrase pronunciations.
+    """Generate a single MP3 with all phrase pronunciations concatenated.
 
-    Each phrase is generated individually (avoids SSML double-wrapping bug).
-    Natural TTS leading/trailing silence (~0.5 s each side) gives ~1 s gap
-    between phrases; a short pause clip is inserted for extra separation.
+    Each phrase is a separate edge-tts call (avoids SSML double-wrapping).
+    The natural TTS silence padding on each utterance creates clear gaps.
+    Phrases that fail individually are skipped so the rest still play.
     """
     try:
-        import edge_tts  # noqa: F401
+        import edge_tts
     except ImportError:
         logger.warning("edge-tts not installed, skipping batch audio")
         return None
 
-    try:
-        voice = "en-GB-SoniaNeural"
-        phrases = [_clean_phrase_for_tts(e.get("english", "")) for e in entries]
-        phrases = [p for p in phrases if p]
-        if not phrases:
-            return None
-
-        # A single comma generates a short breathy pause (~0.8 s) in edge-tts
-        pause_bytes = await _tts_bytes(",", voice)
-
-        combined = io.BytesIO()
-        for i, phrase in enumerate(phrases):
-            audio = await _tts_bytes(phrase, voice, rate="-10%")
-            combined.write(audio)
-            if i < len(phrases) - 1:
-                combined.write(pause_bytes)  # divider between phrases
-
-        combined.seek(0)
-        return combined if combined.getbuffer().nbytes > 0 else None
-
-    except Exception as e:
-        logger.error(f"Error generating batch audio: {e}")
+    voice = "en-GB-SoniaNeural"
+    phrases = [_clean_phrase_for_tts(e.get("english", "")) for e in entries]
+    phrases = [p for p in phrases if p]
+    if not phrases:
+        logger.warning("No phrases extracted from entries")
         return None
+
+    combined = io.BytesIO()
+    for phrase in phrases:
+        try:
+            buf = io.BytesIO()
+            async for chunk in edge_tts.Communicate(phrase, voice).stream():
+                if chunk["type"] == "audio":
+                    buf.write(chunk["data"])
+            audio = buf.getvalue()
+            if audio:
+                combined.write(audio)
+                logger.info(f"TTS OK: '{phrase}' → {len(audio)} bytes")
+            else:
+                logger.warning(f"TTS returned empty audio for: '{phrase}'")
+        except Exception as e:
+            logger.error(f"TTS error for '{phrase}': {e}")
+
+    combined.seek(0)
+    total = combined.getbuffer().nbytes
+    logger.info(f"Batch audio total: {total} bytes for {len(phrases)} phrases")
+    return combined if total > 0 else None
 
 
 def format_entry_for_review(entry: dict, index: int, total: int) -> str:
