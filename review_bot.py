@@ -115,10 +115,25 @@ def _clean_phrase_for_tts(english: str) -> str:
     return re.split(r'\s+[/(]', english)[0].strip()
 
 
+async def _tts_bytes(text: str, voice: str, rate: str = "+0%") -> bytes:
+    """Generate raw MP3 bytes for a single text string via edge-tts."""
+    import edge_tts
+    buf = io.BytesIO()
+    async for chunk in edge_tts.Communicate(text, voice, rate=rate).stream():
+        if chunk["type"] == "audio":
+            buf.write(chunk["data"])
+    return buf.getvalue()
+
+
 async def generate_batch_audio(entries: list) -> io.BytesIO | None:
-    """Generate a single MP3 with all phrase pronunciations separated by pauses."""
+    """Generate a single MP3 with all phrase pronunciations.
+
+    Each phrase is generated individually (avoids SSML double-wrapping bug).
+    Natural TTS leading/trailing silence (~0.5 s each side) gives ~1 s gap
+    between phrases; a short pause clip is inserted for extra separation.
+    """
     try:
-        import edge_tts
+        import edge_tts  # noqa: F401
     except ImportError:
         logger.warning("edge-tts not installed, skipping batch audio")
         return None
@@ -130,25 +145,18 @@ async def generate_batch_audio(entries: list) -> io.BytesIO | None:
         if not phrases:
             return None
 
-        # SSML: each phrase separated by 2.5s break for clear distinction
-        escaped = [html.escape(p) for p in phrases]
-        inner = ' <break time="2500ms"/> '.join(escaped)
-        ssml = (
-            '<speak version="1.0" '
-            'xmlns="http://www.w3.org/2001/10/synthesis" '
-            'xml:lang="en-GB">'
-            f'<voice name="{voice}">{inner}</voice>'
-            '</speak>'
-        )
+        # A single comma generates a short breathy pause (~0.8 s) in edge-tts
+        pause_bytes = await _tts_bytes(",", voice)
 
-        communicate = edge_tts.Communicate(ssml, voice)
-        buf = io.BytesIO()
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                buf.write(chunk["data"])
+        combined = io.BytesIO()
+        for i, phrase in enumerate(phrases):
+            audio = await _tts_bytes(phrase, voice, rate="-10%")
+            combined.write(audio)
+            if i < len(phrases) - 1:
+                combined.write(pause_bytes)  # divider between phrases
 
-        buf.seek(0)
-        return buf if buf.getbuffer().nbytes > 0 else None
+        combined.seek(0)
+        return combined if combined.getbuffer().nbytes > 0 else None
 
     except Exception as e:
         logger.error(f"Error generating batch audio: {e}")
