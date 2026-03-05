@@ -3,6 +3,7 @@ Vocabulary Review Bot
 Sends scheduled vocabulary review messages from Notion database.
 """
 import os
+import io
 import json
 import re
 import html
@@ -109,6 +110,51 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
 
 
 
+def _clean_phrase_for_tts(english: str) -> str:
+    """Strip /phonetics/ and (pos.) from english field, return clean phrase."""
+    return re.split(r'\s+[/(]', english)[0].strip()
+
+
+async def generate_batch_audio(entries: list) -> io.BytesIO | None:
+    """Generate a single MP3 with all phrase pronunciations separated by pauses."""
+    try:
+        import edge_tts
+    except ImportError:
+        logger.warning("edge-tts not installed, skipping batch audio")
+        return None
+
+    try:
+        voice = "en-GB-SoniaNeural"
+        phrases = [_clean_phrase_for_tts(e.get("english", "")) for e in entries]
+        phrases = [p for p in phrases if p]
+        if not phrases:
+            return None
+
+        # SSML: each phrase separated by 2.5s break for clear distinction
+        escaped = [html.escape(p) for p in phrases]
+        inner = ' <break time="2500ms"/> '.join(escaped)
+        ssml = (
+            '<speak version="1.0" '
+            'xmlns="http://www.w3.org/2001/10/synthesis" '
+            'xml:lang="en-GB">'
+            f'<voice name="{voice}">{inner}</voice>'
+            '</speak>'
+        )
+
+        communicate = edge_tts.Communicate(ssml, voice)
+        buf = io.BytesIO()
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                buf.write(chunk["data"])
+
+        buf.seek(0)
+        return buf if buf.getbuffer().nbytes > 0 else None
+
+    except Exception as e:
+        logger.error(f"Error generating batch audio: {e}")
+        return None
+
+
 def format_entry_for_review(entry: dict, index: int, total: int) -> str:
     """Format a flashcard with spoiler-hidden answer (HTML).
 
@@ -205,6 +251,18 @@ async def send_review_batch(manual: bool = False):
             )
 
         logger.info(f"Sent {total} review entries to user {REVIEW_USER_ID}")
+
+        # Send combined pronunciation audio for the whole batch
+        audio_buf = await generate_batch_audio(entries)
+        if audio_buf:
+            await application.bot.send_audio(
+                chat_id=REVIEW_USER_ID,
+                audio=audio_buf,
+                filename="pronunciation.mp3",
+                caption=f"🔊 {total} phrases",
+            )
+        else:
+            logger.warning("Batch audio generation skipped or failed")
 
     except Exception as e:
         logger.error(f"Error sending review batch: {e}")
