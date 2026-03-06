@@ -135,8 +135,19 @@ async def generate_batch_audio(entries: list) -> io.BytesIO | None:
         logger.warning("No phrases extracted from entries")
         return None
 
+    # Pre-generate a 4-second silence chunk using edge-tts SSML break
+    pause_audio = b""
+    try:
+        pause_buf = io.BytesIO()
+        async for chunk in edge_tts.Communicate("<speak><break time='4000ms'/></speak>", voice).stream():
+            if chunk["type"] == "audio":
+                pause_buf.write(chunk["data"])
+        pause_audio = pause_buf.getvalue()
+    except Exception as e:
+        logger.warning(f"Could not generate pause audio: {e}")
+
     combined = io.BytesIO()
-    for phrase in phrases:
+    for i, phrase in enumerate(phrases):
         try:
             buf = io.BytesIO()
             async for chunk in edge_tts.Communicate(phrase, voice).stream():
@@ -145,6 +156,8 @@ async def generate_batch_audio(entries: list) -> io.BytesIO | None:
             audio = buf.getvalue()
             if audio:
                 combined.write(audio)
+                if pause_audio and i < len(phrases) - 1:
+                    combined.write(pause_audio)
                 logger.info(f"TTS OK: '{phrase}' → {len(audio)} bytes")
             else:
                 logger.warning(f"TTS returned empty audio for: '{phrase}'")
@@ -257,10 +270,11 @@ async def send_review_batch(manual: bool = False):
         # Send combined pronunciation audio for the whole batch
         audio_buf = await generate_batch_audio(entries)
         if audio_buf:
+            audio_filename = f"review_{now.strftime('%Y-%m-%d_%H-%M')}.mp3"
             await application.bot.send_audio(
                 chat_id=REVIEW_USER_ID,
                 audio=audio_buf,
-                filename="pronunciation.mp3",
+                filename=audio_filename,
                 caption=f"🔊 {total} phrases",
             )
         else:

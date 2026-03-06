@@ -483,5 +483,5 @@ Row 2: [Cancel]  [More]
 44. **Parallel Notion dup checks**: All per-entry duplicate queries now run concurrently (asyncio.gather) instead of sequentially — saves ~300-1000ms per analysis
 45. **Skip pre-check for sentences**: Notion pre-check on raw input is skipped for inputs >3 words (sentences never match stored base-form phrases) — "Analyzing..." now appears immediately for sentence inputs
 46. **Non-blocking pre-check**: Short phrase/word pre-check wrapped in run_in_executor so it no longer blocks the asyncio event loop
-47. **Review batch audio**: After each review batch, sends one combined MP3 with all phrases pronounced by en-GB-SoniaNeural (edge-tts), separated by 2.5s pauses. Vocab bot TTS (gTTS) is unchanged.
+47. **Review batch audio**: After each review batch, sends one combined MP3 with all phrases pronounced by en-GB-SoniaNeural (edge-tts), separated by 4s pauses. Filename includes date+time (e.g. review_2026-03-05_14-30.mp3). Vocab bot TTS (gTTS) is unchanged.
 48. **Batch mode**: [Batch] reply keyboard button enters collection mode — send phrases one by one, tap Analyze to process all in parallel, each card gets [Save]/[Skip] buttons. [Word Count] button shows word counts per Notion database.
