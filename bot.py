@@ -196,6 +196,25 @@ async def handle_word_count(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await update.message.reply_text("Word Count:\n" + "\n".join(lines))
 
 
+async def handle_batch_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Enter batch collection mode."""
+    user_id = update.effective_user.id
+    # Clear any existing session
+    user_sessions[user_id] = {
+        "batch_mode": True,
+        "batch_queue": [],
+    }
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("Analyze (0)", callback_data="batch_analyze")
+    ]])
+    sent = await update.message.reply_text(
+        "Batch mode on. Send your phrases one by one. Tap Analyze when ready.",
+        reply_markup=keyboard,
+    )
+    user_sessions[user_id]["batch_collect_msg_id"] = sent.message_id
+    user_sessions[user_id]["batch_collect_chat_id"] = sent.chat_id
+
+
 async def _check_duplicates_parallel(entries: list) -> tuple:
     """Check all entries for Notion duplicates in parallel.
 
@@ -240,6 +259,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     if text == "Batch":
         await handle_batch_start(update, context)
+        return
+
+    # Batch collection mode: add phrase to queue
+    if user_sessions.get(user_id, {}).get("batch_mode"):
+        session = user_sessions[user_id]
+        session["batch_queue"].append(text)
+        n = len(session["batch_queue"])
+        # Update the Analyze button count
+        try:
+            await context.bot.edit_message_reply_markup(
+                chat_id=session["batch_collect_chat_id"],
+                message_id=session["batch_collect_msg_id"],
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton(f"Analyze ({n})", callback_data="batch_analyze")
+                ]])
+            )
+        except Exception:
+            pass
+        await update.message.reply_text(f"Added ({n} phrase{'s' if n != 1 else ''} queued)")
         return
 
     # Check if user has pending entries
@@ -649,6 +687,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     data = query.data
     session = user_sessions.get(user_id, {})
     pending_entries = session.get("pending_entries", [])
+
+    if data == "batch_analyze":
+        await handle_batch_analyze(query, context, user_id)
+        return
 
     # Handle pronunciation (TTS) - works independently of session state
     if data.startswith("tts_"):
