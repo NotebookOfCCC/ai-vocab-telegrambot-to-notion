@@ -266,6 +266,10 @@ async def send_review_batch(manual: bool = False):
             )
         else:
             logger.warning("Batch audio generation skipped or failed")
+            await application.bot.send_message(
+                chat_id=REVIEW_USER_ID,
+                text="⚠️ Audio generation failed (edge-tts unavailable)",
+            )
 
     except Exception as e:
         logger.error(f"Error sending review batch: {e}")
