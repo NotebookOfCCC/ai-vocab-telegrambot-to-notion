@@ -221,7 +221,7 @@ async def handle_batch_analyze(query, context: ContextTypes.DEFAULT_TYPE, user_i
     queue = session.get("batch_queue", [])
 
     if not queue:
-        await query.answer("No phrases queued.", show_alert=True)
+        await query.message.reply_text("No phrases queued.")
         return
 
     n = len(queue)
