@@ -9,7 +9,7 @@ import asyncio
 import logging
 from dotenv import load_dotenv
 from gtts import gTTS
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -62,6 +62,12 @@ _MODEL_ID   = {k: mid  for k, _, mid  in REANALYZE_MODELS}
 _MODEL_LABEL = {k: lbl  for k, lbl, _ in REANALYZE_MODELS}
 DEFAULT_MODEL_KEY = "haiku"
 
+REPLY_KEYBOARD = ReplyKeyboardMarkup(
+    [["Batch", "Word Count"]],
+    resize_keyboard=True,
+    is_persistent=True,
+)
+
 
 def is_user_allowed(user_id: int) -> bool:
     """Check if user is allowed to use the bot."""
@@ -93,7 +99,7 @@ Commands:
 
 Just send me some English text to get started!
 """
-    await update.message.reply_text(welcome_message)
+    await update.message.reply_text(welcome_message, reply_markup=REPLY_KEYBOARD)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -167,6 +173,29 @@ async def clear_cache(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(f"Cache cleared. Removed {count} entries.")
 
 
+async def handle_word_count(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Reply with word count per Notion database."""
+    await update.message.reply_text("Counting words...")
+    loop = asyncio.get_running_loop()
+    try:
+        counts = await loop.run_in_executor(None, notion_handler.count_entries_per_db)
+    except Exception as e:
+        await update.message.reply_text(f"Error fetching counts: {e}")
+        return
+
+    db_ids = list(counts.keys())
+    lines = []
+    for i, db_id in enumerate(db_ids):
+        label = "Primary DB" if db_id == NOTION_DB_ID else f"Archive DB {i}"
+        count_str = str(counts[db_id]) if counts[db_id] is not None else "?"
+        lines.append(f"- {label}: {count_str} words")
+    total_known = sum(v for v in counts.values() if v is not None)
+    has_unknown = any(v is None for v in counts.values())
+    total_str = f"{total_known:,}+" if has_unknown else f"{total_known:,}"
+    lines.append(f"- Total: {total_str} words")
+    await update.message.reply_text("Word Count:\n" + "\n".join(lines))
+
+
 async def _check_duplicates_parallel(entries: list) -> tuple:
     """Check all entries for Notion duplicates in parallel.
 
@@ -204,6 +233,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     text = update.message.text.strip()
+
+    # Persistent reply keyboard actions
+    if text == "Word Count":
+        await handle_word_count(update, context)
+        return
+    if text == "Batch":
+        await handle_batch_start(update, context)
+        return
 
     # Check if user has pending entries
     if user_id in user_sessions and user_sessions[user_id].get("pending_entries"):
