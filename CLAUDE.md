@@ -32,6 +32,7 @@ main.py (Entry Point)
 - Saves to Notion vocabulary database
 - **Cost optimized**: Skips API for ~300 common words
 - **AI fallback chain**: Haiku → Sonnet 4.5 → OpenAI GPT-4o-mini (when Anthropic is overloaded or model not found)
+- **Persistent reply keyboard**: [Batch] for multi-phrase batch input; [Word Count] shows word counts per configured Notion database
 
 ### 2. Review Bot (`review_bot.py`)
 - Spaced repetition system (SM-2 variant)
@@ -483,3 +484,4 @@ Row 2: [Cancel]  [More]
 45. **Skip pre-check for sentences**: Notion pre-check on raw input is skipped for inputs >3 words (sentences never match stored base-form phrases) — "Analyzing..." now appears immediately for sentence inputs
 46. **Non-blocking pre-check**: Short phrase/word pre-check wrapped in run_in_executor so it no longer blocks the asyncio event loop
 47. **Review batch audio**: After each review batch, sends one combined MP3 with all phrases pronounced by en-GB-SoniaNeural (edge-tts), separated by 2.5s pauses. Vocab bot TTS (gTTS) is unchanged.
+48. **Batch mode**: [Batch] reply keyboard button enters collection mode — send phrases one by one, tap Analyze to process all in parallel, each card gets [Save]/[Skip] buttons. [Word Count] button shows word counts per Notion database.
