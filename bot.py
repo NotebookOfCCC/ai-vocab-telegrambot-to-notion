@@ -193,7 +193,7 @@ async def handle_word_count(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     has_unknown = any(v is None for v in counts.values())
     total_str = f"{total_known:,}+" if has_unknown else f"{total_known:,}"
     lines.append(f"- Total: {total_str} words")
-    await update.message.reply_text("Word Count:\n" + "\n".join(lines))
+    await update.message.reply_text("Word Count:\n" + "\n".join(lines), reply_markup=REPLY_KEYBOARD)
 
 
 async def handle_batch_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -247,6 +247,19 @@ async def handle_batch_analyze(query, context: ContextTypes.DEFAULT_TYPE, user_i
 
     user_sessions[user_id]["batch_results"] = results
 
+    # Parallel duplicate check on non-None entries
+    batch_dup_page_ids = {}
+    non_none = [(i, e) for i, e in enumerate(results) if e is not None]
+    if non_none:
+        dup_checks = await asyncio.gather(*[
+            loop.run_in_executor(None, notion_handler.find_entry_by_english, e.get("english", ""))
+            for _, e in non_none
+        ])
+        for (i, _), dup in zip(non_none, dup_checks):
+            if dup:
+                batch_dup_page_ids[i] = dup["page_id"]
+    user_sessions[user_id]["batch_dup_page_ids"] = batch_dup_page_ids
+
     # Send all cards
     for i, entry in enumerate(results):
         if entry is None:
@@ -258,12 +271,21 @@ async def handle_batch_analyze(query, context: ContextTypes.DEFAULT_TYPE, user_i
                 ]])
             )
         else:
-            card_text = f"[{i+1}/{n}] {ai_handler._format_single_entry(entry)}"
+            is_dup = i in batch_dup_page_ids
+            save_label = "Replace" if is_dup else "Save"
+            dup_note = " ⚠️ already in Notion" if is_dup else ""
+            card_text = f"[{i+1}/{n}]{dup_note}\n{ai_handler._format_single_entry(entry)}"
             keyboard = InlineKeyboardMarkup([[
-                InlineKeyboardButton("Save", callback_data=f"batch_save_{i}"),
+                InlineKeyboardButton(save_label, callback_data=f"batch_save_{i}"),
                 InlineKeyboardButton("Skip", callback_data=f"batch_skip_{i}"),
             ]])
             await query.message.reply_text(card_text, reply_markup=keyboard)
+
+    # Re-show the persistent keyboard after all cards are sent
+    await query.message.reply_text(
+        f"Batch done — {n} card{'s' if n != 1 else ''} above.",
+        reply_markup=REPLY_KEYBOARD,
+    )
 
 
 async def _check_duplicates_parallel(entries: list) -> tuple:
@@ -752,9 +774,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         entry = results[idx]
         loop = asyncio.get_running_loop()
-        dup = await loop.run_in_executor(None, notion_handler.find_entry_by_english, entry.get("english", ""))
-        if dup:
-            result = await loop.run_in_executor(None, notion_handler.update_entry_content, dup["page_id"], entry)
+        # Use pre-checked dup page_id if available; otherwise live-check
+        batch_dup_page_ids = session.get("batch_dup_page_ids", {})
+        page_id = batch_dup_page_ids.get(idx)
+        if page_id is None:
+            dup = await loop.run_in_executor(None, notion_handler.find_entry_by_english, entry.get("english", ""))
+            page_id = dup["page_id"] if dup else None
+        if page_id:
+            result = await loop.run_in_executor(None, notion_handler.update_entry_content, page_id, entry)
             verb = "Replaced"
         else:
             result = await loop.run_in_executor(None, notion_handler.save_entry, entry)
