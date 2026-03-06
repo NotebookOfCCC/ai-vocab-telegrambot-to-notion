@@ -215,6 +215,57 @@ async def handle_batch_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_sessions[user_id]["batch_collect_chat_id"] = sent.chat_id
 
 
+async def handle_batch_analyze(query, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+    """Analyze all queued batch phrases in parallel and send result cards."""
+    session = user_sessions.get(user_id, {})
+    queue = session.get("batch_queue", [])
+
+    if not queue:
+        await query.answer("No phrases queued.", show_alert=True)
+        return
+
+    n = len(queue)
+    await query.edit_message_text(f"Analyzing {n} phrase{'s' if n != 1 else ''}...", reply_markup=None)
+
+    # Clear batch mode so new messages go through normal flow
+    user_sessions[user_id] = {"batch_results": [None] * n}
+
+    loop = asyncio.get_running_loop()
+    analyses = await asyncio.gather(*[
+        loop.run_in_executor(None, ai_handler.analyze_input, phrase)
+        for phrase in queue
+    ], return_exceptions=True)
+
+    # Extract first entry from each analysis
+    results = []
+    for analysis in analyses:
+        if isinstance(analysis, Exception) or "error" in (analysis or {}):
+            results.append(None)
+        else:
+            entries = (analysis or {}).get("entries", [])
+            results.append(entries[0] if entries else None)
+
+    user_sessions[user_id]["batch_results"] = results
+
+    # Send all cards
+    for i, entry in enumerate(results):
+        if entry is None:
+            phrase_text = queue[i] if i < len(queue) else f"#{i+1}"
+            await query.message.reply_text(
+                f"[{i+1}/{n}] Could not analyze: {phrase_text}",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("Skip", callback_data=f"batch_skip_{i}")
+                ]])
+            )
+        else:
+            card_text = f"[{i+1}/{n}] {ai_handler._format_single_entry(entry)}"
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton("Save", callback_data=f"batch_save_{i}"),
+                InlineKeyboardButton("Skip", callback_data=f"batch_skip_{i}"),
+            ]])
+            await query.message.reply_text(card_text, reply_markup=keyboard)
+
+
 async def _check_duplicates_parallel(entries: list) -> tuple:
     """Check all entries for Notion duplicates in parallel.
 
@@ -690,6 +741,37 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if data == "batch_analyze":
         await handle_batch_analyze(query, context, user_id)
+        return
+
+    if data.startswith("batch_save_"):
+        idx = int(data[len("batch_save_"):])
+        session = user_sessions.get(user_id, {})
+        results = session.get("batch_results", [])
+        if idx >= len(results) or results[idx] is None:
+            await query.answer("Entry not found.", show_alert=True)
+            return
+        entry = results[idx]
+        loop = asyncio.get_running_loop()
+        dup = await loop.run_in_executor(None, notion_handler.find_entry_by_english, entry.get("english", ""))
+        if dup:
+            result = await loop.run_in_executor(None, notion_handler.update_entry_content, dup["page_id"], entry)
+            verb = "Replaced"
+        else:
+            result = await loop.run_in_executor(None, notion_handler.save_entry, entry)
+            verb = "Saved"
+        if result["success"]:
+            chinese = entry.get("chinese", "")
+            short_zh = chinese.split("；")[0].split(";")[0].split("，")[0].split(",")[0].strip()
+            await query.edit_message_text(
+                f"— {verb}: {entry['english']} - {short_zh} ({entry['category']})",
+                reply_markup=None,
+            )
+        else:
+            await query.answer(f"Save failed: {result.get('error', '?')}", show_alert=True)
+        return
+
+    if data.startswith("batch_skip_"):
+        await query.edit_message_reply_markup(reply_markup=None)
         return
 
     # Handle pronunciation (TTS) - works independently of session state
