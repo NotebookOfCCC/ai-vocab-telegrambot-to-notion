@@ -270,6 +270,44 @@ class NotionHandler:
                 "error": str(e)
             }
 
+    def count_entries_per_db(self) -> dict:
+        """Return word count per database, excluding __CONFIG_ pages.
+
+        Returns:
+            dict mapping db_id -> int count
+        """
+        counts = {}
+        for db_id in self.all_database_ids:
+            count = 0
+            cursor = None
+            while True:
+                kwargs = {"database_id": db_id, "page_size": 100}
+                if cursor:
+                    kwargs["start_cursor"] = cursor
+                try:
+                    resp = self.client.databases.query(**kwargs)
+                except Exception as e:
+                    logger.warning(f"count_entries_per_db failed for {db_id}: {e}")
+                    break
+                for page in resp.get("results", []):
+                    props = page.get("properties", {})
+                    # Find the title property (English field)
+                    title_text = ""
+                    for prop in props.values():
+                        if prop.get("type") == "title":
+                            parts = prop.get("title", [])
+                            if parts:
+                                title_text = parts[0].get("plain_text", "")
+                            break
+                    if not title_text.startswith("__CONFIG_"):
+                        count += 1
+                if resp.get("has_more"):
+                    cursor = resp.get("next_cursor")
+                else:
+                    break
+            counts[db_id] = count
+        return counts
+
     def load_bot_config(self, config_key: str) -> dict:
         """Load bot config stored as a page in the primary database.
 
