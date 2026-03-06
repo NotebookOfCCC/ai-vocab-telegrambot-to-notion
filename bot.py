@@ -228,7 +228,7 @@ async def handle_batch_analyze(query, context: ContextTypes.DEFAULT_TYPE, user_i
     await query.edit_message_text(f"Analyzing {n} phrase{'s' if n != 1 else ''}...", reply_markup=None)
 
     # Clear batch mode so new messages go through normal flow
-    user_sessions[user_id] = {"batch_results": [None] * n}
+    user_sessions[user_id] = {"batch_results": [None] * n, "batch_phrases": list(queue)}
 
     loop = asyncio.get_running_loop()
     analyses = await asyncio.gather(*[
@@ -766,12 +766,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 f"— {verb}: {entry['english']} - {short_zh} ({entry['category']})",
                 reply_markup=None,
             )
+            await query.answer()
         else:
             await query.answer(f"Save failed: {result.get('error', '?')}", show_alert=True)
         return
 
     if data.startswith("batch_skip_"):
         await query.edit_message_reply_markup(reply_markup=None)
+        await query.answer()
         return
 
     # Handle pronunciation (TTS) - works independently of session state
