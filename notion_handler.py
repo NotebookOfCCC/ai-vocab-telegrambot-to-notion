@@ -274,12 +274,13 @@ class NotionHandler:
         """Return word count per database, excluding __CONFIG_ pages.
 
         Returns:
-            dict mapping db_id -> int count
+            dict mapping db_id -> int or None (None means query failed)
         """
         counts = {}
         for db_id in self.all_database_ids:
             count = 0
             cursor = None
+            failed = False
             while True:
                 kwargs = {"database_id": db_id, "page_size": 100}
                 if cursor:
@@ -288,10 +289,10 @@ class NotionHandler:
                     resp = self.client.databases.query(**kwargs)
                 except Exception as e:
                     logger.warning(f"count_entries_per_db failed for {db_id}: {e}")
+                    failed = True
                     break
                 for page in resp.get("results", []):
                     props = page.get("properties", {})
-                    # Find the title property (English field)
                     title_text = ""
                     for prop in props.values():
                         if prop.get("type") == "title":
@@ -305,7 +306,7 @@ class NotionHandler:
                     cursor = resp.get("next_cursor")
                 else:
                     break
-            counts[db_id] = count
+            counts[db_id] = None if failed else count
         return counts
 
     def load_bot_config(self, config_key: str) -> dict:

@@ -54,3 +54,46 @@ def test_count_multiple_dbs():
     handler.client.databases.query.side_effect = query_side_effect
     counts = handler.count_entries_per_db()
     assert counts == {"db1": 3, "db2": 1}
+
+
+def test_count_pagination():
+    """Pagination: second page fetched when has_more is True."""
+    handler = _make_handler(["db1"])
+    call_count = [0]
+    def query_side_effect(database_id, **kwargs):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return {
+                "results": [_make_page("a"), _make_page("b")],
+                "has_more": True,
+                "next_cursor": "cursor123",
+            }
+        # Second call must include the cursor
+        assert kwargs.get("start_cursor") == "cursor123"
+        return {
+            "results": [_make_page("c")],
+            "has_more": False,
+        }
+    handler.client.databases.query.side_effect = query_side_effect
+    counts = handler.count_entries_per_db()
+    assert counts == {"db1": 3}
+    assert call_count[0] == 2
+
+
+def test_count_api_error_returns_none():
+    """API error mid-query returns None for that db, not a partial count."""
+    handler = _make_handler(["db1"])
+    handler.client.databases.query.side_effect = Exception("Notion 500")
+    counts = handler.count_entries_per_db()
+    assert counts == {"db1": None}
+
+
+def test_count_empty_database():
+    """Empty database returns 0."""
+    handler = _make_handler(["db1"])
+    handler.client.databases.query.return_value = {
+        "results": [],
+        "has_more": False,
+    }
+    counts = handler.count_entries_per_db()
+    assert counts == {"db1": 0}
