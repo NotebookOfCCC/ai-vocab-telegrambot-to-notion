@@ -766,14 +766,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 f"— {verb}: {entry['english']} - {short_zh} ({entry['category']})",
                 reply_markup=None,
             )
-            await query.answer()
         else:
             await query.answer(f"Save failed: {result.get('error', '?')}", show_alert=True)
         return
 
     if data.startswith("batch_skip_"):
         await query.edit_message_reply_markup(reply_markup=None)
-        await query.answer()
         return
 
     # Handle pronunciation (TTS) - works independently of session state
