@@ -116,46 +116,56 @@ def _clean_phrase_for_tts(english: str) -> str:
     return re.split(r'\s+[/(]', english)[0].strip()
 
 
-async def generate_batch_audio(entries: list) -> io.BytesIO | None:
-    """Generate a single MP3 with all phrase pronunciations concatenated.
+async def generate_chunked_audio(entries: list, chunk_size: int = 10) -> list:
+    """Generate audio in chunks of chunk_size phrases each.
 
-    Each phrase is a separate edge-tts call (avoids SSML double-wrapping).
-    The natural TTS silence padding on each utterance creates clear gaps.
-    Phrases that fail individually are skipped so the rest still play.
+    Returns list of (audio_buf, caption) tuples, e.g.:
+        [(buf, "🔊 1–10"), (buf, "🔊 11–20"), ...]
+    Phrases that fail are skipped so the rest still play.
     """
     try:
         import edge_tts
     except ImportError:
-        logger.warning("edge-tts not installed, skipping batch audio")
-        return None
+        logger.warning("edge-tts not installed, skipping audio")
+        return []
 
     voice = "en-GB-SoniaNeural"
     phrases = [_clean_phrase_for_tts(e.get("english", "")) for e in entries]
     phrases = [p for p in phrases if p]
     if not phrases:
-        logger.warning("No phrases extracted from entries")
-        return None
+        return []
 
-    combined = io.BytesIO()
-    for phrase in phrases:
-        try:
-            buf = io.BytesIO()
-            async for chunk in edge_tts.Communicate(phrase, voice).stream():
-                if chunk["type"] == "audio":
-                    buf.write(chunk["data"])
-            audio = buf.getvalue()
-            if audio:
-                combined.write(audio)
-                logger.info(f"TTS OK: '{phrase}' → {len(audio)} bytes")
-            else:
-                logger.warning(f"TTS returned empty audio for: '{phrase}'")
-        except Exception as e:
-            logger.error(f"TTS error for '{phrase}': {e}")
+    results = []
+    for chunk_start in range(0, len(phrases), chunk_size):
+        chunk = phrases[chunk_start:chunk_start + chunk_size]
+        chunk_end = chunk_start + len(chunk)
+        label = f"🔊 {chunk_start + 1}–{chunk_end}"
 
-    combined.seek(0)
-    total = combined.getbuffer().nbytes
-    logger.info(f"Batch audio total: {total} bytes for {len(phrases)} phrases")
-    return combined if total > 0 else None
+        combined = io.BytesIO()
+        for phrase in chunk:
+            try:
+                buf = io.BytesIO()
+                async for audio_chunk in edge_tts.Communicate(phrase, voice).stream():
+                    if audio_chunk["type"] == "audio":
+                        buf.write(audio_chunk["data"])
+                audio = buf.getvalue()
+                if audio:
+                    combined.write(audio)
+                    logger.info(f"TTS OK: '{phrase}' → {len(audio)} bytes")
+                else:
+                    logger.warning(f"TTS empty for: '{phrase}'")
+            except Exception as e:
+                logger.error(f"TTS error for '{phrase}': {e}")
+
+        combined.seek(0)
+        total_bytes = combined.getbuffer().nbytes
+        if total_bytes > 0:
+            results.append((combined, label))
+            logger.info(f"Chunk '{label}': {total_bytes} bytes for {len(chunk)} phrases")
+        else:
+            logger.warning(f"Chunk '{label}' produced no audio")
+
+    return results
 
 
 def format_entry_for_review(entry: dict, index: int, total: int) -> str:
@@ -259,16 +269,16 @@ async def send_review_batch(manual: bool = False):
 
         logger.info(f"Sent {total} review entries to user {REVIEW_USER_ID}")
 
-        # Send combined pronunciation audio for the whole batch
-        audio_buf = await generate_batch_audio(entries)
-        if audio_buf:
-            audio_filename = f"{now.strftime('%Y-%m-%d_%H-%M')}.mp3"
-            await application.bot.send_audio(
-                chat_id=REVIEW_USER_ID,
-                audio=audio_buf,
-                filename=audio_filename,
-                caption=f"🔊 {total} phrases",
-            )
+        # Send pronunciation audio in chunks of 10
+        audio_chunks = await generate_chunked_audio(entries)
+        if audio_chunks:
+            for audio_buf, caption in audio_chunks:
+                await application.bot.send_audio(
+                    chat_id=REVIEW_USER_ID,
+                    audio=audio_buf,
+                    filename=f"{now.strftime('%Y-%m-%d_%H-%M')}.mp3",
+                    caption=caption,
+                )
         else:
             logger.warning("Batch audio generation skipped or failed")
             await application.bot.send_message(
