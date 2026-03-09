@@ -104,7 +104,7 @@ pending_batch: dict = {}  # page_id → entry; cleared on new batch, entry remov
 def get_main_keyboard() -> ReplyKeyboardMarkup:
     """Persistent reply keyboard with the two most-used actions."""
     return ReplyKeyboardMarkup(
-        [["📖 Review", "📊 Due"]],
+        [["📖 Review", "📊 Due", "📋 Pending"]],
         resize_keyboard=True,
         is_persistent=True,
     )
@@ -692,6 +692,8 @@ async def handle_keyboard_button(update: Update, context: ContextTypes.DEFAULT_T
         await send_review_batch(manual=True)
     elif text == "📊 Due":
         await due_command(update, context)
+    elif text == "📋 Pending":
+        await send_pending_resend()
 
 
 def apply_schedule(sched, config: dict) -> None:
@@ -788,7 +790,7 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_schedule_callback, pattern=r"^sched_"))
     application.add_handler(CallbackQueryHandler(handle_review_callback, pattern=r"^(again|good|easy)_"))
     application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & filters.Regex(r"^(📖 Review|📊 Due)$"),
+        filters.TEXT & ~filters.COMMAND & filters.Regex(r"^(📖 Review|📊 Due|📋 Pending)$"),
         handle_keyboard_button
     ))
 
