@@ -99,6 +99,7 @@ scheduler = None
 application = None
 is_paused = False
 review_config = None
+pending_batch: dict = {}  # page_id → entry; cleared on new batch, entry removed on rating
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
     """Persistent reply keyboard with the two most-used actions."""
@@ -231,6 +232,10 @@ async def send_review_batch(manual: bool = False):
                 text="No vocabulary entries found in the database."
             )
             return
+
+        # Track which cards have been sent but not yet rated
+        global pending_batch
+        pending_batch = {entry.get("page_id", ""): entry for entry in entries if entry.get("page_id")}
 
         total = len(entries)
         for i, entry in enumerate(entries, 1):
