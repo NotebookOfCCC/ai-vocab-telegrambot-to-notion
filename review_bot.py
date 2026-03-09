@@ -605,12 +605,14 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     if data.startswith("again_"):
         page_id = data[6:]  # Remove "again_" prefix
+        pending_batch.pop(page_id, None)
         result = notion_handler.update_review_stats(page_id, response="again")
         revealed = _unspoiler_html(query.message)
         await query.edit_message_text(text=revealed, parse_mode="HTML", reply_markup=None)
 
     elif data.startswith("good_"):
         page_id = data[5:]  # Remove "good_" prefix
+        pending_batch.pop(page_id, None)
         result = notion_handler.update_review_stats(page_id, response="good")
         revealed = _unspoiler_html(query.message)
         await query.edit_message_text(text=revealed, parse_mode="HTML", reply_markup=None)
@@ -620,6 +622,7 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     elif data.startswith("easy_"):
         page_id = data[5:]  # Remove "easy_" prefix
+        pending_batch.pop(page_id, None)
         result = notion_handler.update_review_stats(page_id, response="easy")
         revealed = _unspoiler_html(query.message)
         await query.edit_message_text(text=revealed, parse_mode="HTML", reply_markup=None)
