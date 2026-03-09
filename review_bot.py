@@ -290,6 +290,47 @@ async def send_review_batch(manual: bool = False):
         logger.error(f"Error sending review batch: {e}")
 
 
+async def send_pending_resend():
+    """Resend cards from pending_batch that haven't been rated yet."""
+    if not pending_batch:
+        await application.bot.send_message(
+            chat_id=REVIEW_USER_ID,
+            text="✅ All caught up! No pending cards.",
+        )
+        return
+
+    entries = list(pending_batch.values())
+    total = len(entries)
+    logger.info(f"Resending {total} pending cards")
+
+    for i, entry in enumerate(entries, 1):
+        message = format_entry_for_review(entry, i, total)
+        page_id = entry.get("page_id", "")
+        keyboard = [[
+            InlineKeyboardButton("🔴 Again", callback_data=f"again_{page_id}"),
+            InlineKeyboardButton("🟡 Good", callback_data=f"good_{page_id}"),
+            InlineKeyboardButton("🟢 Easy", callback_data=f"easy_{page_id}"),
+        ]]
+        await application.bot.send_message(
+            chat_id=REVIEW_USER_ID,
+            text=message,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML",
+        )
+
+    import datetime
+    now = datetime.datetime.now()
+    audio_chunks = await generate_chunked_audio(entries)
+    if audio_chunks:
+        for audio_buf, caption in audio_chunks:
+            await application.bot.send_audio(
+                chat_id=REVIEW_USER_ID,
+                audio=audio_buf,
+                filename=f"{now.strftime('%Y-%m-%d_%H-%M')}.mp3",
+                caption=caption,
+            )
+
+
 async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /myid command - show user's Telegram ID for setup."""
     user_id = update.effective_user.id
