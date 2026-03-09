@@ -292,6 +292,10 @@ async def send_review_batch(manual: bool = False):
 
 async def send_pending_resend():
     """Resend cards from pending_batch that haven't been rated yet."""
+    if not REVIEW_USER_ID:
+        logger.error("REVIEW_USER_ID not configured")
+        return
+
     if not pending_batch:
         await application.bot.send_message(
             chat_id=REVIEW_USER_ID,

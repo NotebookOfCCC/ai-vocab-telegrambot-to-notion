@@ -485,3 +485,4 @@ Row 2: [Cancel]  [More]
 46. **Non-blocking pre-check**: Short phrase/word pre-check wrapped in run_in_executor so it no longer blocks the asyncio event loop
 47. **Review batch audio**: After each review batch, sends one combined MP3 with all phrases pronounced by en-GB-SoniaNeural (edge-tts). Filename is date+time only (e.g. 2026-03-05_14-30.mp3). Vocab bot TTS (gTTS) is unchanged.
 48. **Batch mode**: [Batch] reply keyboard button enters collection mode — send phrases one by one, tap Analyze to process all in parallel, each card gets [Save]/[Skip] buttons. [Word Count] button shows word counts per Notion database.
+49. **Pending review resend**: 📋 Pending button on review bot resends unanswered cards from current batch with chunked audio. Regular batch audio also split into 10-phrase chunks (labels: 🔊 1–10, 🔊 11–20, etc.).
