@@ -815,7 +815,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             audio.seek(0)
             if audio.getbuffer().nbytes == 0:
                 raise ValueError("Empty audio generated")
-            await query.message.reply_voice(voice=audio)
+            await query.message.reply_audio(audio=audio, filename=f"{word}.mp3")
         except Exception as e:
             logger.error(f"TTS error for '{word}': {e}")
             await query.message.reply_text("⚠️ Failed to generate audio")
