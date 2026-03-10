@@ -291,19 +291,37 @@ async def send_review_batch(manual: bool = False):
 
 
 async def send_pending_resend():
-    """Resend cards from pending_batch that haven't been rated yet."""
+    """Resend cards from today's batch (in-memory) + yesterday's unreviewed (Notion query)."""
     if not REVIEW_USER_ID:
         logger.error("REVIEW_USER_ID not configured")
         return
 
-    if not pending_batch:
+    # Start with today's unanswered cards from memory
+    combined: dict = dict(pending_batch)
+
+    # Merge yesterday's cards that weren't reviewed today (Notion query)
+    try:
+        import asyncio as _asyncio
+        loop = _asyncio.get_event_loop()
+        yesterday_entries = await loop.run_in_executor(
+            None, notion_handler.fetch_unreviewed_from_days_ago, 1
+        )
+        for entry in yesterday_entries:
+            pid = entry.get("page_id", "")
+            if pid and pid not in combined:
+                combined[pid] = entry
+        logger.info(f"Pending: {len(pending_batch)} in-memory + {len(yesterday_entries)} from yesterday = {len(combined)} total")
+    except Exception as e:
+        logger.error(f"Failed to fetch yesterday's pending entries: {e}")
+
+    if not combined:
         await application.bot.send_message(
             chat_id=REVIEW_USER_ID,
             text="✅ All caught up! No pending cards.",
         )
         return
 
-    entries = list(pending_batch.values())
+    entries = list(combined.values())
     total = len(entries)
     logger.info(f"Resending {total} pending cards")
 

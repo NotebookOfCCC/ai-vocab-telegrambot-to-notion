@@ -684,6 +684,39 @@ class NotionHandler:
         logger.error(f"Failed to fetch entries after {max_retries} attempts. Last error: {last_error}")
         return []
 
+    def fetch_unreviewed_from_days_ago(self, days_back: int = 1) -> list:
+        """Fetch entries due on each of the last `days_back` days that weren't reviewed today.
+
+        Used by the Pending button to surface yesterday's (and older) missed cards.
+        Returns deduplicated list across all configured databases.
+        """
+        today = date.today()
+        today_str = today.isoformat()
+        results = []
+        seen_ids = set()
+
+        for d in range(1, days_back + 1):
+            target_str = (today - timedelta(days=d)).isoformat()
+            pages = self._fetch_filtered_entries({
+                "and": [
+                    {"property": "Next Review", "date": {"equals": target_str}},
+                    {"property": "Mastered", "checkbox": {"equals": False}},
+                    {
+                        "or": [
+                            {"property": "Last Reviewed", "date": {"is_empty": True}},
+                            {"property": "Last Reviewed", "date": {"before": today_str}},
+                        ]
+                    },
+                ]
+            })
+            for page in pages:
+                entry = self._parse_page_to_entry(page)
+                if entry and entry["page_id"] not in seen_ids:
+                    seen_ids.add(entry["page_id"])
+                    results.append(entry)
+
+        return results
+
     def _calculate_review_priority(self, entry: dict, today: date) -> float:
         """
         Calculate review priority score. Higher = more urgent to review.
