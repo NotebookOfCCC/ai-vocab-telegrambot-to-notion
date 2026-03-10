@@ -99,7 +99,7 @@ scheduler = None
 application = None
 is_paused = False
 review_config = None
-pending_batch: dict = {}  # page_id → entry; cleared on new batch, entry removed on rating
+sent_but_unrated: dict = {}  # page_id → {"entry": entry, "sent_at": datetime}; accumulates across batches, expires after 2 days
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
     """Persistent reply keyboard with the two most-used actions."""
@@ -243,9 +243,14 @@ async def send_review_batch(manual: bool = False):
             )
             return
 
-        # Track which cards have been sent but not yet rated
-        global pending_batch
-        pending_batch = {entry.get("page_id", ""): entry for entry in entries if entry.get("page_id")}
+        # Accumulate sent cards; expire entries older than 2 days; never overwrite existing ones
+        global sent_but_unrated
+        cutoff = now - datetime.timedelta(days=2)
+        sent_but_unrated = {pid: v for pid, v in sent_but_unrated.items() if v["sent_at"] >= cutoff}
+        for entry in entries:
+            pid = entry.get("page_id", "")
+            if pid and pid not in sent_but_unrated:
+                sent_but_unrated[pid] = {"entry": entry, "sent_at": now}
 
         total = len(entries)
         for i, entry in enumerate(entries, 1):
@@ -291,38 +296,21 @@ async def send_review_batch(manual: bool = False):
 
 
 async def send_pending_resend():
-    """Resend cards from today's batch (in-memory) + yesterday's unreviewed (Notion query)."""
+    """Resend all cards sent in the last 2 days that haven't been rated yet."""
     if not REVIEW_USER_ID:
         logger.error("REVIEW_USER_ID not configured")
         return
 
-    # Start with today's unanswered cards from memory
-    combined: dict = dict(pending_batch)
-
-    # Merge yesterday's cards that weren't reviewed today (Notion query)
-    try:
-        import asyncio as _asyncio
-        loop = _asyncio.get_event_loop()
-        yesterday_entries = await loop.run_in_executor(
-            None, notion_handler.fetch_unreviewed_from_days_ago, 1
-        )
-        for entry in yesterday_entries:
-            pid = entry.get("page_id", "")
-            if pid and pid not in combined:
-                combined[pid] = entry
-        logger.info(f"Pending: {len(pending_batch)} in-memory + {len(yesterday_entries)} from yesterday = {len(combined)} total")
-    except Exception as e:
-        logger.error(f"Failed to fetch yesterday's pending entries: {e}")
-
-    if not combined:
+    if not sent_but_unrated:
         await application.bot.send_message(
             chat_id=REVIEW_USER_ID,
             text="✅ All caught up! No pending cards.",
         )
         return
 
-    entries = list(combined.values())
+    entries = [v["entry"] for v in sent_but_unrated.values()]
     total = len(entries)
+    logger.info(f"Resending {total} pending cards from last 2 days")
     logger.info(f"Resending {total} pending cards")
 
     for i, entry in enumerate(entries, 1):
@@ -678,14 +666,14 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     if data.startswith("again_"):
         page_id = data[6:]  # Remove "again_" prefix
-        pending_batch.pop(page_id, None)
+        sent_but_unrated.pop(page_id, None)
         result = notion_handler.update_review_stats(page_id, response="again")
         revealed = _unspoiler_html(query.message)
         await query.edit_message_text(text=revealed, parse_mode="HTML", reply_markup=None)
 
     elif data.startswith("good_"):
         page_id = data[5:]  # Remove "good_" prefix
-        pending_batch.pop(page_id, None)
+        sent_but_unrated.pop(page_id, None)
         result = notion_handler.update_review_stats(page_id, response="good")
         revealed = _unspoiler_html(query.message)
         await query.edit_message_text(text=revealed, parse_mode="HTML", reply_markup=None)
@@ -695,7 +683,7 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     elif data.startswith("easy_"):
         page_id = data[5:]  # Remove "easy_" prefix
-        pending_batch.pop(page_id, None)
+        sent_but_unrated.pop(page_id, None)
         result = notion_handler.update_review_stats(page_id, response="easy")
         revealed = _unspoiler_html(query.message)
         await query.edit_message_text(text=revealed, parse_mode="HTML", reply_markup=None)
