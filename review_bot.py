@@ -311,32 +311,39 @@ async def send_pending_resend():
     entries = [v["entry"] for v in sent_but_unrated.values()]
     total = len(entries)
     logger.info(f"Resending {total} pending cards from last 2 days")
-    logger.info(f"Resending {total} pending cards")
-
-    for i, entry in enumerate(entries, 1):
-        message = format_entry_for_review(entry, i, total)
-        page_id = entry.get("page_id", "")
-        keyboard = [[
-            InlineKeyboardButton("🔴 Again", callback_data=f"again_{page_id}"),
-            InlineKeyboardButton("🟡 Good", callback_data=f"good_{page_id}"),
-            InlineKeyboardButton("🟢 Easy", callback_data=f"easy_{page_id}"),
-        ]]
-        await application.bot.send_message(
-            chat_id=REVIEW_USER_ID,
-            text=message,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="HTML",
-        )
 
     import datetime
     now = datetime.datetime.now()
-    audio_chunks = await generate_chunked_audio(entries)
-    if audio_chunks:
-        for audio_buf, caption in audio_chunks:
+    chunk_size = 10
+
+    for chunk_idx, chunk_start in enumerate(range(0, total, chunk_size), 1):
+        chunk = entries[chunk_start:chunk_start + chunk_size]
+
+        # Send the cards in this chunk
+        for i, entry in enumerate(chunk, chunk_start + 1):
+            message = format_entry_for_review(entry, i, total)
+            page_id = entry.get("page_id", "")
+            keyboard = [[
+                InlineKeyboardButton("🔴 Again", callback_data=f"again_{page_id}"),
+                InlineKeyboardButton("🟡 Good", callback_data=f"good_{page_id}"),
+                InlineKeyboardButton("🟢 Easy", callback_data=f"easy_{page_id}"),
+            ]]
+            await application.bot.send_message(
+                chat_id=REVIEW_USER_ID,
+                text=message,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML",
+            )
+
+        # Send audio for this chunk immediately after
+        audio_chunks = await generate_chunked_audio(chunk)
+        if audio_chunks:
+            audio_buf, caption = audio_chunks[0]
+            filename = f"{now.strftime('%Y-%m-%d_%H-%M')}_part{chunk_idx}.mp3"
             await application.bot.send_audio(
                 chat_id=REVIEW_USER_ID,
                 audio=audio_buf,
-                filename=f"{now.strftime('%Y-%m-%d_%H-%M')}.mp3",
+                filename=filename,
                 caption=caption,
             )
 
