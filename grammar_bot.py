@@ -345,6 +345,7 @@ def _get_push_time_str() -> str:
 # ── Command Handlers ──────────────────────────────────────────────
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print(f"Grammar bot /start from user {update.effective_user.id}, authorized={is_authorized(update)}")
     if not is_authorized(update):
         return
 
@@ -665,14 +666,25 @@ async def post_init(app: Application):
     """Initialize after application starts."""
     global github, scheduler, bot_config
 
-    github = GitHubHandler()
+    print(f"Grammar bot post_init: USER_ID={USER_ID}, TIMEZONE={TIMEZONE}")
+    print(f"Grammar bot post_init: OBSIDIAN_GITHUB_TOKEN={'set' if os.getenv('OBSIDIAN_GITHUB_TOKEN') else 'NOT SET'}")
+
+    try:
+        github = GitHubHandler()
+    except Exception as e:
+        print(f"Grammar bot ERROR: GitHubHandler init failed: {e}")
+        logger.error(f"GitHubHandler init failed: {e}")
+        github = None
 
     # Load config from GitHub
-    try:
-        bot_config = await github.fetch_config()
-        logger.info(f"Loaded config: {bot_config}")
-    except Exception as e:
-        logger.error(f"Failed to load config: {e}")
+    if github:
+        try:
+            bot_config = await github.fetch_config()
+            logger.info(f"Loaded config: {bot_config}")
+        except Exception as e:
+            logger.error(f"Failed to load config: {e}")
+            bot_config = {"push_hour": 9, "push_minute": 0, "cards_per_session": 5, "paused": False}
+    else:
         bot_config = {"push_hour": 9, "push_minute": 0, "cards_per_session": 5, "paused": False}
 
     # Start scheduler
@@ -681,6 +693,7 @@ async def post_init(app: Application):
     _apply_schedule()
     scheduler.start()
 
+    print(f"Grammar Drill Bot initialized successfully")
     logger.info("Grammar Drill Bot initialized")
 
 
