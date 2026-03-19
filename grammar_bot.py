@@ -55,6 +55,7 @@ REPLY_KEYBOARD = ReplyKeyboardMarkup(
 github: GitHubHandler = None
 scheduler: AsyncIOScheduler = None
 bot_config: dict = {}
+app_instance: Application = None
 
 # Session state per user
 sessions: dict = {}
@@ -626,12 +627,12 @@ async def handle_rating(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Scheduled Push ────────────────────────────────────────────────
 
-async def scheduled_push(context: ContextTypes.DEFAULT_TYPE):
+async def scheduled_push():
     """Send daily drill push."""
     if bot_config.get("paused"):
         return
     logger.info("Sending scheduled grammar drill push")
-    await start_practice(context, USER_ID)
+    await start_practice(app_instance, USER_ID)
 
 
 def _apply_schedule():
@@ -664,7 +665,8 @@ def _apply_schedule():
 
 async def post_init(app: Application):
     """Initialize after application starts."""
-    global github, scheduler, bot_config
+    global github, scheduler, bot_config, app_instance
+    app_instance = app
 
     print(f"Grammar bot post_init: USER_ID={USER_ID}, TIMEZONE={TIMEZONE}")
     print(f"Grammar bot post_init: OBSIDIAN_GITHUB_TOKEN={'set' if os.getenv('OBSIDIAN_GITHUB_TOKEN') else 'NOT SET'}")
