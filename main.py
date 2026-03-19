@@ -1,10 +1,11 @@
 """
 Main Entry Point
 
-Runs all three Telegram bots as separate processes:
+Runs all four Telegram bots as separate processes:
 1. bot.py - Vocab Learner Bot (AI-powered vocabulary learning)
 2. review_bot.py - Review Bot (spaced repetition reviews)
 3. habit_bot.py - Habit Bot (daily practice reminders)
+4. grammar_bot.py - Grammar Drill Bot (grammar practice from Obsidian)
 
 Usage: python main.py
 
@@ -23,10 +24,12 @@ def main():
     bot_process = subprocess.Popen([sys.executable, "bot.py"])
     review_process = subprocess.Popen([sys.executable, "review_bot.py"])
     habit_process = subprocess.Popen([sys.executable, "habit_bot.py"])
+    grammar_process = subprocess.Popen([sys.executable, "grammar_bot.py"])
 
     print(f"Vocab Learner bot PID: {bot_process.pid}")
     print(f"Review bot PID: {review_process.pid}")
     print(f"Habit bot PID: {habit_process.pid}")
+    print(f"Grammar Drill bot PID: {grammar_process.pid}")
 
     # Handle shutdown gracefully
     def shutdown(signum, frame):
@@ -34,6 +37,7 @@ def main():
         bot_process.terminate()
         review_process.terminate()
         habit_process.terminate()
+        grammar_process.terminate()
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, shutdown)
@@ -44,6 +48,7 @@ def main():
         bot_process.wait()
         review_process.wait()
         habit_process.wait()
+        grammar_process.wait()
     except KeyboardInterrupt:
         shutdown(None, None)
 

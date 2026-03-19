@@ -1,6 +1,6 @@
 # AI Vocabulary Telegram Bot to Notion
 
-A 3-bot Telegram ecosystem for English vocabulary learning with AI-powered analysis, spaced repetition, and habit tracking - all integrated with Notion.
+A 4-bot Telegram ecosystem for English vocabulary learning with AI-powered analysis, spaced repetition, habit tracking, and grammar drills - integrated with Notion and Obsidian via GitHub.
 
 ---
 
@@ -19,7 +19,8 @@ A 3-bot Telegram ecosystem for English vocabulary learning with AI-powered analy
 main.py (Entry Point)
 ├── bot.py (Vocab Learner Bot) + ai_handler.py + notion_handler.py
 ├── review_bot.py (Spaced Repetition) + notion_handler.py
-└── habit_bot.py (Task Bot) + habit_handler.py + task_parser.py
+├── habit_bot.py (Task Bot) + habit_handler.py + task_parser.py
+└── grammar_bot.py (Grammar Drill Bot) + github_handler.py
 ```
 
 ## Bots Overview
@@ -58,6 +59,17 @@ main.py (Entry Point)
 - **Weekly summary** - Sunday 7am summary with daily scores and streak
 - **Auto-cleanup** - Monthly cleanup of tasks older than 3 months
 
+### 4. Grammar Drill Bot (`grammar_bot.py`)
+- Reads grammar practice cards from Obsidian markdown files via GitHub API
+- **Private repo**: `NotebookOfCCC/Obsidian` → `01. Daily Reflection/05. Grammar Practice/`
+- **8-week rotation**: 7 grammar categories (fill-in-blank) + 1 phrase category (Chinese-to-English)
+- **Spaced repetition**: new → again ⇄ good → easy → retired (3 consecutive easy = auto-retire)
+- **Daily push**: Configurable time (default 9:00 AM) and card count (default 5)
+- **Two practice modes**: Fill-in-blank (weeks 1-7) and Chinese-to-English self-assessment (week 8)
+- **Status write-back**: Updates card statuses directly in GitHub repo after each session
+- **No AI cost** — pure string matching and self-assessment
+- **No Notion dependency** — all data lives in GitHub/Obsidian
+
 ## Key Files
 
 | File | Purpose | API Cost |
@@ -66,6 +78,8 @@ main.py (Entry Point)
 | `task_parser.py` | Regex task parsing (fallback) | **FREE** |
 | `notion_handler.py` | Notion database operations (with retry) | FREE |
 | `habit_handler.py` | Task tracking, task management | FREE |
+| `grammar_bot.py` | Grammar drill bot (Obsidian/GitHub) | **FREE** |
+| `github_handler.py` | GitHub API read/write for Obsidian files | FREE |
 | `schedule_config.json` | Recurring blocks configuration | - |
 
 ## Cost Optimization
@@ -145,11 +159,13 @@ main.py (Entry Point)
 TELEGRAM_BOT_TOKEN=       # Vocab bot token
 REVIEW_BOT_TOKEN=         # Review bot token
 HABITS_BOT_TOKEN=         # Habit bot token
+GRAMMAR_BOT_TOKEN=        # Grammar drill bot token
 
 # API Keys
 ANTHROPIC_API_KEY=        # Claude API key (for vocab analysis + task parsing)
 OPENAI_API_KEY=           # Optional: OpenAI key — used as final fallback when Anthropic is overloaded
 NOTION_API_KEY=           # Notion integration token
+OBSIDIAN_GITHUB_TOKEN=    # GitHub PAT for Obsidian repo (grammar drill data)
 
 # Notion Databases
 NOTION_DATABASE_ID=       # Primary vocabulary database ID (for saving)
@@ -162,6 +178,7 @@ RECURRING_BLOCKS_DB_ID=   # Optional: Recurring time blocks database ID
 ALLOWED_USER_IDS=         # Comma-separated user IDs for vocab bot
 REVIEW_USER_ID=           # Review bot user ID
 HABITS_USER_ID=           # Habits bot user ID
+GRAMMAR_USER_ID=          # Grammar drill bot user ID
 
 # Settings
 TIMEZONE=Europe/London    # Timezone for scheduling
@@ -207,6 +224,13 @@ Mastery:
 - **Mark done**: Reply "1 3" to mark tasks #1 and #3 as done
 - **Edit task**: Type "edit 1" to edit task #1 (date, time, text, category, delete)
 - **Add task**: Send natural language like "4pm to 5pm job application" (AI parses it, shows Edit button)
+
+### Grammar Drill Bot
+- `/start`, `/help` - Welcome message
+- `/status` - Current week category + card stats
+- `/settings 5 cards at 9:00` - Change push time and card count
+- `/stop`, `/resume` - Pause/resume daily pushes
+- **Practice** (reply keyboard) - Start an on-demand drill session
 
 ## Task Parser Patterns
 
@@ -488,3 +512,4 @@ Row 2: [Cancel]  [More]
 48. **Batch mode**: [Batch] reply keyboard button enters collection mode — send phrases one by one, tap Analyze to process all in parallel, each card gets [Save]/[Skip] buttons. [Word Count] button shows word counts per Notion database.
 49. **Pending review resend**: 📋 Pending button on review bot resends all unrated cards from the last 2 days (accumulates across batches via `sent_but_unrated`, expires after 2 days, removed when rated). Audio in 10-phrase chunks. Regular batch audio also chunked into 10-phrase MP3s.
 50. **Pending interleaved audio**: Pending resend sends 10 cards then their audio immediately, then next 10 cards then their audio, etc. (not all cards first, audio at the end). Audio filenames use `_part1`, `_part2`, etc. suffix (e.g. `2026-03-11_14-30_part1.mp3`) so each chunk is distinguishable.
+51. **Grammar Drill Bot**: 4th bot for English grammar drills from Obsidian markdown files via GitHub API. 8-week rotation (7 grammar fill-in-blank + 1 Chinese-to-English phrases). Spaced repetition with status write-back to GitHub. No AI cost, no Notion dependency.
