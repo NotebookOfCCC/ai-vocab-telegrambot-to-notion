@@ -190,39 +190,50 @@ def buffer_rating(filename: str, card_num: int, update: dict):
 async def send_flashcards(bot, chat_id: int, cards: list[dict], category: str, card_type: str):
     """Send all cards at once as flashcards with spoiler answers."""
     for i, card in enumerate(cards):
-        if card_type == "phrase":
-            # Top Phrases: Chinese prompt + keyword, spoiler answer
-            text = (
-                f"*{_escape_md(category)} {i + 1}/{len(cards)}*\n\n"
-                f"{_escape_md(card['chinese_prompt'])}\n"
-                f"💡 {_escape_md(card['keyword_hint'])}\n\n"
-                f"||{_escape_md(card['answer'])}||"
+        try:
+            if card_type == "phrase":
+                # Top Phrases: Chinese prompt + keyword, spoiler answer
+                text = (
+                    f"*{_escape_md(category)} {i + 1}/{len(cards)}*\n\n"
+                    f"{_escape_md(card['chinese_prompt'])}\n"
+                    f"💡 {_escape_md(card['keyword_hint'])}\n\n"
+                    f"||{_escape_md(card['answer'])}||"
+                )
+            else:
+                # Grammar: sentence with blank, spoiler answer + spoiler rule
+                text = (
+                    f"*{_escape_md(category)} {i + 1}/{len(cards)}*\n\n"
+                    f"{_escape_md(card['question'])}\n\n"
+                    f"||{_escape_md(card['answer'])}||\n"
+                    f"||{_escape_md(card['rule'])}||"
+                )
+
+            cb_prefix = f"{card['_filename']}:{card['num']}"
+
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔴 Again", callback_data=f"r_a_{cb_prefix}"),
+                InlineKeyboardButton("🟡 Good", callback_data=f"r_g_{cb_prefix}"),
+                InlineKeyboardButton("🟢 Easy", callback_data=f"r_e_{cb_prefix}"),
+            ]])
+
+            await bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode="MarkdownV2",
+                reply_markup=keyboard,
             )
-        else:
-            # Grammar: sentence with blank, spoiler answer + spoiler rule
-            text = (
-                f"*{_escape_md(category)} {i + 1}/{len(cards)}*\n\n"
-                f"{_escape_md(card['question'])}\n\n"
-                f"||{_escape_md(card['answer'])}||\n"
-                f"||{_escape_md(card['rule'])}||"
-            )
-
-        # Unique callback ID: filename_cardnum
-        filename = CATEGORY_FILES.get(card.get("_week"), 7) if card_type == "phrase" else CATEGORY_FILES.get(card.get("_week"), 0)
-        cb_prefix = f"{card['_filename']}:{card['num']}"
-
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔴 Again", callback_data=f"r_a_{cb_prefix}"),
-            InlineKeyboardButton("🟡 Good", callback_data=f"r_g_{cb_prefix}"),
-            InlineKeyboardButton("🟢 Easy", callback_data=f"r_e_{cb_prefix}"),
-        ]])
-
-        await bot.send_message(
-            chat_id=chat_id,
-            text=text,
-            parse_mode="MarkdownV2",
-            reply_markup=keyboard,
-        )
+        except Exception as e:
+            logger.error(f"Failed to send card {card.get('num')}: {e}", exc_info=True)
+            # Try sending without MarkdownV2 as fallback
+            try:
+                plain = f"{category} {i + 1}/{len(cards)}\n\n"
+                if card_type == "phrase":
+                    plain += f"{card.get('chinese_prompt', '')}\n💡 {card.get('keyword_hint', '')}\n\nAnswer: {card.get('answer', '')}"
+                else:
+                    plain += f"{card.get('question', '')}\n\nAnswer: {card.get('answer', '')}\nRule: {card.get('rule', '')}"
+                await bot.send_message(chat_id=chat_id, text=plain, reply_markup=keyboard)
+            except Exception:
+                pass
 
 
 # ── Command Handlers ──────────────────────────────────────────────
@@ -536,6 +547,10 @@ async def start_practice(bot_or_update, chat_id: int):
     """Start a drill session: grammar cards + top phrases, all sent at once."""
     bot = bot_or_update.bot if hasattr(bot_or_update, 'bot') else bot_or_update
 
+    if not github:
+        logger.error("Practice failed: github handler not initialized")
+        raise RuntimeError("GitHub handler not initialized — check OBSIDIAN_GITHUB_TOKEN")
+
     week = get_week_number()
     grammar_count = bot_config.get("grammar_count", 5)
     phrase_count = bot_config.get("phrase_count", 3)
@@ -551,7 +566,7 @@ async def start_practice(bot_or_update, chat_id: int):
             c["_week"] = week
         grammar_cards = selected
     except Exception as e:
-        logger.error(f"Failed to fetch grammar cards: {e}")
+        logger.error(f"Failed to fetch grammar cards: {e}", exc_info=True)
 
     # Fetch top phrases (always)
     phrase_cards = []
@@ -565,7 +580,7 @@ async def start_practice(bot_or_update, chat_id: int):
                 c["_week"] = 7
             phrase_cards = selected_p
         except Exception as e:
-            logger.error(f"Failed to fetch phrase cards: {e}")
+            logger.error(f"Failed to fetch phrase cards: {e}", exc_info=True)
     else:
         # Phrases week — all cards are phrases, use grammar_count + phrase_count
         total = grammar_count + phrase_count
@@ -578,7 +593,7 @@ async def start_practice(bot_or_update, chat_id: int):
             phrase_cards = selected_p
             grammar_cards = []  # No separate grammar on phrases week
         except Exception as e:
-            logger.error(f"Failed to fetch phrase cards: {e}")
+            logger.error(f"Failed to fetch phrase cards: {e}", exc_info=True)
 
     if not grammar_cards and not phrase_cards:
         if hasattr(bot_or_update, 'effective_message'):
@@ -603,7 +618,15 @@ async def start_practice(bot_or_update, chat_id: int):
 async def handle_practice_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
-    await start_practice(update, update.effective_user.id)
+    try:
+        await start_practice(update, update.effective_user.id)
+    except Exception as e:
+        logger.error(f"Practice error: {e}", exc_info=True)
+        try:
+            await update.effective_message.reply_text(
+                f"❌ Practice error: {e}", reply_markup=REPLY_KEYBOARD)
+        except Exception:
+            pass
 
 
 async def handle_rating(update: Update, context: ContextTypes.DEFAULT_TYPE):
