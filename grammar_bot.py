@@ -45,7 +45,7 @@ START_DATE = date(2026, 3, 16)
 
 # Reply keyboard
 REPLY_KEYBOARD = ReplyKeyboardMarkup(
-    [["Practice", "Schedule"]],
+    [["Practice", "Schedule", "Sync"]],
     resize_keyboard=True,
 )
 
@@ -849,6 +849,69 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"▶️ Resumed at {h:02d}:{m:02d}.", reply_markup=REPLY_KEYBOARD)
 
 
+async def handle_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manual sync: write buffer to .md files on GitHub now, rewriting headers with new columns."""
+    if not is_authorized(update):
+        return
+
+    global daily_buffer
+
+    if not github:
+        await update.message.reply_text("❌ GitHub handler not initialized", reply_markup=REPLY_KEYBOARD)
+        return
+
+    # Even if buffer is empty, rewrite all files to ensure new column headers are applied
+    total_updates = sum(len(v) for v in daily_buffer.values()) if daily_buffer else 0
+    status_msg = await update.message.reply_text(
+        f"🔄 Syncing {total_updates} updates to Obsidian...", reply_markup=REPLY_KEYBOARD)
+
+    try:
+        synced_files = 0
+        from github_handler import CATEGORY_FILES, BASE_PATH
+
+        for week_num, filename in CATEGORY_FILES.items():
+            filepath = f"{BASE_PATH}/{filename}"
+            is_phrases = (week_num == 7)
+
+            try:
+                content, _sha = await github._get_file(filepath)
+                cards, pre_table, post_table = github.parse_cards(content, is_phrases)
+
+                # Apply buffer updates
+                file_buf = daily_buffer.get(filename, {})
+                if file_buf:
+                    for card in cards:
+                        key = str(card["num"])
+                        if key in file_buf:
+                            upd = file_buf[key]
+                            for field in ("status", "last_reviewed", "next_review", "easy_streak",
+                                          "chinese", "example", "example_chinese"):
+                                if field in upd:
+                                    card[field] = upd[field]
+
+                new_content = github.cards_to_markdown(cards, pre_table, post_table, is_phrases)
+                if new_content != content:
+                    await github._put_file(filepath, new_content,
+                                           f"grammar-bot sync: {filename}")
+                    synced_files += 1
+            except Exception as e:
+                logger.error(f"Sync failed for {filename}: {e}")
+
+        # Clear buffer
+        daily_buffer = {}
+        try:
+            await github.clear_buffer()
+        except Exception:
+            pass
+
+        await status_msg.edit_text(
+            f"✅ Synced! {synced_files} files updated, {total_updates} card updates applied.",
+        )
+    except Exception as e:
+        logger.error(f"Manual sync failed: {e}", exc_info=True)
+        await status_msg.edit_text(f"❌ Sync error: {e}")
+
+
 # ── Practice Session ──────────────────────────────────────────────
 
 async def start_practice(bot_or_update, chat_id: int):
@@ -1136,6 +1199,7 @@ def main():
     app.add_handler(CommandHandler("settings", cmd_settings))
     app.add_handler(CommandHandler("stop", cmd_stop))
     app.add_handler(CommandHandler("resume", cmd_resume))
+    app.add_handler(CommandHandler("sync", handle_sync))
 
     app.add_handler(CallbackQueryHandler(handle_schedule_callback, pattern=r"^gsched_"))
     app.add_handler(CallbackQueryHandler(handle_rating, pattern=r"^r_"))
@@ -1147,6 +1211,10 @@ def main():
     app.add_handler(MessageHandler(
         filters.TEXT & filters.Regex(r"^Schedule$") & ~filters.COMMAND,
         handle_schedule,
+    ))
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex(r"^Sync$") & ~filters.COMMAND,
+        handle_sync,
     ))
 
     print("Grammar Drill Bot starting...")
