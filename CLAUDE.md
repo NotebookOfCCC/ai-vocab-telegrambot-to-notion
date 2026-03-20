@@ -64,15 +64,25 @@ main.py (Entry Point)
 - **Private repo**: `NotebookOfCCC/Obsidian` → `01. Daily Reflection/05. Grammar Practice/`
 - **8-week rotation**: 7 grammar categories (fill-in-blank) + 1 phrase category (Chinese-to-English)
 - **Spaced repetition**: new → again ⇄ good → easy → retired (3 consecutive easy = auto-retire)
+- **Spacing**: Again = +1 day, Good = +4 days, Easy = +14 days, 3× Easy in a row = retired
 - **Daily push**: Configurable time (default 9:00 AM), grammar count (default 5), phrase count (default 3)
 - **Top Phrases daily**: Phrase cards are practiced every day (not just week 8)
 - **Two practice modes**: Fill-in-blank (weeks 1-7) and Chinese-to-English self-assessment (always)
-- **Flashcard format**: Spoiler-masked answers + rules — user taps to reveal, then self-rates
-- **Interactive Schedule**: Inline button UI (like review_bot) for push time, grammar count, phrase count
-- **Status write-back**: Daily buffer in memory, synced to .md files on GitHub at 3:03 AM
-- **Reply keyboard**: [Practice] [Schedule]
-- **No AI cost** — pure string matching and self-assessment
+- **Flashcard format**: Bold **说明：** label before spoiler-masked answers + rules; bold **例句：** before examples
+- **Chinese translations**: Generated once via Haiku, stored in `Chinese` column in .md tables, reused on subsequent practices
+- **Example sentences**: Grammar cards get examples generated via Haiku (one-time), stored in `Example` + `Example Chinese` columns
+- **Phrase example flow**: Shows **例句中文：** (visible) for user to practice translating, then **例句：** (spoilered) to reveal English
+- **Reveal on rate**: Clicking Again/Good/Easy reveals all spoilers and removes buttons (like review_bot)
+- **No duplicate cards**: Pressing Practice multiple times per day gives different cards; shows "No more cards available today!" when exhausted
+- **Interactive Schedule**: Inline button UI for push time, grammar count, phrase count, category override
+- **Category override**: [Edit Category] button — pick any of 8 categories or Auto (weekly rotation), persists in config
+- **Status write-back**: Daily buffer in memory, auto-synced to .md files on GitHub at 4:03 AM
+- **Manual Sync**: [Sync] button or /sync — pushes all buffered updates + new column headers to Obsidian immediately
+- **Reply keyboard**: [Practice] [Schedule] [Sync]
+- **Minimal AI cost** — Haiku called once per new card for Chinese/examples (~$0.001/session), then stored permanently
 - **No Notion dependency** — all data lives in GitHub/Obsidian
+- **Markdown table columns (grammar)**: `# | Source | Date | Question | Answer | Wrong | Rule | Chinese | Example | Example Chinese | Status | Last Reviewed | Next Review | Easy Streak`
+- **Markdown table columns (phrases)**: `# | Source | Date | Chinese Prompt | Keyword Hint | Answer (Target Phrase) | Example Sentence | Example Chinese | Status | Last Reviewed | Next Review | Easy Streak`
 
 ## Key Files
 
@@ -233,13 +243,15 @@ Mastery:
 - `/start`, `/help` - Welcome message with current week info
 - `/status` - Current week category + card stats (new/again/good/easy/retired)
 - `/settings` - Text-based settings (fallback; same as Schedule button)
+- `/sync` - Manually sync all buffered updates to Obsidian .md files now
 - `/stop`, `/resume` - Pause/resume daily pushes
-- **Practice** (reply keyboard) - Start an on-demand drill session (grammar + phrases)
+- **Practice** (reply keyboard) - Start an on-demand drill session (grammar + phrases, no duplicates within same day)
 - **Schedule** (reply keyboard) - Interactive settings with inline buttons:
   - [Edit Category] → pick any of the 8 categories or Auto (weekly rotation)
   - [Edit Time] → hour grid (7-23), then minute picker (00/15/30/45)
   - [Edit Grammar Count] → preset options (3, 5, 8, 10, 15)
   - [Edit Phrase Count] → preset options (3, 5, 8, 10, 15)
+- **Sync** (reply keyboard) - Push buffered updates + new column headers to Obsidian immediately
 
 ## Task Parser Patterns
 
@@ -523,8 +535,12 @@ Row 2: [Cancel]  [More]
 50. **Pending interleaved audio**: Pending resend sends 10 cards then their audio immediately, then next 10 cards then their audio, etc. (not all cards first, audio at the end). Audio filenames use `_part1`, `_part2`, etc. suffix (e.g. `2026-03-11_14-30_part1.mp3`) so each chunk is distinguishable.
 51. **Grammar Drill Bot**: 4th bot for English grammar drills from Obsidian markdown files via GitHub API. 8-week rotation (7 grammar fill-in-blank + 1 Chinese-to-English phrases). Spaced repetition with status write-back to GitHub. No AI cost, no Notion dependency.
 52. **Grammar interactive schedule**: Schedule button now uses inline buttons (like review_bot) — hour grid for push time, preset options for grammar count and phrase count. No more text commands needed.
-53. **Grammar example sentences**: All card types now show "例句：" with example sentence + Chinese translation (spoilered). Grammar cards get examples generated via Haiku one-time; phrase cards get existing examples translated. Stored in new Example/Example Chinese columns in .md files (generated once, persisted via buffer → daily sync).
-53. **Grammar Chinese column**: Chinese translations stored in .md table (new `Chinese` column between Rule and Status). Generated once via Haiku, then read from file on subsequent practices. Phrase cards already have chinese_prompt.
-54. **Grammar reveal on rate**: Clicking Again/Good/Easy reveals the spoilered answer+rule and removes buttons (like review_bot), instead of keeping dead buttons.
-55. **Grammar phrase examples**: Phrase cards now show the Example Sentence column as a spoilered line below the answer.
-56. **Grammar category override**: Schedule has [Edit Category] button — pick any of the 8 categories or Auto (weekly rotation). Override saved in config, persists across restarts.
+53. **Grammar example sentences**: All card types show "**例句：**" with example sentence + Chinese translation. Grammar cards get examples generated via Haiku one-time; phrase cards get existing examples translated. Stored in new Example/Example Chinese columns in .md files (generated once, persisted via buffer → daily sync).
+54. **Grammar Chinese column**: Chinese translations stored in .md table (new `Chinese` column between Rule and Status). Generated once via Haiku, then read from file on subsequent practices. Phrase cards already have chinese_prompt.
+55. **Grammar reveal on rate**: Clicking Again/Good/Easy reveals the spoilered answer+rule and removes buttons (like review_bot), instead of keeping dead buttons.
+56. **Grammar phrase examples**: Phrase cards show "**例句中文：**" (visible, not spoilered) so user can practice translating Chinese→English, then "**例句：**" (spoilered) to reveal English. Grammar card examples stay fully spoilered.
+57. **Grammar category override**: Schedule has [Edit Category] button — pick any of the 8 categories or Auto (weekly rotation). Override saved in config, persists across restarts.
+58. **Grammar no duplicate cards**: Pressing Practice multiple times per day gives different cards each time. Sent card nums tracked in memory per filename, reset daily. Shows "No more cards available today!" when all eligible cards exhausted.
+59. **Grammar Sync button**: Reply keyboard [Practice] [Schedule] [Sync]. Sync (or /sync) manually pushes all buffered updates + new column headers to Obsidian .md files immediately, without waiting for the 4:03 AM auto-sync.
+60. **Grammar card labels**: Spoilered answers prefixed with bold "**说明：**", examples prefixed with bold "**例句：**" / "**例句中文：**" for visual clarity.
+61. **Grammar daily sync at 4:03 AM**: Moved from 3:03 AM to 4:03 AM to avoid conflict with late-night usage.

@@ -23,14 +23,20 @@ A Telegram bot system that helps you learn English vocabulary with AI-powered ex
 - **Reliable Fetching**: Auto-retry (3x with exponential backoff) for Notion API errors
 
 ### Grammar Drill Bot (`grammar_bot.py`)
-- **Flashcard Style**: Spoiler-masked answers for self-assessment practice
+- **Flashcard Style**: Bold **说明：** label before spoiler-masked answers, bold **例句：** before examples
 - **Two Card Types**: Weekly grammar fill-in-blank (7 categories) + daily Top Phrases (Chinese-to-English)
 - **8-Week Rotation**: Articles → Tenses → Prepositions → Verb Forms → Word Choice → Sentence Structure → Spelling → Top Phrases
-- **Spaced Repetition**: Again/Good/Easy self-rating with automatic retirement after 3 consecutive Easy
+- **Category Override**: Pick any category manually or use auto-rotation
+- **Spaced Repetition**: Again (+1d) / Good (+4d) / Easy (+14d) with automatic retirement after 3 consecutive Easy
+- **Chinese Translations**: Generated once via Haiku, stored in .md table columns, reused on subsequent practices
+- **Example Sentences**: Grammar cards get AI-generated examples; phrase cards show **例句中文：** (visible for translation practice) then **例句：** (spoilered)
+- **Reveal on Rate**: Clicking Again/Good/Easy reveals all spoilers and removes buttons
+- **No Duplicates**: Pressing Practice multiple times per day gives different cards each time
 - **GitHub-backed**: Reads cards from Obsidian markdown files in a private GitHub repo
-- **Daily Buffer Sync**: In-memory ratings synced to GitHub .md files once daily at 3:03 AM
-- **Interactive Schedule**: Inline button UI to configure push time, grammar count, and phrase count
-- **No API Cost**: Just GitHub API reads/writes
+- **Manual Sync**: [Sync] button or /sync pushes buffered updates to Obsidian immediately
+- **Auto Sync**: Daily buffer synced to GitHub .md files at 4:03 AM
+- **Interactive Schedule**: Inline button UI for push time, grammar count, phrase count, category override
+- **Minimal AI Cost**: Haiku called once per new card (~$0.001/session), then stored permanently
 
 ### Task Bot (`habit_bot.py`)
 - **AI Task Parsing**: Natural language task input with Claude Haiku - just type "4pm to 5pm job application" or "明天下午3点开会"
@@ -188,9 +194,11 @@ python grammar_bot.py # Grammar drills
 ### Grammar Drill Bot
 - `/start` - Bot info with current week
 - `/status` - Card stats (new, again, good, easy, retired)
+- `/sync` - Manually sync buffered updates to Obsidian .md files now
 - `/stop` / `/resume` - Pause/resume daily push
-- **Practice** - Start a drill session (grammar + phrases)
-- **Schedule** - Interactive settings (push time, card counts)
+- **Practice** - Start a drill session (grammar + phrases, no duplicates per day)
+- **Schedule** - Interactive settings (push time, card counts, category override)
+- **Sync** - Push buffered updates to Obsidian immediately
 
 ### Task Bot
 - `/start` - Bot info
@@ -292,7 +300,8 @@ ai-vocab-telegram-bot/
 
 ### Grammar Drill Bot
 - 9:00 AM (configurable) - Daily grammar + phrase push
-- 3:03 AM - Daily sync (buffer → .md files on GitHub)
+- 4:03 AM - Daily auto-sync (buffer → .md files on GitHub)
+- Manual sync anytime via [Sync] button or /sync
 
 ### Task Bot
 - 6:00 AM - Create recurring blocks (next 7 days)
