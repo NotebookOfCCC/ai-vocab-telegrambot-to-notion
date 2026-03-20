@@ -137,8 +137,9 @@ class GitHubHandler:
         post_table_lines = []
         table_started = False
         table_ended = False
+        col_map = {}  # header name → column index
 
-        base_col_count = 8  # Both formats have 8 base columns
+        base_col_count = 8
 
         for i, line in enumerate(lines):
             if table_ended:
@@ -150,6 +151,7 @@ class GitHubHandler:
                     cells = self._parse_table_row(line)
                     if len(cells) >= base_col_count and cells[0].strip() == "#":
                         table_started = True
+                        col_map = {c.strip(): idx for idx, c in enumerate(cells)}
                         pre_table_lines.append(line)
                         continue
                 pre_table_lines.append(line)
@@ -170,62 +172,65 @@ class GitHubHandler:
                 post_table_lines.append(line)
                 continue
 
-            card = self._cells_to_card(cells, is_phrases)
+            card = self._cells_to_card(cells, is_phrases, col_map)
             if card:
                 cards.append(card)
 
         return cards, "\n".join(pre_table_lines), "\n".join(post_table_lines)
 
-    def _cells_to_card(self, cells: list[str], is_phrases: bool) -> dict | None:
-        """Convert table cells to a card dict."""
+    def _cells_to_card(self, cells: list[str], is_phrases: bool, col_map: dict = None) -> dict | None:
+        """Convert table cells to a card dict using header-based column mapping."""
         try:
             card_num = cells[0]
             if not card_num.isdigit():
                 return None
 
+            def get(name, fallback_idx=None, default=""):
+                """Get cell by column name from header, or fallback index."""
+                if col_map and name in col_map:
+                    idx = col_map[name]
+                    return cells[idx].strip() if idx < len(cells) else default
+                if fallback_idx is not None and fallback_idx < len(cells):
+                    return cells[fallback_idx].strip()
+                return default
+
             if is_phrases:
                 card = {
                     "num": int(card_num),
-                    "source": cells[1] if len(cells) > 1 else "",
-                    "date": cells[2] if len(cells) > 2 else "",
-                    "chinese_prompt": cells[3] if len(cells) > 3 else "",
-                    "keyword_hint": cells[4] if len(cells) > 4 else "",
-                    "answer": cells[5] if len(cells) > 5 else "",
-                    "example_sentence": cells[6] if len(cells) > 6 else "",
+                    "source": get("Source", 1),
+                    "date": get("Date", 2),
+                    "chinese_prompt": get("Chinese Prompt", 3),
+                    "keyword_hint": get("Keyword Hint", 4),
+                    "answer": get("Answer (Target Phrase)", 5) or get("Answer", 5),
+                    "example_sentence": get("Example Sentence", 6),
+                    "example_chinese": get("Example Chinese"),
                     "type": "phrase",
                 }
             else:
                 card = {
                     "num": int(card_num),
-                    "source": cells[1] if len(cells) > 1 else "",
-                    "date": cells[2] if len(cells) > 2 else "",
-                    "question": cells[3] if len(cells) > 3 else "",
-                    "answer": cells[4] if len(cells) > 4 else "",
-                    "wrong": cells[5] if len(cells) > 5 else "",
-                    "rule": cells[6] if len(cells) > 6 else "",
+                    "source": get("Source", 1),
+                    "date": get("Date", 2),
+                    "question": get("Question", 3),
+                    "answer": get("Answer", 4),
+                    "wrong": get("Wrong", 5),
+                    "rule": get("Rule", 6),
+                    "chinese": get("Chinese"),
+                    "example": get("Example"),
+                    "example_chinese": get("Example Chinese"),
                     "type": "grammar",
                 }
-                # Detect Chinese column: if cells[7] is NOT a known status, it's Chinese
-                if len(cells) > 7 and cells[7].strip().lower() not in _KNOWN_STATUSES:
-                    card["chinese"] = cells[7]
-                else:
-                    card["chinese"] = ""
 
-            if is_phrases:
-                status_idx = 7
-            elif card.get("chinese") is not None and card["chinese"]:
-                status_idx = 8  # Chinese at 7, status at 8
-            else:
-                status_idx = 7
-            status = cells[status_idx].lower() if len(cells) > status_idx else "new"
+            status = get("Status", 7, "new").lower()
             if status == "active":
+                status = "new"
+            if status not in _KNOWN_STATUSES or not status:
                 status = "new"
             card["status"] = status
 
-            # Tracking columns (may not exist in .md yet — read from buffer)
-            card["last_reviewed"] = cells[status_idx + 1] if len(cells) > status_idx + 1 and cells[status_idx + 1].strip() else ""
-            card["next_review"] = cells[status_idx + 2] if len(cells) > status_idx + 2 and cells[status_idx + 2].strip() else ""
-            easy_streak = cells[status_idx + 3] if len(cells) > status_idx + 3 else "0"
+            card["last_reviewed"] = get("Last Reviewed")
+            card["next_review"] = get("Next Review")
+            easy_streak = get("Easy Streak", default="0")
             card["easy_streak"] = int(easy_streak) if easy_streak.strip().isdigit() else 0
 
             return card
@@ -249,6 +254,10 @@ class GitHubHandler:
                 card["easy_streak"] = update.get("easy_streak", card["easy_streak"])
                 if "chinese" in update:
                     card["chinese"] = update["chinese"]
+                if "example" in update:
+                    card["example"] = update["example"]
+                if "example_chinese" in update:
+                    card["example_chinese"] = update["example_chinese"]
 
         return cards
 
@@ -257,11 +266,11 @@ class GitHubHandler:
         pre_lines = pre_table.split("\n")
 
         if is_phrases:
-            header = "| # | Source | Date | Chinese Prompt | Keyword Hint | Answer (Target Phrase) | Example Sentence | Status | Last Reviewed | Next Review | Easy Streak |"
-            separator = "|---|--------|------|---------------|-------------|----------------------|-----------------|--------|---------------|-------------|-------------|"
+            header = "| # | Source | Date | Chinese Prompt | Keyword Hint | Answer (Target Phrase) | Example Sentence | Example Chinese | Status | Last Reviewed | Next Review | Easy Streak |"
+            separator = "|---|--------|------|---------------|-------------|----------------------|-----------------|-----------------|--------|---------------|-------------|-------------|"
         else:
-            header = "| # | Source | Date | Question | Answer | Wrong | Rule | Chinese | Status | Last Reviewed | Next Review | Easy Streak |"
-            separator = "|---|--------|------|----------|--------|-------|------|---------|--------|---------------|-------------|-------------|"
+            header = "| # | Source | Date | Question | Answer | Wrong | Rule | Chinese | Example | Example Chinese | Status | Last Reviewed | Next Review | Easy Streak |"
+            separator = "|---|--------|------|----------|--------|-------|------|---------|---------|-----------------|--------|---------------|-------------|-------------|"
 
         new_pre_lines = []
         replaced_header = False
@@ -282,13 +291,15 @@ class GitHubHandler:
                 row = (f"| {card['num']} | {card['source']} | {card['date']} | "
                        f"{card['chinese_prompt']} | {card['keyword_hint']} | "
                        f"{card['answer']} | {card['example_sentence']} | "
+                       f"{card.get('example_chinese', '')} | "
                        f"{card['status']} | {card['last_reviewed']} | "
                        f"{card['next_review']} | {card['easy_streak']} |")
             else:
                 row = (f"| {card['num']} | {card['source']} | {card['date']} | "
                        f"{card['question']} | {card['answer']} | {card['wrong']} | "
-                       f"{card['rule']} | {card.get('chinese', '')} | {card['status']} | "
-                       f"{card['last_reviewed']} | "
+                       f"{card['rule']} | {card.get('chinese', '')} | "
+                       f"{card.get('example', '')} | {card.get('example_chinese', '')} | "
+                       f"{card['status']} | {card['last_reviewed']} | "
                        f"{card['next_review']} | {card['easy_streak']} |")
             card_rows.append(row)
 
@@ -377,6 +388,10 @@ class GitHubHandler:
                         card["easy_streak"] = update.get("easy_streak", card["easy_streak"])
                         if "chinese" in update:
                             card["chinese"] = update["chinese"]
+                        if "example" in update:
+                            card["example"] = update["example"]
+                        if "example_chinese" in update:
+                            card["example_chinese"] = update["example_chinese"]
 
                 new_content = self.cards_to_markdown(cards, pre_table, post_table, is_phrases)
                 commit_msg = f"grammar-bot sync: {len(card_updates)} cards in {filename} ({ts})"

@@ -257,6 +257,141 @@ async def _translate_questions(cards: list[dict], card_type: str) -> None:
         logger.warning(f"Translation failed (non-critical): {e}")
 
 
+async def _generate_examples(cards: list[dict]) -> None:
+    """Generate example sentences + Chinese for grammar cards that lack them. Uses Haiku once, buffers for persistence."""
+    needs_example = []
+    for card in cards:
+        stored_ex = card.get("example", "").strip()
+        stored_ex_zh = card.get("example_chinese", "").strip()
+        if stored_ex and stored_ex_zh:
+            card["_example"] = stored_ex
+            card["_example_chinese"] = stored_ex_zh
+        elif stored_ex and not stored_ex_zh:
+            # Has example but no Chinese — just need translation
+            card["_example"] = stored_ex
+            needs_example.append(("translate", card))
+        else:
+            needs_example.append(("generate", card))
+
+    if not needs_example:
+        return
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return
+
+    try:
+        client = anthropic.AsyncAnthropic(api_key=api_key)
+
+        # Separate generate vs translate-only
+        to_generate = [(i, c) for i, (mode, c) in enumerate(needs_example) if mode == "generate"]
+        to_translate = [(i, c) for i, (mode, c) in enumerate(needs_example) if mode == "translate"]
+
+        # Generate example sentences for cards without any
+        if to_generate:
+            numbered = "\n".join(
+                f"{j+1}. {c.get('answer', '')} (rule: {c.get('rule', '')})"
+                for j, (_, c) in enumerate(to_generate)
+            )
+            resp = await client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=800,
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        "For each grammar point below, write ONE short example sentence using it correctly, "
+                        "then its Chinese translation. Format: one line per item, numbered.\n"
+                        "English sentence | Chinese translation\n\n"
+                        f"{numbered}"
+                    ),
+                }],
+            )
+            lines = resp.content[0].text.strip().split("\n")
+            for j, line in enumerate(lines):
+                if j >= len(to_generate):
+                    break
+                idx, card = to_generate[j]
+                clean = re.sub(r"^\d+[\.\)]\s*", "", line.strip())
+                parts = clean.split("|")
+                en = parts[0].strip() if len(parts) >= 1 else clean
+                zh = parts[1].strip() if len(parts) >= 2 else ""
+                card["_example"] = en
+                card["_example_chinese"] = zh
+                buffer_rating(card["_filename"], card["num"], {"example": en, "example_chinese": zh})
+
+        # Translate existing examples that lack Chinese
+        if to_translate:
+            numbered = "\n".join(
+                f"{j+1}. {c.get('example', '')}"
+                for j, (_, c) in enumerate(to_translate)
+            )
+            resp = await client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=500,
+                messages=[{
+                    "role": "user",
+                    "content": f"Translate each English sentence to Chinese. Return ONLY numbered translations, one per line:\n{numbered}",
+                }],
+            )
+            lines = resp.content[0].text.strip().split("\n")
+            for j, line in enumerate(lines):
+                if j >= len(to_translate):
+                    break
+                idx, card = to_translate[j]
+                zh = re.sub(r"^\d+[\.\)]\s*", "", line.strip())
+                card["_example_chinese"] = zh
+                buffer_rating(card["_filename"], card["num"], {"example_chinese": zh})
+
+    except Exception as e:
+        logger.warning(f"Example generation failed (non-critical): {e}")
+
+
+async def _translate_phrase_examples(cards: list[dict]) -> None:
+    """Translate phrase example sentences to Chinese. Uses Haiku once, buffers for persistence."""
+    needs_translation = []
+    for card in cards:
+        stored_zh = card.get("example_chinese", "").strip()
+        example = card.get("example_sentence", "").strip()
+        if stored_zh:
+            card["_example_chinese"] = stored_zh
+        elif example:
+            needs_translation.append(card)
+
+    if not needs_translation:
+        return
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return
+
+    try:
+        client = anthropic.AsyncAnthropic(api_key=api_key)
+        numbered = "\n".join(
+            f"{i+1}. {c.get('example_sentence', '')}"
+            for i, c in enumerate(needs_translation)
+        )
+        resp = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=500,
+            messages=[{
+                "role": "user",
+                "content": f"Translate each English sentence to Chinese. Return ONLY numbered translations, one per line:\n{numbered}",
+            }],
+        )
+        lines = resp.content[0].text.strip().split("\n")
+        for i, line in enumerate(lines):
+            if i < len(needs_translation):
+                zh = re.sub(r"^\d+[\.\)]\s*", "", line.strip())
+                needs_translation[i]["_example_chinese"] = zh
+                buffer_rating(
+                    needs_translation[i]["_filename"],
+                    needs_translation[i]["num"],
+                    {"example_chinese": zh},
+                )
+    except Exception as e:
+        logger.warning(f"Phrase example translation failed (non-critical): {e}")
+
+
 # ── Send Cards (Flashcard Style) ─────────────────────────────────
 
 async def send_flashcards(bot, chat_id: int, cards: list[dict], category: str, card_type: str):
@@ -270,6 +405,7 @@ async def send_flashcards(bot, chat_id: int, cards: list[dict], category: str, c
             if card_type == "phrase":
                 # Top Phrases: Chinese prompt + keyword, spoiler answer + example
                 example = card.get("example_sentence", "").strip()
+                ex_zh = card.get("_example_chinese", "").strip()
                 text = (
                     f"*{_escape_md(category)} {i + 1}/{len(cards)}*\n\n"
                     f"{_escape_md(card['chinese_prompt'])}\n"
@@ -277,9 +413,13 @@ async def send_flashcards(bot, chat_id: int, cards: list[dict], category: str, c
                     f"||{_escape_md(card['answer'])}||"
                 )
                 if example:
-                    text += f"\n||{_escape_md(example)}||"
+                    text += f"\n\n例句：\n||{_escape_md(example)}||"
+                    if ex_zh:
+                        text += f"\n||{_escape_md(ex_zh)}||"
             else:
                 # Grammar: sentence with blank, Chinese hint, spoiler answer + rule
+                ex_en = card.get("_example", "").strip()
+                ex_zh = card.get("_example_chinese", "").strip()
                 text = (
                     f"*{_escape_md(category)} {i + 1}/{len(cards)}*\n\n"
                     f"{_escape_md(card['question'])}\n"
@@ -287,6 +427,10 @@ async def send_flashcards(bot, chat_id: int, cards: list[dict], category: str, c
                     f"||{_escape_md(card['answer'])}||\n"
                     f"||{_escape_md(card['rule'])}||"
                 )
+                if ex_en:
+                    text += f"\n\n例句：\n||{_escape_md(ex_en)}||"
+                    if ex_zh:
+                        text += f"\n||{_escape_md(ex_zh)}||"
 
             cb_prefix = f"{card['_filename']}:{card['num']}"
 
@@ -745,15 +889,19 @@ async def start_practice(bot_or_update, chat_id: int):
 
     category = CATEGORY_NAMES[week]
 
-    # Translate questions to Chinese (best-effort, non-blocking on failure)
+    # Enrich cards: translate questions, generate examples (best-effort, non-blocking on failure)
     if grammar_cards:
         await _translate_questions(grammar_cards, "grammar")
+        await _generate_examples(grammar_cards)
+
+    if phrase_cards:
+        await _translate_phrase_examples(phrase_cards)
 
     # Send grammar cards
     if grammar_cards:
         await send_flashcards(bot, chat_id, grammar_cards, category, "grammar")
 
-    # Send phrase cards (already have chinese_prompt, no translation needed)
+    # Send phrase cards
     if phrase_cards:
         await send_flashcards(bot, chat_id, phrase_cards, "Phrases", "phrase")
 
