@@ -55,6 +55,30 @@ scheduler: AsyncIOScheduler = None
 bot_config: dict = {}
 app_instance: Application = None
 daily_buffer: dict = {}  # In-memory buffer: {filename: {card_num: {status, ...}}}
+sent_today: dict = {}  # {filename: set(card_nums)} — cards already sent today, reset on date change
+sent_today_date: date = None  # Track which date sent_today belongs to
+
+
+def _get_sent_today(filename: str) -> set:
+    """Get the set of card nums already sent today for a file. Resets on date change."""
+    global sent_today, sent_today_date
+    today = date.today()
+    if sent_today_date != today:
+        sent_today = {}
+        sent_today_date = today
+    return sent_today.get(filename, set())
+
+
+def _mark_sent_today(filename: str, card_nums: list[int]):
+    """Record card nums as sent today."""
+    global sent_today, sent_today_date
+    today = date.today()
+    if sent_today_date != today:
+        sent_today = {}
+        sent_today_date = today
+    if filename not in sent_today:
+        sent_today[filename] = set()
+    sent_today[filename].update(card_nums)
 
 
 def _rotation_week() -> int:
@@ -94,12 +118,18 @@ def _escape_md(text: str) -> str:
 # ── Card Selection ────────────────────────────────────────────────
 
 def select_cards(cards: list[dict], count: int, buffer: dict, filename: str) -> list[dict]:
-    """Select cards based on spaced repetition priority, applying buffer overrides."""
+    """Select cards based on spaced repetition priority, applying buffer overrides.
+    Excludes cards already sent today to avoid duplicates on repeat Practice presses."""
     today = date.today()
     file_buffer = buffer.get(filename, {})
+    already_sent = _get_sent_today(filename)
     eligible = []
 
     for card in cards:
+        # Skip cards already sent today
+        if card["num"] in already_sent:
+            continue
+
         # Apply buffer override if exists
         card_key = str(card["num"])
         if card_key in file_buffer:
@@ -881,11 +911,17 @@ async def start_practice(bot_or_update, chat_id: int):
     if not grammar_cards and not phrase_cards:
         if hasattr(bot_or_update, 'effective_message'):
             await bot_or_update.effective_message.reply_text(
-                "No cards available today!", reply_markup=REPLY_KEYBOARD)
+                "No more cards available today!", reply_markup=REPLY_KEYBOARD)
         else:
             await bot.send_message(chat_id=chat_id,
-                text="No cards available today!", reply_markup=REPLY_KEYBOARD)
+                text="No more cards available today!", reply_markup=REPLY_KEYBOARD)
         return
+
+    # Mark selected cards as sent today (avoid duplicates on repeat Practice presses)
+    if grammar_cards:
+        _mark_sent_today(grammar_filename, [c["num"] for c in grammar_cards])
+    if phrase_cards:
+        _mark_sent_today(phrase_filename, [c["num"] for c in phrase_cards])
 
     category = CATEGORY_NAMES[week]
 
