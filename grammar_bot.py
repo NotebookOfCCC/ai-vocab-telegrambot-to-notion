@@ -231,6 +231,20 @@ def buffer_rating(filename: str, card_num: int, update: dict):
 
 # ── Translation ──────────────────────────────────────────────────
 
+def _extract_numbered_lines(text: str) -> list[str]:
+    """Extract numbered lines from Haiku response, skipping preamble/empty lines."""
+    results = []
+    for line in text.strip().split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # Match lines starting with a number (e.g. "1. ...", "1) ...")
+        m = re.match(r"^\d+[\.\)]\s*", line)
+        if m:
+            results.append(line[m.end():])
+    return results
+
+
 async def _translate_questions(cards: list[dict], card_type: str) -> None:
     """Add Chinese translations to cards. Uses stored Chinese if available, else Haiku."""
     needs_translation = []
@@ -272,10 +286,9 @@ async def _translate_questions(cards: list[dict], card_type: str) -> None:
                 "content": f"Translate each English sentence/phrase to Chinese. Return ONLY numbered translations, one per line, no explanation:\n{numbered}",
             }],
         )
-        lines = resp.content[0].text.strip().split("\n")
-        for i, line in enumerate(lines):
+        lines = _extract_numbered_lines(resp.content[0].text)
+        for i, zh in enumerate(lines):
             if i < len(needs_translation):
-                zh = re.sub(r"^\d+[\.\)]\s*", "", line.strip())
                 needs_translation[i]["_chinese"] = zh
                 # Buffer for persistence — will be written to .md on daily sync
                 buffer_rating(
@@ -336,12 +349,11 @@ async def _generate_examples(cards: list[dict]) -> None:
                     ),
                 }],
             )
-            lines = resp.content[0].text.strip().split("\n")
-            for j, line in enumerate(lines):
+            lines = _extract_numbered_lines(resp.content[0].text)
+            for j, clean in enumerate(lines):
                 if j >= len(to_generate):
                     break
-                idx, card = to_generate[j]
-                clean = re.sub(r"^\d+[\.\)]\s*", "", line.strip())
+                _, card = to_generate[j]
                 parts = clean.split("|")
                 en = parts[0].strip() if len(parts) >= 1 else clean
                 zh = parts[1].strip() if len(parts) >= 2 else ""
@@ -363,14 +375,13 @@ async def _generate_examples(cards: list[dict]) -> None:
                     "content": f"Translate each English sentence to Chinese. Return ONLY numbered translations, one per line:\n{numbered}",
                 }],
             )
-            lines = resp.content[0].text.strip().split("\n")
-            for j, line in enumerate(lines):
+            lines = _extract_numbered_lines(resp.content[0].text)
+            for j, clean in enumerate(lines):
                 if j >= len(to_translate):
                     break
-                idx, card = to_translate[j]
-                zh = re.sub(r"^\d+[\.\)]\s*", "", line.strip())
-                card["_example_chinese"] = zh
-                buffer_rating(card["_filename"], card["num"], {"example_chinese": zh})
+                _, card = to_translate[j]
+                card["_example_chinese"] = clean
+                buffer_rating(card["_filename"], card["num"], {"example_chinese": clean})
 
     except Exception as e:
         logger.warning(f"Example generation failed (non-critical): {e}")
@@ -408,10 +419,9 @@ async def _translate_phrase_examples(cards: list[dict]) -> None:
                 "content": f"Translate each English sentence to Chinese. Return ONLY numbered translations, one per line:\n{numbered}",
             }],
         )
-        lines = resp.content[0].text.strip().split("\n")
-        for i, line in enumerate(lines):
+        lines = _extract_numbered_lines(resp.content[0].text)
+        for i, zh in enumerate(lines):
             if i < len(needs_translation):
-                zh = re.sub(r"^\d+[\.\)]\s*", "", line.strip())
                 needs_translation[i]["_example_chinese"] = zh
                 buffer_rating(
                     needs_translation[i]["_filename"],
