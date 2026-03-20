@@ -1146,11 +1146,11 @@ def _apply_schedule():
         tz = pytz.timezone(TIMEZONE)
         scheduler.add_job(
             scheduled_sync,
-            CronTrigger(hour=3, minute=3, timezone=tz),
+            CronTrigger(hour=4, minute=3, timezone=tz),
             id="daily_sync",
             misfire_grace_time=300,
         )
-        logger.info("Scheduled daily sync at 03:03")
+        logger.info("Scheduled daily sync at 04:03")
 
 
 # ── Application Setup ─────────────────────────────────────────────
