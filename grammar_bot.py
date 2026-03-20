@@ -25,6 +25,7 @@ from telegram.ext import (
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
+import anthropic
 
 from github_handler import GitHubHandler, CATEGORY_NAMES, CATEGORY_FILES
 
@@ -185,12 +186,59 @@ def buffer_rating(filename: str, card_num: int, update: dict):
     daily_buffer[filename][str(card_num)] = update
 
 
+# ── Translation ──────────────────────────────────────────────────
+
+async def _translate_questions(cards: list[dict], card_type: str) -> None:
+    """Add Chinese translations to cards using Haiku. Best-effort, no-op on failure."""
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return
+
+    texts = []
+    for card in cards:
+        if card_type == "grammar":
+            # Fill the blank with answer for a complete sentence to translate
+            q = card.get("question", "")
+            a = card.get("answer", "")
+            full = q.replace("__", a).replace("___", a) if ("__" in q or "___" in q) else q
+            texts.append(full)
+        else:
+            # Phrase cards: translate the answer (target English phrase)
+            texts.append(card.get("answer", ""))
+
+    if not texts:
+        return
+
+    try:
+        client = anthropic.AsyncAnthropic(api_key=api_key)
+        numbered = "\n".join(f"{i+1}. {t}" for i, t in enumerate(texts))
+        resp = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=500,
+            messages=[{
+                "role": "user",
+                "content": f"Translate each English sentence/phrase to Chinese. Return ONLY numbered translations, one per line, no explanation:\n{numbered}",
+            }],
+        )
+        lines = resp.content[0].text.strip().split("\n")
+        for i, line in enumerate(lines):
+            if i < len(cards):
+                zh = re.sub(r"^\d+[\.\)]\s*", "", line.strip())
+                cards[i]["_chinese"] = zh
+    except Exception as e:
+        logger.warning(f"Translation failed (non-critical): {e}")
+
+
 # ── Send Cards (Flashcard Style) ─────────────────────────────────
 
 async def send_flashcards(bot, chat_id: int, cards: list[dict], category: str, card_type: str):
     """Send all cards at once as flashcards with spoiler answers."""
     for i, card in enumerate(cards):
         try:
+            zh_line = ""
+            if card.get("_chinese"):
+                zh_line = f"_{_escape_md(card['_chinese'])}_\n"
+
             if card_type == "phrase":
                 # Top Phrases: Chinese prompt + keyword, spoiler answer
                 text = (
@@ -200,10 +248,11 @@ async def send_flashcards(bot, chat_id: int, cards: list[dict], category: str, c
                     f"||{_escape_md(card['answer'])}||"
                 )
             else:
-                # Grammar: sentence with blank, spoiler answer + spoiler rule
+                # Grammar: sentence with blank, Chinese hint, spoiler answer + rule
                 text = (
                     f"*{_escape_md(category)} {i + 1}/{len(cards)}*\n\n"
-                    f"{_escape_md(card['question'])}\n\n"
+                    f"{_escape_md(card['question'])}\n"
+                    f"{zh_line}\n"
                     f"||{_escape_md(card['answer'])}||\n"
                     f"||{_escape_md(card['rule'])}||"
                 )
@@ -611,11 +660,15 @@ async def start_practice(bot_or_update, chat_id: int):
 
     category = CATEGORY_NAMES[week]
 
+    # Translate questions to Chinese (best-effort, non-blocking on failure)
+    if grammar_cards:
+        await _translate_questions(grammar_cards, "grammar")
+
     # Send grammar cards
     if grammar_cards:
         await send_flashcards(bot, chat_id, grammar_cards, category, "grammar")
 
-    # Send phrase cards
+    # Send phrase cards (already have chinese_prompt, no translation needed)
     if phrase_cards:
         await send_flashcards(bot, chat_id, phrase_cards, "Phrases", "phrase")
 
