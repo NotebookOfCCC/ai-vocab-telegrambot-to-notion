@@ -51,6 +51,9 @@ CONFIG_FILE = f"{BASE_PATH}/.grammar_bot_config.json"
 
 MAX_RETRIES = 3
 
+# Known status values — used to detect old vs new table format (with/without Chinese column)
+_KNOWN_STATUSES = {"new", "active", "again", "good", "easy", "retired", ""}
+
 
 class GitHubHandler:
     def __init__(self):
@@ -202,8 +205,18 @@ class GitHubHandler:
                     "rule": cells[6] if len(cells) > 6 else "",
                     "type": "grammar",
                 }
+                # Detect Chinese column: if cells[7] is NOT a known status, it's Chinese
+                if len(cells) > 7 and cells[7].strip().lower() not in _KNOWN_STATUSES:
+                    card["chinese"] = cells[7]
+                else:
+                    card["chinese"] = ""
 
-            status_idx = 7
+            if is_phrases:
+                status_idx = 7
+            elif card.get("chinese") is not None and card["chinese"]:
+                status_idx = 8  # Chinese at 7, status at 8
+            else:
+                status_idx = 7
             status = cells[status_idx].lower() if len(cells) > status_idx else "new"
             if status == "active":
                 status = "new"
@@ -234,6 +247,8 @@ class GitHubHandler:
                 card["last_reviewed"] = update.get("last_reviewed", card["last_reviewed"])
                 card["next_review"] = update.get("next_review", card["next_review"])
                 card["easy_streak"] = update.get("easy_streak", card["easy_streak"])
+                if "chinese" in update:
+                    card["chinese"] = update["chinese"]
 
         return cards
 
@@ -245,8 +260,8 @@ class GitHubHandler:
             header = "| # | Source | Date | Chinese Prompt | Keyword Hint | Answer (Target Phrase) | Example Sentence | Status | Last Reviewed | Next Review | Easy Streak |"
             separator = "|---|--------|------|---------------|-------------|----------------------|-----------------|--------|---------------|-------------|-------------|"
         else:
-            header = "| # | Source | Date | Question | Answer | Wrong | Rule | Status | Last Reviewed | Next Review | Easy Streak |"
-            separator = "|---|--------|------|----------|--------|-------|------|--------|---------------|-------------|-------------|"
+            header = "| # | Source | Date | Question | Answer | Wrong | Rule | Chinese | Status | Last Reviewed | Next Review | Easy Streak |"
+            separator = "|---|--------|------|----------|--------|-------|------|---------|--------|---------------|-------------|-------------|"
 
         new_pre_lines = []
         replaced_header = False
@@ -272,7 +287,8 @@ class GitHubHandler:
             else:
                 row = (f"| {card['num']} | {card['source']} | {card['date']} | "
                        f"{card['question']} | {card['answer']} | {card['wrong']} | "
-                       f"{card['rule']} | {card['status']} | {card['last_reviewed']} | "
+                       f"{card['rule']} | {card.get('chinese', '')} | {card['status']} | "
+                       f"{card['last_reviewed']} | "
                        f"{card['next_review']} | {card['easy_streak']} |")
             card_rows.append(row)
 
@@ -359,6 +375,8 @@ class GitHubHandler:
                         card["last_reviewed"] = update.get("last_reviewed", card["last_reviewed"])
                         card["next_review"] = update.get("next_review", card["next_review"])
                         card["easy_streak"] = update.get("easy_streak", card["easy_streak"])
+                        if "chinese" in update:
+                            card["chinese"] = update["chinese"]
 
                 new_content = self.cards_to_markdown(cards, pre_table, post_table, is_phrases)
                 commit_msg = f"grammar-bot sync: {len(card_updates)} cards in {filename} ({ts})"

@@ -179,31 +179,44 @@ def compute_new_status(rating: str, card: dict) -> dict:
 
 
 def buffer_rating(filename: str, card_num: int, update: dict):
-    """Store a card rating in the in-memory daily buffer."""
+    """Store a card update in the in-memory daily buffer (merges with existing)."""
     global daily_buffer
     if filename not in daily_buffer:
         daily_buffer[filename] = {}
-    daily_buffer[filename][str(card_num)] = update
+    key = str(card_num)
+    if key in daily_buffer[filename]:
+        daily_buffer[filename][key].update(update)
+    else:
+        daily_buffer[filename][key] = update
 
 
 # ── Translation ──────────────────────────────────────────────────
 
 async def _translate_questions(cards: list[dict], card_type: str) -> None:
-    """Add Chinese translations to cards using Haiku. Best-effort, no-op on failure."""
+    """Add Chinese translations to cards. Uses stored Chinese if available, else Haiku."""
+    needs_translation = []
+    for card in cards:
+        stored_zh = card.get("chinese", "").strip()
+        if stored_zh:
+            card["_chinese"] = stored_zh
+        else:
+            needs_translation.append(card)
+
+    if not needs_translation:
+        return
+
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         return
 
     texts = []
-    for card in cards:
+    for card in needs_translation:
         if card_type == "grammar":
-            # Fill the blank with answer for a complete sentence to translate
             q = card.get("question", "")
             a = card.get("answer", "")
             full = q.replace("__", a).replace("___", a) if ("__" in q or "___" in q) else q
             texts.append(full)
         else:
-            # Phrase cards: translate the answer (target English phrase)
             texts.append(card.get("answer", ""))
 
     if not texts:
@@ -222,9 +235,15 @@ async def _translate_questions(cards: list[dict], card_type: str) -> None:
         )
         lines = resp.content[0].text.strip().split("\n")
         for i, line in enumerate(lines):
-            if i < len(cards):
+            if i < len(needs_translation):
                 zh = re.sub(r"^\d+[\.\)]\s*", "", line.strip())
-                cards[i]["_chinese"] = zh
+                needs_translation[i]["_chinese"] = zh
+                # Buffer for persistence — will be written to .md on daily sync
+                buffer_rating(
+                    needs_translation[i]["_filename"],
+                    needs_translation[i]["num"],
+                    {"chinese": zh},
+                )
     except Exception as e:
         logger.warning(f"Translation failed (non-critical): {e}")
 
@@ -722,20 +741,26 @@ async def handle_rating(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Store in buffer
     buffer_rating(filename, int(card_num_str), update_data)
 
-    # Update the button to show which was selected
-    rating_labels = {"again": "🔴 Again ✓", "good": "🟡 Good ✓", "easy": "🟢 Easy ✓"}
-    new_keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton(
-            rating_labels[r] if r == rating else label,
-            callback_data="noop"
-        )
-        for r, label in [("again", "🔴 Again"), ("good", "🟡 Good"), ("easy", "🟢 Easy")]
-    ]])
-
+    # Reveal spoilers and remove buttons (like review_bot)
+    rating_emoji = {"again": "🔴 Again", "good": "🟡 Good", "easy": "🟢 Easy"}
     try:
-        await query.edit_message_reply_markup(reply_markup=new_keyboard)
+        md_text = query.message.text_markdown_v2
+        # Remove spoiler delimiters to reveal answer and rule
+        unblurred = md_text.replace("||", "")
+        unblurred += f"\n\n{_escape_md(rating_emoji[rating])}"
+        await query.edit_message_text(
+            text=unblurred,
+            parse_mode="MarkdownV2",
+        )
     except Exception:
-        pass  # Message may be too old to edit
+        # Fallback: just show selected rating as button
+        try:
+            kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton(f"{rating_emoji[rating]} ✓", callback_data="noop")
+            ]])
+            await query.edit_message_reply_markup(reply_markup=kb)
+        except Exception:
+            pass
 
 
 # ── Scheduled Jobs ────────────────────────────────────────────────
