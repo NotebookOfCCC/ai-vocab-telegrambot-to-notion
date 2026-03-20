@@ -315,13 +315,19 @@ class GitHubHandler:
     async def save_buffer(self, buffer: dict):
         """Save the daily buffer to GitHub."""
         content = json.dumps(buffer, indent=2, ensure_ascii=False) + "\n"
-        await self._put_file(BUFFER_FILE, content, "grammar-bot: update daily buffer")
+        ts = self._timestamp()
+        await self._put_file(BUFFER_FILE, content, f"grammar-bot buffer: {ts}")
 
     async def clear_buffer(self):
         """Clear the daily buffer."""
         await self.save_buffer({})
 
     # ── Daily sync: write buffer back to .md files ──
+
+    def _timestamp(self) -> str:
+        """Get current timestamp string for commit messages."""
+        from datetime import datetime
+        return datetime.now().strftime("%Y-%m-%d %H:%M")
 
     async def sync_buffer_to_markdown(self):
         """
@@ -333,11 +339,11 @@ class GitHubHandler:
             logger.info("No buffer data to sync")
             return
 
+        ts = self._timestamp()
         for filename, card_updates in buffer.items():
             if not card_updates:
                 continue
 
-            # Determine which file to update
             filepath = f"{BASE_PATH}/{filename}"
             is_phrases = filename == "08. Top Phrases.md"
 
@@ -345,7 +351,6 @@ class GitHubHandler:
                 content, _sha = await self._get_file(filepath)
                 cards, pre_table, post_table = self.parse_cards(content, is_phrases)
 
-                # Apply updates
                 for card in cards:
                     card_key = str(card["num"])
                     if card_key in card_updates:
@@ -355,17 +360,15 @@ class GitHubHandler:
                         card["next_review"] = update.get("next_review", card["next_review"])
                         card["easy_streak"] = update.get("easy_streak", card["easy_streak"])
 
-                # Write back
                 new_content = self.cards_to_markdown(cards, pre_table, post_table, is_phrases)
-                today = date.today().isoformat()
-                await self._put_file(filepath, new_content, f"grammar-bot: sync statuses ({today})")
+                commit_msg = f"grammar-bot sync: {len(card_updates)} cards in {filename} ({ts})"
+                await self._put_file(filepath, new_content, commit_msg)
                 logger.info(f"Synced {len(card_updates)} card updates to {filename}")
 
             except Exception as e:
                 logger.error(f"Failed to sync {filename}: {e}")
-                return  # Don't clear buffer if sync failed
+                return
 
-        # All files synced successfully — clear buffer
         await self.clear_buffer()
         logger.info("Daily sync complete, buffer cleared")
 
@@ -388,4 +391,5 @@ class GitHubHandler:
     async def save_config(self, config: dict):
         """Save bot config to GitHub."""
         content = json.dumps(config, indent=2) + "\n"
-        await self._put_file(CONFIG_FILE, content, "grammar-bot: update config")
+        ts = self._timestamp()
+        await self._put_file(CONFIG_FILE, content, f"grammar-bot config: {ts}")
