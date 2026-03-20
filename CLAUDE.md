@@ -64,9 +64,13 @@ main.py (Entry Point)
 - **Private repo**: `NotebookOfCCC/Obsidian` → `01. Daily Reflection/05. Grammar Practice/`
 - **8-week rotation**: 7 grammar categories (fill-in-blank) + 1 phrase category (Chinese-to-English)
 - **Spaced repetition**: new → again ⇄ good → easy → retired (3 consecutive easy = auto-retire)
-- **Daily push**: Configurable time (default 9:00 AM) and card count (default 5)
-- **Two practice modes**: Fill-in-blank (weeks 1-7) and Chinese-to-English self-assessment (week 8)
-- **Status write-back**: Updates card statuses directly in GitHub repo after each session
+- **Daily push**: Configurable time (default 9:00 AM), grammar count (default 5), phrase count (default 3)
+- **Top Phrases daily**: Phrase cards are practiced every day (not just week 8)
+- **Two practice modes**: Fill-in-blank (weeks 1-7) and Chinese-to-English self-assessment (always)
+- **Flashcard format**: Spoiler-masked answers + rules — user taps to reveal, then self-rates
+- **Interactive Schedule**: Inline button UI (like review_bot) for push time, grammar count, phrase count
+- **Status write-back**: Daily buffer in memory, synced to .md files on GitHub at 3:03 AM
+- **Reply keyboard**: [Practice] [Schedule]
 - **No AI cost** — pure string matching and self-assessment
 - **No Notion dependency** — all data lives in GitHub/Obsidian
 
@@ -226,11 +230,15 @@ Mastery:
 - **Add task**: Send natural language like "4pm to 5pm job application" (AI parses it, shows Edit button)
 
 ### Grammar Drill Bot
-- `/start`, `/help` - Welcome message
-- `/status` - Current week category + card stats
-- `/settings 5 cards at 9:00` - Change push time and card count
+- `/start`, `/help` - Welcome message with current week info
+- `/status` - Current week category + card stats (new/again/good/easy/retired)
+- `/settings` - Text-based settings (fallback; same as Schedule button)
 - `/stop`, `/resume` - Pause/resume daily pushes
-- **Practice** (reply keyboard) - Start an on-demand drill session
+- **Practice** (reply keyboard) - Start an on-demand drill session (grammar + phrases)
+- **Schedule** (reply keyboard) - Interactive settings with inline buttons:
+  - [Edit Time] → hour grid (7-23), then minute picker (00/15/30/45)
+  - [Edit Grammar Count] → preset options (3, 5, 8, 10, 15)
+  - [Edit Phrase Count] → preset options (3, 5, 8, 10, 15)
 
 ## Task Parser Patterns
 
@@ -513,3 +521,4 @@ Row 2: [Cancel]  [More]
 49. **Pending review resend**: 📋 Pending button on review bot resends all unrated cards from the last 2 days (accumulates across batches via `sent_but_unrated`, expires after 2 days, removed when rated). Audio in 10-phrase chunks. Regular batch audio also chunked into 10-phrase MP3s.
 50. **Pending interleaved audio**: Pending resend sends 10 cards then their audio immediately, then next 10 cards then their audio, etc. (not all cards first, audio at the end). Audio filenames use `_part1`, `_part2`, etc. suffix (e.g. `2026-03-11_14-30_part1.mp3`) so each chunk is distinguishable.
 51. **Grammar Drill Bot**: 4th bot for English grammar drills from Obsidian markdown files via GitHub API. 8-week rotation (7 grammar fill-in-blank + 1 Chinese-to-English phrases). Spaced repetition with status write-back to GitHub. No AI cost, no Notion dependency.
+52. **Grammar interactive schedule**: Schedule button now uses inline buttons (like review_bot) — hour grid for push time, preset options for grammar count and phrase count. No more text commands needed.

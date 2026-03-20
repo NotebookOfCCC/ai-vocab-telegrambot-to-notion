@@ -22,6 +22,16 @@ A Telegram bot system that helps you learn English vocabulary with AI-powered ex
 - **Multi-Database**: Supports querying from multiple Notion databases
 - **Reliable Fetching**: Auto-retry (3x with exponential backoff) for Notion API errors
 
+### Grammar Drill Bot (`grammar_bot.py`)
+- **Flashcard Style**: Spoiler-masked answers for self-assessment practice
+- **Two Card Types**: Weekly grammar fill-in-blank (7 categories) + daily Top Phrases (Chinese-to-English)
+- **8-Week Rotation**: Articles → Tenses → Prepositions → Verb Forms → Word Choice → Sentence Structure → Spelling → Top Phrases
+- **Spaced Repetition**: Again/Good/Easy self-rating with automatic retirement after 3 consecutive Easy
+- **GitHub-backed**: Reads cards from Obsidian markdown files in a private GitHub repo
+- **Daily Buffer Sync**: In-memory ratings synced to GitHub .md files once daily at 3:03 AM
+- **Interactive Schedule**: Inline button UI to configure push time, grammar count, and phrase count
+- **No API Cost**: Just GitHub API reads/writes
+
 ### Task Bot (`habit_bot.py`)
 - **AI Task Parsing**: Natural language task input with Claude Haiku - just type "4pm to 5pm job application" or "明天下午3点开会"
 - **Consolidated Schedule**: One message showing numbered timeline + actionable tasks
@@ -60,10 +70,11 @@ This bot is optimized to minimize API costs:
 
 ### Step 1: Create Telegram Bots
 
-Create 3 bots via `@BotFather` on Telegram:
+Create 4 bots via `@BotFather` on Telegram:
 1. **Vocab Learner Bot** - for learning new vocabulary
 2. **Review Bot** - for scheduled reviews
 3. **Task Bot** - for daily task management
+4. **Grammar Drill Bot** - for grammar practice from Obsidian
 
 ### Step 2: Get API Keys
 
@@ -134,6 +145,11 @@ HABITS_REMINDERS_DB_ID=your_reminders_database_id
 HABITS_TRACKING_DB_ID=your_tracking_database_id
 RECURRING_BLOCKS_DB_ID=your_recurring_blocks_database_id  # Optional
 
+# Grammar Drill Bot
+GRAMMAR_BOT_TOKEN=your_grammar_bot_token
+GRAMMAR_USER_ID=your_telegram_user_id
+OBSIDIAN_GITHUB_TOKEN=your_github_pat  # Fine-grained, Contents R/W on Obsidian repo
+
 # Timezone
 TIMEZONE=Europe/London
 ```
@@ -151,6 +167,7 @@ python main.py
 python bot.py         # Vocab learner
 python review_bot.py  # Scheduled reviews
 python habit_bot.py   # Task management
+python grammar_bot.py # Grammar drills
 ```
 
 ## Commands
@@ -167,6 +184,13 @@ python habit_bot.py   # Task management
 - `/due` - See pending reviews count + total words
 - `/stop` / `/resume` - Pause/resume scheduled reviews
 - `/status` - Bot status
+
+### Grammar Drill Bot
+- `/start` - Bot info with current week
+- `/status` - Card stats (new, again, good, easy, retired)
+- `/stop` / `/resume` - Pause/resume daily push
+- **Practice** - Start a drill session (grammar + phrases)
+- **Schedule** - Interactive settings (push time, card counts)
 
 ### Task Bot
 - `/start` - Bot info
@@ -237,7 +261,7 @@ Example recurring blocks:
 python main.py
 ```
 
-This runs all three bots as separate processes.
+This runs all four bots as separate processes.
 
 ## Files
 
@@ -250,6 +274,8 @@ ai-vocab-telegram-bot/
 ├── ai_handler.py       # Claude AI integration for vocab analysis
 ├── notion_handler.py   # Notion API for vocab database (with retry)
 ├── habit_handler.py    # Notion API for task/reminder databases
+├── grammar_bot.py      # Grammar drill bot - flashcard practice from Obsidian
+├── github_handler.py   # GitHub API for Obsidian .md file read/write
 ├── task_parser.py      # Regex-based task parser (fallback if no AI)
 ├── schedule_config.json # Recurring blocks configuration
 ├── requirements.txt    # Python dependencies
@@ -263,6 +289,10 @@ ai-vocab-telegram-bot/
 
 ### Review Bot
 - 8:00, 13:00, 19:00, 22:00 - Vocabulary reviews
+
+### Grammar Drill Bot
+- 9:00 AM (configurable) - Daily grammar + phrase push
+- 3:03 AM - Daily sync (buffer → .md files on GitHub)
 
 ### Task Bot
 - 6:00 AM - Create recurring blocks (next 7 days)

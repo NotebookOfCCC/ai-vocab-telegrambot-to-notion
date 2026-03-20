@@ -293,30 +293,164 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text=text, parse_mode="MarkdownV2", reply_markup=REPLY_KEYBOARD)
 
 
-async def handle_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle the Schedule button — show current settings as popup."""
-    if not is_authorized(update):
-        return
-
+def _format_schedule_text() -> str:
+    """Format current schedule settings as display text."""
     gc = bot_config.get("grammar_count", 5)
     pc = bot_config.get("phrase_count", 3)
     h = bot_config.get("push_hour", 9)
     m = bot_config.get("push_minute", 0)
     paused = bot_config.get("paused", False)
-
-    text = (
-        f"⚙️ *Schedule*\n\n"
-        f"Push time: *{h:02d}:{m:02d}* {'\\(paused\\)' if paused else ''}\n"
-        f"Grammar cards: *{gc}*\n"
-        f"Top phrases: *{pc}*\n\n"
-        f"To change, use:\n"
-        f"`/settings 5 grammar 3 phrases at 9:00`\n"
-        f"`/settings 8 grammar`\n"
-        f"`/settings 5 phrases`\n"
-        f"`/settings at 8:30`\n\n"
-        f"`/stop` pause · `/resume` resume"
+    status = " (paused)" if paused else ""
+    return (
+        f"⚙️ Grammar Drill Schedule\n\n"
+        f"Push time: {h:02d}:{m:02d}{status}\n"
+        f"Grammar cards: {gc}\n"
+        f"Top phrases: {pc}"
     )
-    await update.message.reply_text(text=text, parse_mode="MarkdownV2", reply_markup=REPLY_KEYBOARD)
+
+
+async def send_schedule_display(message_or_query, edit: bool = False):
+    """Show current schedule with inline edit buttons."""
+    text = _format_schedule_text()
+    keyboard = [
+        [
+            InlineKeyboardButton("Edit Time", callback_data="gsched_edit_time"),
+            InlineKeyboardButton("Edit Grammar Count", callback_data="gsched_edit_grammar"),
+        ],
+        [
+            InlineKeyboardButton("Edit Phrase Count", callback_data="gsched_edit_phrase"),
+        ],
+    ]
+    markup = InlineKeyboardMarkup(keyboard)
+    if edit:
+        await message_or_query.edit_message_text(text=text, reply_markup=markup)
+    else:
+        await message_or_query.reply_text(text, reply_markup=markup)
+
+
+def _build_hour_grid() -> InlineKeyboardMarkup:
+    """Build hour grid for push time selection (7-23) + minute selector."""
+    current_hour = bot_config.get("push_hour", 9)
+    rows = []
+    for row_hours in [(7, 8, 9, 10, 11, 12), (13, 14, 15, 16, 17, 18), (19, 20, 21, 22, 23)]:
+        row = []
+        for h in row_hours:
+            label = f"✅ {h:02d}" if h == current_hour else f"{h:02d}"
+            row.append(InlineKeyboardButton(label, callback_data=f"gsched_hour_{h}"))
+        rows.append(row)
+    rows.append([
+        InlineKeyboardButton("Back", callback_data="gsched_back"),
+    ])
+    return InlineKeyboardMarkup(rows)
+
+
+def _build_minute_grid(hour: int) -> InlineKeyboardMarkup:
+    """Build minute selector for a chosen hour."""
+    current_hour = bot_config.get("push_hour", 9)
+    current_min = bot_config.get("push_minute", 0)
+    options = [0, 15, 30, 45]
+    row = []
+    for m in options:
+        label = f"✅ {hour:02d}:{m:02d}" if (hour == current_hour and m == current_min) else f"{hour:02d}:{m:02d}"
+        row.append(InlineKeyboardButton(label, callback_data=f"gsched_min_{hour}_{m}"))
+    return InlineKeyboardMarkup([row, [InlineKeyboardButton("Back", callback_data="gsched_edit_time")]])
+
+
+def _build_count_options(setting_key: str) -> InlineKeyboardMarkup:
+    """Build count option buttons for grammar or phrase count."""
+    current = bot_config.get(setting_key, 5)
+    options = [3, 5, 8, 10, 15]
+    prefix = "gsched_gc" if setting_key == "grammar_count" else "gsched_pc"
+    row = []
+    for n in options:
+        label = f"✅ {n}" if n == current else str(n)
+        row.append(InlineKeyboardButton(label, callback_data=f"{prefix}_{n}"))
+    return InlineKeyboardMarkup([row, [InlineKeyboardButton("Back", callback_data="gsched_back")]])
+
+
+async def handle_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle the Schedule button — show interactive settings."""
+    if not is_authorized(update):
+        return
+    await send_schedule_display(update.message)
+
+
+async def handle_schedule_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle all gsched_* callback buttons for schedule settings."""
+    global bot_config
+    query = update.callback_query
+
+    if query.from_user.id != USER_ID:
+        await query.answer()
+        return
+
+    data = query.data
+
+    if data == "gsched_edit_time":
+        await query.answer("Tap an hour, then pick minutes", show_alert=True)
+        await query.edit_message_text(
+            text="Select push hour:",
+            reply_markup=_build_hour_grid(),
+        )
+
+    elif data.startswith("gsched_hour_"):
+        await query.answer()
+        hour = int(data.split("_")[-1])
+        await query.edit_message_text(
+            text=f"Selected {hour:02d}:xx — pick minutes:",
+            reply_markup=_build_minute_grid(hour),
+        )
+
+    elif data.startswith("gsched_min_"):
+        await query.answer()
+        parts = data.split("_")
+        hour, minute = int(parts[2]), int(parts[3])
+        bot_config["push_hour"] = hour
+        bot_config["push_minute"] = minute
+        _apply_schedule()
+        try:
+            await github.save_config(bot_config)
+        except Exception as e:
+            logger.error(f"Failed to save config: {e}")
+        await send_schedule_display(query, edit=True)
+
+    elif data == "gsched_edit_grammar":
+        await query.answer("Tap to select grammar cards per session", show_alert=True)
+        await query.edit_message_text(
+            text="Select grammar cards per session:",
+            reply_markup=_build_count_options("grammar_count"),
+        )
+
+    elif data.startswith("gsched_gc_"):
+        await query.answer()
+        n = int(data.split("_")[-1])
+        bot_config["grammar_count"] = n
+        try:
+            await github.save_config(bot_config)
+        except Exception as e:
+            logger.error(f"Failed to save config: {e}")
+        await send_schedule_display(query, edit=True)
+
+    elif data == "gsched_edit_phrase":
+        await query.answer("Tap to select phrases per session", show_alert=True)
+        await query.edit_message_text(
+            text="Select top phrases per session:",
+            reply_markup=_build_count_options("phrase_count"),
+        )
+
+    elif data.startswith("gsched_pc_"):
+        await query.answer()
+        n = int(data.split("_")[-1])
+        bot_config["phrase_count"] = n
+        try:
+            await github.save_config(bot_config)
+        except Exception as e:
+            logger.error(f"Failed to save config: {e}")
+        await send_schedule_display(query, edit=True)
+
+    elif data == "gsched_back":
+        await query.answer()
+        await send_schedule_display(query, edit=True)
 
 
 async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -647,6 +781,7 @@ def main():
     app.add_handler(CommandHandler("stop", cmd_stop))
     app.add_handler(CommandHandler("resume", cmd_resume))
 
+    app.add_handler(CallbackQueryHandler(handle_schedule_callback, pattern=r"^gsched_"))
     app.add_handler(CallbackQueryHandler(handle_rating, pattern=r"^r_"))
 
     app.add_handler(MessageHandler(
