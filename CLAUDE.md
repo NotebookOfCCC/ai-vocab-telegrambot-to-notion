@@ -236,6 +236,7 @@ Mastery:
 - `/stop`, `/resume` - Pause/resume daily pushes
 - **Practice** (reply keyboard) - Start an on-demand drill session (grammar + phrases)
 - **Schedule** (reply keyboard) - Interactive settings with inline buttons:
+  - [Edit Category] → pick any of the 8 categories or Auto (weekly rotation)
   - [Edit Time] → hour grid (7-23), then minute picker (00/15/30/45)
   - [Edit Grammar Count] → preset options (3, 5, 8, 10, 15)
   - [Edit Phrase Count] → preset options (3, 5, 8, 10, 15)
@@ -524,3 +525,5 @@ Row 2: [Cancel]  [More]
 52. **Grammar interactive schedule**: Schedule button now uses inline buttons (like review_bot) — hour grid for push time, preset options for grammar count and phrase count. No more text commands needed.
 53. **Grammar Chinese column**: Chinese translations stored in .md table (new `Chinese` column between Rule and Status). Generated once via Haiku, then read from file on subsequent practices. Phrase cards already have chinese_prompt.
 54. **Grammar reveal on rate**: Clicking Again/Good/Easy reveals the spoilered answer+rule and removes buttons (like review_bot), instead of keeping dead buttons.
+55. **Grammar phrase examples**: Phrase cards now show the Example Sentence column as a spoilered line below the answer.
+56. **Grammar category override**: Schedule has [Edit Category] button — pick any of the 8 categories or Auto (weekly rotation). Override saved in config, persists across restarts.

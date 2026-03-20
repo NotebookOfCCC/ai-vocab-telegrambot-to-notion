@@ -57,11 +57,20 @@ app_instance: Application = None
 daily_buffer: dict = {}  # In-memory buffer: {filename: {card_num: {status, ...}}}
 
 
-def get_week_number() -> int:
+def _rotation_week() -> int:
+    """Get the auto-rotation week number (0-7)."""
     today = date.today()
     if today < START_DATE:
         return 0
     return ((today - START_DATE).days // 7) % 8
+
+
+def get_week_number() -> int:
+    """Get the active week number, respecting manual override."""
+    override = bot_config.get("category_override")
+    if override is not None:
+        return override
+    return _rotation_week()
 
 
 def get_day_in_week() -> int:
@@ -383,8 +392,18 @@ def _format_schedule_text() -> str:
     m = bot_config.get("push_minute", 0)
     paused = bot_config.get("paused", False)
     status = " (paused)" if paused else ""
+
+    week = get_week_number()
+    category = CATEGORY_NAMES[week]
+    override = bot_config.get("category_override")
+    if override is not None:
+        cat_label = f"{category} (manual)"
+    else:
+        cat_label = f"{category} (auto)"
+
     return (
         f"⚙️ Grammar Drill Schedule\n\n"
+        f"Category: {cat_label}\n"
         f"Push time: {h:02d}:{m:02d}{status}\n"
         f"Grammar cards: {gc}\n"
         f"Top phrases: {pc}"
@@ -396,10 +415,11 @@ async def send_schedule_display(message_or_query, edit: bool = False):
     text = _format_schedule_text()
     keyboard = [
         [
+            InlineKeyboardButton("Edit Category", callback_data="gsched_edit_cat"),
             InlineKeyboardButton("Edit Time", callback_data="gsched_edit_time"),
-            InlineKeyboardButton("Edit Grammar Count", callback_data="gsched_edit_grammar"),
         ],
         [
+            InlineKeyboardButton("Edit Grammar Count", callback_data="gsched_edit_grammar"),
             InlineKeyboardButton("Edit Phrase Count", callback_data="gsched_edit_phrase"),
         ],
     ]
@@ -436,6 +456,27 @@ def _build_minute_grid(hour: int) -> InlineKeyboardMarkup:
         label = f"✅ {hour:02d}:{m:02d}" if (hour == current_hour and m == current_min) else f"{hour:02d}:{m:02d}"
         row.append(InlineKeyboardButton(label, callback_data=f"gsched_min_{hour}_{m}"))
     return InlineKeyboardMarkup([row, [InlineKeyboardButton("Back", callback_data="gsched_edit_time")]])
+
+
+def _build_category_options() -> InlineKeyboardMarkup:
+    """Build category picker: 8 categories + Auto (rotation)."""
+    current = bot_config.get("category_override")
+    rows = []
+    # Two rows of 4 categories
+    for row_ids in [(0, 1, 2, 3), (4, 5, 6, 7)]:
+        row = []
+        for cat_id in row_ids:
+            name = CATEGORY_NAMES[cat_id]
+            label = f"✅ {name}" if current == cat_id else name
+            row.append(InlineKeyboardButton(label, callback_data=f"gsched_cat_{cat_id}"))
+        rows.append(row)
+    # Auto rotation button
+    auto_label = "✅ Auto (rotation)" if current is None else "Auto (rotation)"
+    rows.append([
+        InlineKeyboardButton(auto_label, callback_data="gsched_cat_auto"),
+        InlineKeyboardButton("Back", callback_data="gsched_back"),
+    ])
+    return InlineKeyboardMarkup(rows)
 
 
 def _build_count_options(setting_key: str) -> InlineKeyboardMarkup:
@@ -524,6 +565,28 @@ async def handle_schedule_callback(update: Update, context: ContextTypes.DEFAULT
         await query.answer()
         n = int(data.split("_")[-1])
         bot_config["phrase_count"] = n
+        try:
+            await github.save_config(bot_config)
+        except Exception as e:
+            logger.error(f"Failed to save config: {e}")
+        await send_schedule_display(query, edit=True)
+
+    elif data == "gsched_edit_cat":
+        await query.answer("Tap a category, or Auto for weekly rotation", show_alert=True)
+        auto_week = _rotation_week()
+        auto_name = CATEGORY_NAMES[auto_week]
+        await query.edit_message_text(
+            text=f"Select grammar category:\n(Auto rotation this week: {auto_name})",
+            reply_markup=_build_category_options(),
+        )
+
+    elif data.startswith("gsched_cat_"):
+        await query.answer()
+        choice = data.split("_")[-1]
+        if choice == "auto":
+            bot_config.pop("category_override", None)
+        else:
+            bot_config["category_override"] = int(choice)
         try:
             await github.save_config(bot_config)
         except Exception as e:
