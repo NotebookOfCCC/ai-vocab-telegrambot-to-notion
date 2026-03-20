@@ -440,7 +440,7 @@ async def send_flashcards(bot, chat_id: int, cards: list[dict], category: str, c
                     f"*{_escape_md(category)} {i + 1}/{len(cards)}*\n\n"
                     f"{_escape_md(card['chinese_prompt'])}\n"
                     f"💡 {_escape_md(card['keyword_hint'])}\n\n"
-                    f"||{_escape_md(card['answer'])}||"
+                    f"说明：\n||{_escape_md(card['answer'])}||"
                 )
                 if example:
                     text += f"\n\n例句：\n||{_escape_md(example)}||"
@@ -454,6 +454,7 @@ async def send_flashcards(bot, chat_id: int, cards: list[dict], category: str, c
                     f"*{_escape_md(category)} {i + 1}/{len(cards)}*\n\n"
                     f"{_escape_md(card['question'])}\n"
                     f"{zh_line}\n"
+                    f"说明：\n"
                     f"||{_escape_md(card['answer'])}||\n"
                     f"||{_escape_md(card['rule'])}||"
                 )
