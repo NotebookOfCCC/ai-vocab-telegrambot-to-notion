@@ -450,12 +450,12 @@ async def send_flashcards(bot, chat_id: int, cards: list[dict], category: str, c
                     f"*{_escape_md(category)} {i + 1}/{len(cards)}*\n\n"
                     f"{_escape_md(card['chinese_prompt'])}\n"
                     f"💡 {_escape_md(card['keyword_hint'])}\n\n"
-                    f"说明：\n||{_escape_md(card['answer'])}||"
+                    f"*说明：*\n||{_escape_md(card['answer'])}||"
                 )
+                if ex_zh:
+                    text += f"\n\n*例句中文：*\n{_escape_md(ex_zh)}"
                 if example:
-                    text += f"\n\n例句：\n||{_escape_md(example)}||"
-                    if ex_zh:
-                        text += f"\n||{_escape_md(ex_zh)}||"
+                    text += f"\n\n*例句：*\n||{_escape_md(example)}||"
             else:
                 # Grammar: sentence with blank, Chinese hint, spoiler answer + rule
                 ex_en = card.get("_example", "").strip()
@@ -464,12 +464,12 @@ async def send_flashcards(bot, chat_id: int, cards: list[dict], category: str, c
                     f"*{_escape_md(category)} {i + 1}/{len(cards)}*\n\n"
                     f"{_escape_md(card['question'])}\n"
                     f"{zh_line}\n"
-                    f"说明：\n"
+                    f"*说明：*\n"
                     f"||{_escape_md(card['answer'])}||\n"
                     f"||{_escape_md(card['rule'])}||"
                 )
                 if ex_en:
-                    text += f"\n\n例句：\n||{_escape_md(ex_en)}||"
+                    text += f"\n\n*例句：*\n||{_escape_md(ex_en)}||"
                     if ex_zh:
                         text += f"\n||{_escape_md(ex_zh)}||"
 
