@@ -1,12 +1,10 @@
 """
 Grammar Drill Bot
 
-A Telegram bot for English grammar drills powered by Obsidian markdown files
-synced via a private GitHub repo. Two practice modes:
-  - Fill-in-the-blank (grammar errors, weeks 1-7)
-  - Chinese-to-English phrase production (week 8)
-
-Spaced repetition with status tracking written back to GitHub.
+Telegram bot for English grammar drills from Obsidian markdown files via GitHub.
+- Flashcard style: spoiler-masked answers, self-assessment (Again/Good/Easy)
+- Weekly grammar rotation (7 categories) + daily Top Phrases
+- Status tracking buffered daily, synced to GitHub once per day
 """
 
 import os
@@ -18,7 +16,7 @@ from datetime import datetime, date, timedelta
 from dotenv import load_dotenv
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup,
-    ReplyKeyboardMarkup, ReplyKeyboardRemove,
+    ReplyKeyboardMarkup,
 )
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
@@ -28,11 +26,10 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
 
-from github_handler import GitHubHandler, CATEGORY_NAMES
+from github_handler import GitHubHandler, CATEGORY_NAMES, CATEGORY_FILES
 
 load_dotenv()
 
-# Logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -43,11 +40,11 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv("GRAMMAR_BOT_TOKEN")
 USER_ID = int(os.getenv("GRAMMAR_USER_ID", "0"))
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
-START_DATE = date(2026, 3, 16)  # Monday of week 1
+START_DATE = date(2026, 3, 16)
 
 # Reply keyboard
 REPLY_KEYBOARD = ReplyKeyboardMarkup(
-    [["Practice"]],
+    [["Practice", "Schedule"]],
     resize_keyboard=True,
 )
 
@@ -56,40 +53,51 @@ github: GitHubHandler = None
 scheduler: AsyncIOScheduler = None
 bot_config: dict = {}
 app_instance: Application = None
-
-# Session state per user
-sessions: dict = {}
+daily_buffer: dict = {}  # In-memory buffer: {filename: {card_num: {status, ...}}}
 
 
 def get_week_number() -> int:
-    """Get current week number (0-7) in the 8-week rotation."""
     today = date.today()
     if today < START_DATE:
         return 0
-    days = (today - START_DATE).days
-    return (days // 7) % 8
+    return ((today - START_DATE).days // 7) % 8
 
 
 def get_day_in_week() -> int:
-    """Get current day within the week (1-7)."""
     today = date.today()
     if today < START_DATE:
         return 1
-    days = (today - START_DATE).days
-    return (days % 7) + 1
+    return (today - START_DATE).days % 7 + 1
 
 
 def is_authorized(update: Update) -> bool:
-    """Check if the user is authorized."""
     return update.effective_user.id == USER_ID
 
 
-def select_cards(cards: list[dict], count: int) -> list[dict]:
-    """Select cards for a drill session based on spaced repetition priority."""
+def _escape_md(text: str) -> str:
+    if not text:
+        return ""
+    special = r"_*[]()~`>#+-=|{}.!\\"
+    return re.sub(f"([{re.escape(special)}])", r"\\\1", str(text))
+
+
+# ── Card Selection ────────────────────────────────────────────────
+
+def select_cards(cards: list[dict], count: int, buffer: dict, filename: str) -> list[dict]:
+    """Select cards based on spaced repetition priority, applying buffer overrides."""
     today = date.today()
+    file_buffer = buffer.get(filename, {})
     eligible = []
 
     for card in cards:
+        # Apply buffer override if exists
+        card_key = str(card["num"])
+        if card_key in file_buffer:
+            buf = file_buffer[card_key]
+            card["status"] = buf.get("status", card["status"])
+            card["next_review"] = buf.get("next_review", card["next_review"])
+            card["easy_streak"] = buf.get("easy_streak", card["easy_streak"])
+
         status = card["status"]
         if status == "retired":
             continue
@@ -102,245 +110,119 @@ def select_cards(cards: list[dict], count: int) -> list[dict]:
         elif status == "again":
             if next_review:
                 nr = date.fromisoformat(next_review)
-                if nr <= today:
-                    priority = 180 + (today - nr).days * 5
-                else:
-                    priority = 50
+                priority = 180 + max(0, (today - nr).days) * 5 if nr <= today else 50
             else:
                 priority = 180
         elif status == "good":
             if next_review:
                 nr = date.fromisoformat(next_review)
-                if nr <= today:
-                    priority = 150 + (today - nr).days * 3
-                else:
-                    priority = 30
+                priority = 150 + max(0, (today - nr).days) * 3 if nr <= today else 30
             else:
                 priority = 150
         elif status == "easy":
             if next_review:
                 nr = date.fromisoformat(next_review)
-                if nr <= today:
-                    priority = 100
-                else:
-                    priority = 10
+                priority = 100 if nr <= today else 10
             else:
                 priority = 100
 
         if priority > 0:
             eligible.append((card, priority))
 
-    # Sort by priority descending, pick top candidates
     eligible.sort(key=lambda x: x[1], reverse=True)
 
-    # Take top candidates with some randomness among equal priorities
     if len(eligible) <= count:
         selected = [c for c, _ in eligible]
     else:
-        # Take from top pool (2x count) with weighted random
         pool_size = min(len(eligible), count * 2)
         pool = eligible[:pool_size]
-        weights = [p for _, p in pool]
         selected = []
         pool_copy = list(pool)
-        weights_copy = list(weights)
         for _ in range(min(count, len(pool_copy))):
             if not pool_copy:
                 break
-            chosen = random.choices(pool_copy, weights=weights_copy, k=1)[0]
+            weights = [p for _, p in pool_copy]
+            chosen = random.choices(pool_copy, weights=weights, k=1)[0]
             idx = pool_copy.index(chosen)
             selected.append(chosen[0])
             pool_copy.pop(idx)
-            weights_copy.pop(idx)
 
     random.shuffle(selected)
     return selected
 
 
-def check_answer(user_answer: str, correct_answer: str) -> bool:
-    """Check if the user's answer matches the correct answer (grammar cards)."""
-    user = user_answer.strip().strip('"\'').lower()
-    correct = correct_answer.strip().strip('"\'').lower()
-
-    # Zero article variants
-    zero_variants = {"nothing", "none", "∅", "zero", "-", "", "no article"}
-    if correct in zero_variants or correct.startswith("(no"):
-        return user in zero_variants or user.startswith("(no")
-
-    # Normalize whitespace
-    user = " ".join(user.split())
-    correct = " ".join(correct.split())
-
-    return user == correct
-
-
-def update_card_status(card: dict, rating: str):
-    """Update card status based on user rating."""
-    today = date.today().isoformat()
-    card["last_reviewed"] = today
+def compute_new_status(rating: str, card: dict) -> dict:
+    """Compute new status fields based on rating. Returns update dict."""
+    today_str = date.today().isoformat()
+    update = {"last_reviewed": today_str}
 
     if rating == "again":
-        card["status"] = "again"
-        card["next_review"] = (date.today() + timedelta(days=1)).isoformat()
-        card["easy_streak"] = 0
+        update["status"] = "again"
+        update["next_review"] = (date.today() + timedelta(days=1)).isoformat()
+        update["easy_streak"] = 0
     elif rating == "good":
-        card["status"] = "good"
-        card["next_review"] = (date.today() + timedelta(days=4)).isoformat()
-        card["easy_streak"] = 0
+        update["status"] = "good"
+        update["next_review"] = (date.today() + timedelta(days=4)).isoformat()
+        update["easy_streak"] = 0
     elif rating == "easy":
-        card["status"] = "easy"
-        card["next_review"] = (date.today() + timedelta(days=14)).isoformat()
-        card["easy_streak"] = card.get("easy_streak", 0) + 1
-        # Auto-retire after 3 consecutive easy
-        if card["easy_streak"] >= 3:
-            card["status"] = "retired"
-            card["next_review"] = ""
+        easy_streak = card.get("easy_streak", 0) + 1
+        update["easy_streak"] = easy_streak
+        if easy_streak >= 3:
+            update["status"] = "retired"
+            update["next_review"] = ""
+        else:
+            update["status"] = "easy"
+            update["next_review"] = (date.today() + timedelta(days=14)).isoformat()
+
+    return update
 
 
-async def send_card(update_or_context, chat_id: int, session: dict):
-    """Send the current card to the user."""
-    idx = session["current_index"]
-    total = len(session["selected_cards"])
-    card = session["selected_cards"][idx]
-    week = session["week_number"]
-    category = CATEGORY_NAMES[week]
+def buffer_rating(filename: str, card_num: int, update: dict):
+    """Store a card rating in the in-memory daily buffer."""
+    global daily_buffer
+    if filename not in daily_buffer:
+        daily_buffer[filename] = {}
+    daily_buffer[filename][str(card_num)] = update
 
-    if card["type"] == "phrase":
-        text = (
-            f"📝 *Phrase Drill* \\({_escape_md(category)}\\) — {idx + 1}/{total}\n\n"
-            f"用英语表达这个意思：\n"
-            f"*\"{_escape_md(card['chinese_prompt'])}\"*\n\n"
-            f"💡 Keyword: *{_escape_md(card['keyword_hint'])}*"
-        )
-    else:
-        text = (
-            f"📝 *Grammar Drill* \\({_escape_md(category)}\\) — {idx + 1}/{total}\n\n"
-            f"Fill in the blank:\n"
-            f"\"{_escape_md(card['question'])}\""
-        )
 
-    # Determine how to send
-    if hasattr(update_or_context, 'bot'):
-        # It's a context object (from scheduler)
-        await update_or_context.bot.send_message(
+# ── Send Cards (Flashcard Style) ─────────────────────────────────
+
+async def send_flashcards(bot, chat_id: int, cards: list[dict], category: str, card_type: str):
+    """Send all cards at once as flashcards with spoiler answers."""
+    for i, card in enumerate(cards):
+        if card_type == "phrase":
+            # Top Phrases: Chinese prompt + keyword, spoiler answer
+            text = (
+                f"*{_escape_md(category)} {i + 1}/{len(cards)}*\n\n"
+                f"{_escape_md(card['chinese_prompt'])}\n"
+                f"💡 {_escape_md(card['keyword_hint'])}\n\n"
+                f"||{_escape_md(card['answer'])}||"
+            )
+        else:
+            # Grammar: sentence with blank, spoiler answer + spoiler rule
+            text = (
+                f"*{_escape_md(category)} {i + 1}/{len(cards)}*\n\n"
+                f"{_escape_md(card['question'])}\n\n"
+                f"||{_escape_md(card['answer'])}||\n"
+                f"||{_escape_md(card['rule'])}||"
+            )
+
+        # Unique callback ID: filename_cardnum
+        filename = CATEGORY_FILES.get(card.get("_week"), 7) if card_type == "phrase" else CATEGORY_FILES.get(card.get("_week"), 0)
+        cb_prefix = f"{card['_filename']}:{card['num']}"
+
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🔴 Again", callback_data=f"r_a_{cb_prefix}"),
+            InlineKeyboardButton("🟡 Good", callback_data=f"r_g_{cb_prefix}"),
+            InlineKeyboardButton("🟢 Easy", callback_data=f"r_e_{cb_prefix}"),
+        ]])
+
+        await bot.send_message(
             chat_id=chat_id,
             text=text,
             parse_mode="MarkdownV2",
+            reply_markup=keyboard,
         )
-    else:
-        # It's an Update object
-        await update_or_context.effective_message.reply_text(
-            text=text,
-            parse_mode="MarkdownV2",
-        )
-
-    session["awaiting_answer"] = True
-
-
-async def show_result(update: Update, card: dict, user_answer: str, is_correct: bool | None):
-    """Show the result after user answers, with rating buttons."""
-    card_id = f"{card['num']}_{sessions[update.effective_user.id]['week_number']}"
-
-    if card["type"] == "phrase":
-        # No auto-judging for phrases — just show the target
-        text = (
-            f"🎯 *Target phrase:* {_escape_md(card['answer'])}\n"
-            f"💬 \"{_escape_md(card['example_sentence'])}\"\n\n"
-            f"Your answer: {_escape_md(user_answer)}"
-        )
-    else:
-        if is_correct:
-            text = f"✅ *Correct\\!*\n"
-        else:
-            text = (
-                f"❌ *Not quite\\!*\n\n"
-                f"Your answer: {_escape_md(user_answer)}\n"
-                f"✅ Correct answer: *{_escape_md(card['answer'])}*\n"
-            )
-        text += (
-            f"❌ You originally wrote: {_escape_md(card['wrong'])}\n"
-            f"📖 Rule: {_escape_md(card['rule'])}"
-        )
-
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("🔴 Again", callback_data=f"rate_again_{card_id}"),
-        InlineKeyboardButton("🟡 Good", callback_data=f"rate_good_{card_id}"),
-        InlineKeyboardButton("🟢 Easy", callback_data=f"rate_easy_{card_id}"),
-    ]])
-
-    await update.effective_message.reply_text(
-        text=text,
-        parse_mode="MarkdownV2",
-        reply_markup=keyboard,
-    )
-
-
-async def show_summary(update_or_context, chat_id: int, session: dict):
-    """Show daily summary after all cards are done."""
-    correct = session.get("correct_count", 0)
-    total = len(session["selected_cards"])
-    week = session["week_number"]
-    category = CATEGORY_NAMES[week]
-    day = get_day_in_week()
-
-    text = f"📊 *Today's Results*\n\n"
-    text += f"✅ {correct}/{total} correct\n"
-
-    # Show mistakes
-    mistakes = session.get("mistakes", [])
-    if mistakes:
-        text += f"\nMistakes to review:\n"
-        for m in mistakes:
-            if m["type"] == "phrase":
-                text += f"• {_escape_md(m['chinese_prompt'])} → {_escape_md(m['answer'])}\n"
-            else:
-                text += f"• \"{_escape_md(m['question'])}\" → {_escape_md(m['answer'])} \\({_escape_md(m['rule'])}\\)\n"
-
-    text += f"\nThis week's focus: *{_escape_md(category)}* \\(Day {day}/7\\)"
-
-    if hasattr(update_or_context, 'bot'):
-        await update_or_context.bot.send_message(
-            chat_id=chat_id, text=text, parse_mode="MarkdownV2",
-            reply_markup=REPLY_KEYBOARD,
-        )
-    else:
-        await update_or_context.effective_message.reply_text(
-            text=text, parse_mode="MarkdownV2",
-            reply_markup=REPLY_KEYBOARD,
-        )
-
-    # Write back updated cards to GitHub
-    try:
-        await github.write_back_cards(
-            session["all_cards"],
-            session["pre_table"],
-            session["post_table"],
-            session["filepath"],
-            is_phrases=(week == 7),
-        )
-    except Exception as e:
-        logger.error(f"Failed to write back cards: {e}")
-
-    # Clean up session
-    if chat_id in sessions:
-        del sessions[chat_id]
-
-
-def _escape_md(text: str) -> str:
-    """Escape special characters for MarkdownV2."""
-    if not text:
-        return ""
-    special = r"_*[]()~`>#+-=|{}.!\\"
-    return re.sub(f"([{re.escape(special)}])", r"\\\1", str(text))
-
-
-def _get_push_time_str() -> str:
-    """Get push time display string."""
-    if bot_config.get("paused"):
-        return "paused"
-    h = bot_config.get("push_hour", 9)
-    m = bot_config.get("push_minute", 0)
-    return f"{h:02d}:{m:02d}"
 
 
 # ── Command Handlers ──────────────────────────────────────────────
@@ -356,14 +238,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = (
         f"📝 *Grammar Drill Bot*\n\n"
-        f"Practice your English grammar with daily drills\\!\n\n"
         f"Current week: *{_escape_md(category)}* \\(Day {day}/7\\)\n\n"
-        f"Commands:\n"
-        f"/settings \\- Change push time & card count\n"
-        f"/status \\- Current week & stats\n"
-        f"/stop \\- Pause daily pushes\n"
-        f"/resume \\- Resume daily pushes\n\n"
-        f"Tap *Practice* to start a drill session\\!"
+        f"Tap *Practice* to start a drill session\n"
+        f"Tap *Schedule* to change settings"
     )
     await update.message.reply_text(
         text=text, parse_mode="MarkdownV2", reply_markup=REPLY_KEYBOARD,
@@ -386,32 +263,60 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         cards, _, _, _ = await github.fetch_cards(week)
+        # Apply buffer
+        filename = CATEGORY_FILES[week]
+        cards = github.apply_buffer_to_cards(cards, daily_buffer, filename)
+
         total = len(cards)
-        new_count = sum(1 for c in cards if c["status"] == "new")
-        again_count = sum(1 for c in cards if c["status"] == "again")
-        good_count = sum(1 for c in cards if c["status"] == "good")
-        easy_count = sum(1 for c in cards if c["status"] == "easy")
-        retired_count = sum(1 for c in cards if c["status"] == "retired")
+        counts = {}
+        for c in cards:
+            counts[c["status"]] = counts.get(c["status"], 0) + 1
+
+        gc = bot_config.get("grammar_count", 5)
+        pc = bot_config.get("phrase_count", 3)
+        push_str = "paused" if bot_config.get("paused") else f"{bot_config.get('push_hour', 9):02d}:{bot_config.get('push_minute', 0):02d}"
 
         text = (
             f"📊 *Status*\n\n"
-            f"Week: *{_escape_md(category)}* \\(Day {day}/7\\)\n\n"
+            f"Week: *{_escape_md(category)}* \\(Day {day}/7\\)\n"
             f"Cards: {total} total\n"
-            f"🆕 New: {new_count}\n"
-            f"🔴 Again: {again_count}\n"
-            f"🟡 Good: {good_count}\n"
-            f"🟢 Easy: {easy_count}\n"
-            f"✅ Retired: {retired_count}\n\n"
-            f"Push: {_get_push_time_str()}\n"
-            f"Cards per session: {bot_config.get('cards_per_session', 5)}"
+            f"🆕 {counts.get('new', 0)} 🔴 {counts.get('again', 0)} "
+            f"🟡 {counts.get('good', 0)} 🟢 {counts.get('easy', 0)} "
+            f"✅ {counts.get('retired', 0)}\n\n"
+            f"Push: {_escape_md(push_str)}\n"
+            f"Grammar: {gc} / Phrases: {pc}"
         )
     except Exception as e:
         logger.error(f"Status error: {e}")
-        text = f"❌ Error fetching status: {_escape_md(str(e))}"
+        text = f"❌ Error: {_escape_md(str(e))}"
 
-    await update.message.reply_text(
-        text=text, parse_mode="MarkdownV2", reply_markup=REPLY_KEYBOARD,
+    await update.message.reply_text(text=text, parse_mode="MarkdownV2", reply_markup=REPLY_KEYBOARD)
+
+
+async def handle_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle the Schedule button — show current settings as popup."""
+    if not is_authorized(update):
+        return
+
+    gc = bot_config.get("grammar_count", 5)
+    pc = bot_config.get("phrase_count", 3)
+    h = bot_config.get("push_hour", 9)
+    m = bot_config.get("push_minute", 0)
+    paused = bot_config.get("paused", False)
+
+    text = (
+        f"⚙️ *Schedule*\n\n"
+        f"Push time: *{h:02d}:{m:02d}* {'\\(paused\\)' if paused else ''}\n"
+        f"Grammar cards: *{gc}*\n"
+        f"Top phrases: *{pc}*\n\n"
+        f"To change, use:\n"
+        f"`/settings 5 grammar 3 phrases at 9:00`\n"
+        f"`/settings 8 grammar`\n"
+        f"`/settings 5 phrases`\n"
+        f"`/settings at 8:30`\n\n"
+        f"`/stop` pause · `/resume` resume"
     )
+    await update.message.reply_text(text=text, parse_mode="MarkdownV2", reply_markup=REPLY_KEYBOARD)
 
 
 async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -420,52 +325,47 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     args = context.args
     if not args:
-        text = (
-            f"⚙️ *Settings*\n\n"
-            f"Current: {bot_config.get('cards_per_session', 5)} cards at "
-            f"{bot_config.get('push_hour', 9):02d}:{bot_config.get('push_minute', 0):02d}\n\n"
-            f"Usage:\n"
-            f"`/settings 5 cards at 9:00`\n"
-            f"`/settings 3 cards`\n"
-            f"`/settings at 8:30`"
-        )
-        await update.message.reply_text(text=text, parse_mode="MarkdownV2")
+        await handle_schedule(update, context)
         return
 
     text = " ".join(args).lower()
 
-    # Parse card count
-    count_match = re.search(r"(\d+)\s*cards?", text)
-    if count_match:
-        count = int(count_match.group(1))
+    # Parse grammar count
+    gm = re.search(r"(\d+)\s*grammar", text)
+    if gm:
+        count = int(gm.group(1))
         if 1 <= count <= 20:
-            bot_config["cards_per_session"] = count
+            bot_config["grammar_count"] = count
+
+    # Parse phrase count
+    pm = re.search(r"(\d+)\s*phrases?", text)
+    if pm:
+        count = int(pm.group(1))
+        if 1 <= count <= 20:
+            bot_config["phrase_count"] = count
 
     # Parse time
-    time_match = re.search(r"(?:at\s+)?(\d{1,2}):(\d{2})", text)
-    if time_match:
-        hour = int(time_match.group(1))
-        minute = int(time_match.group(2))
+    tm = re.search(r"(?:at\s+)?(\d{1,2}):(\d{2})", text)
+    if tm:
+        hour, minute = int(tm.group(1)), int(tm.group(2))
         if 0 <= hour <= 23 and 0 <= minute <= 59:
             bot_config["push_hour"] = hour
             bot_config["push_minute"] = minute
-            # Reschedule
             _apply_schedule()
 
-    # Save config
     try:
         await github.save_config(bot_config)
     except Exception as e:
         logger.error(f"Failed to save config: {e}")
 
+    gc = bot_config.get("grammar_count", 5)
+    pc = bot_config.get("phrase_count", 3)
+    h = bot_config.get("push_hour", 9)
+    m = bot_config.get("push_minute", 0)
+
     await update.message.reply_text(
-        text=(
-            f"✅ Updated\\!\n"
-            f"Cards: {bot_config['cards_per_session']}\n"
-            f"Push time: {bot_config['push_hour']:02d}:{bot_config['push_minute']:02d}"
-        ),
-        parse_mode="MarkdownV2",
-        reply_markup=REPLY_KEYBOARD,
+        f"✅ Updated\\!\nGrammar: {gc} / Phrases: {pc}\nPush: {h:02d}:{m:02d}",
+        parse_mode="MarkdownV2", reply_markup=REPLY_KEYBOARD,
     )
 
 
@@ -479,8 +379,7 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Failed to save config: {e}")
     if scheduler and scheduler.get_job("daily_push"):
         scheduler.remove_job("daily_push")
-    await update.message.reply_text("⏸ Daily pushes paused. /resume to restart.",
-                                     reply_markup=REPLY_KEYBOARD)
+    await update.message.reply_text("⏸ Paused. /resume to restart.", reply_markup=REPLY_KEYBOARD)
 
 
 async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -492,103 +391,85 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Failed to save config: {e}")
     _apply_schedule()
-    await update.message.reply_text(
-        f"▶️ Daily pushes resumed at {bot_config.get('push_hour', 9):02d}:{bot_config.get('push_minute', 0):02d}.",
-        reply_markup=REPLY_KEYBOARD,
-    )
+    h = bot_config.get("push_hour", 9)
+    m = bot_config.get("push_minute", 0)
+    await update.message.reply_text(f"▶️ Resumed at {h:02d}:{m:02d}.", reply_markup=REPLY_KEYBOARD)
 
 
 # ── Practice Session ──────────────────────────────────────────────
 
-async def start_practice(update_or_context, chat_id: int):
-    """Start a new drill session."""
-    global sessions
+async def start_practice(bot_or_update, chat_id: int):
+    """Start a drill session: grammar cards + top phrases, all sent at once."""
+    bot = bot_or_update.bot if hasattr(bot_or_update, 'bot') else bot_or_update
 
     week = get_week_number()
+    grammar_count = bot_config.get("grammar_count", 5)
+    phrase_count = bot_config.get("phrase_count", 3)
+
+    # Fetch grammar cards for current week
+    grammar_cards = []
+    grammar_filename = CATEGORY_FILES[week]
     try:
-        cards, pre_table, post_table, filepath = await github.fetch_cards(week)
+        cards, _, _, _ = await github.fetch_cards(week)
+        selected = select_cards(cards, grammar_count, daily_buffer, grammar_filename)
+        for c in selected:
+            c["_filename"] = grammar_filename
+            c["_week"] = week
+        grammar_cards = selected
     except Exception as e:
-        logger.error(f"Failed to fetch cards: {e}")
-        if hasattr(update_or_context, 'bot'):
-            await update_or_context.bot.send_message(
-                chat_id=chat_id,
-                text=f"❌ Failed to fetch cards: {e}",
-            )
+        logger.error(f"Failed to fetch grammar cards: {e}")
+
+    # Fetch top phrases (always)
+    phrase_cards = []
+    phrase_filename = CATEGORY_FILES[7]
+    if week != 7:  # Don't double-fetch if this week IS phrases week
+        try:
+            pcards, _, _, _ = await github.fetch_phrase_cards()
+            selected_p = select_cards(pcards, phrase_count, daily_buffer, phrase_filename)
+            for c in selected_p:
+                c["_filename"] = phrase_filename
+                c["_week"] = 7
+            phrase_cards = selected_p
+        except Exception as e:
+            logger.error(f"Failed to fetch phrase cards: {e}")
+    else:
+        # Phrases week — all cards are phrases, use grammar_count + phrase_count
+        total = grammar_count + phrase_count
+        try:
+            pcards, _, _, _ = await github.fetch_phrase_cards()
+            selected_p = select_cards(pcards, total, daily_buffer, phrase_filename)
+            for c in selected_p:
+                c["_filename"] = phrase_filename
+                c["_week"] = 7
+            phrase_cards = selected_p
+            grammar_cards = []  # No separate grammar on phrases week
+        except Exception as e:
+            logger.error(f"Failed to fetch phrase cards: {e}")
+
+    if not grammar_cards and not phrase_cards:
+        if hasattr(bot_or_update, 'effective_message'):
+            await bot_or_update.effective_message.reply_text(
+                "No cards available today!", reply_markup=REPLY_KEYBOARD)
         else:
-            await update_or_context.effective_message.reply_text(
-                f"❌ Failed to fetch cards: {e}",
-            )
+            await bot.send_message(chat_id=chat_id,
+                text="No cards available today!", reply_markup=REPLY_KEYBOARD)
         return
 
-    count = bot_config.get("cards_per_session", 5)
-    selected = select_cards(cards, count)
+    category = CATEGORY_NAMES[week]
 
-    if not selected:
-        text = "No cards available for practice today! All cards may be retired or not yet due."
-        if hasattr(update_or_context, 'bot'):
-            await update_or_context.bot.send_message(chat_id=chat_id, text=text,
-                                                       reply_markup=REPLY_KEYBOARD)
-        else:
-            await update_or_context.effective_message.reply_text(text, reply_markup=REPLY_KEYBOARD)
-        return
+    # Send grammar cards
+    if grammar_cards:
+        await send_flashcards(bot, chat_id, grammar_cards, category, "grammar")
 
-    session = {
-        "week_number": week,
-        "all_cards": cards,
-        "selected_cards": selected,
-        "pre_table": pre_table,
-        "post_table": post_table,
-        "filepath": filepath,
-        "current_index": 0,
-        "correct_count": 0,
-        "mistakes": [],
-        "awaiting_answer": False,
-    }
-    sessions[chat_id] = session
-
-    await send_card(update_or_context, chat_id, session)
+    # Send phrase cards
+    if phrase_cards:
+        await send_flashcards(bot, chat_id, phrase_cards, "Phrases", "phrase")
 
 
 async def handle_practice_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle the Practice reply keyboard button."""
     if not is_authorized(update):
         return
-
-    chat_id = update.effective_user.id
-    if chat_id in sessions:
-        await update.message.reply_text(
-            "You already have an active session! Finish it first or wait for it to end.",
-            reply_markup=REPLY_KEYBOARD,
-        )
-        return
-
-    await start_practice(update, chat_id)
-
-
-async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle user's answer to a card."""
-    if not is_authorized(update):
-        return
-
-    chat_id = update.effective_user.id
-    session = sessions.get(chat_id)
-    if not session or not session.get("awaiting_answer"):
-        return
-
-    session["awaiting_answer"] = False
-    user_answer = update.message.text.strip()
-    card = session["selected_cards"][session["current_index"]]
-
-    if card["type"] == "phrase":
-        # No auto-judging — just show the answer
-        await show_result(update, card, user_answer, None)
-    else:
-        is_correct = check_answer(user_answer, card["answer"])
-        if is_correct:
-            session["correct_count"] += 1
-        else:
-            session["mistakes"].append(card)
-        await show_result(update, card, user_answer, is_correct)
+    await start_practice(update, update.effective_user.id)
 
 
 async def handle_rating(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -596,36 +477,53 @@ async def handle_rating(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    chat_id = query.from_user.id
-    session = sessions.get(chat_id)
-    if not session:
+    if query.from_user.id != USER_ID:
         return
 
-    data = query.data  # e.g., "rate_again_5_0"
-    parts = data.split("_")
-    rating = parts[1]  # again, good, easy
+    # Parse callback: r_a_filename:num, r_g_filename:num, r_e_filename:num
+    data = query.data
+    parts = data.split("_", 2)
+    if len(parts) < 3:
+        return
 
-    # Update card status
-    card = session["selected_cards"][session["current_index"]]
-    update_card_status(card, rating)
+    rating_code = parts[1]  # a, g, e
+    rating_map = {"a": "again", "g": "good", "e": "easy"}
+    rating = rating_map.get(rating_code)
+    if not rating:
+        return
 
-    # Also update in all_cards list
-    for i, c in enumerate(session["all_cards"]):
-        if c["num"] == card["num"]:
-            session["all_cards"][i] = card
-            break
+    file_card = parts[2]  # filename:num
+    if ":" not in file_card:
+        return
+    filename, card_num_str = file_card.rsplit(":", 1)
 
-    # Move to next card
-    session["current_index"] += 1
+    # Get current card state from buffer or default
+    file_buf = daily_buffer.get(filename, {})
+    current = file_buf.get(card_num_str, {"easy_streak": 0})
 
-    if session["current_index"] >= len(session["selected_cards"]):
-        # Session complete
-        await show_summary(context, chat_id, session)
-    else:
-        await send_card(context, chat_id, session)
+    # Compute new status
+    update_data = compute_new_status(rating, current)
+
+    # Store in buffer
+    buffer_rating(filename, int(card_num_str), update_data)
+
+    # Update the button to show which was selected
+    rating_labels = {"again": "🔴 Again ✓", "good": "🟡 Good ✓", "easy": "🟢 Easy ✓"}
+    new_keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            rating_labels[r] if r == rating else label,
+            callback_data="noop"
+        )
+        for r, label in [("again", "🔴 Again"), ("good", "🟡 Good"), ("easy", "🟢 Easy")]
+    ]])
+
+    try:
+        await query.edit_message_reply_markup(reply_markup=new_keyboard)
+    except Exception:
+        pass  # Message may be too old to edit
 
 
-# ── Scheduled Push ────────────────────────────────────────────────
+# ── Scheduled Jobs ────────────────────────────────────────────────
 
 async def scheduled_push():
     """Send daily drill push."""
@@ -635,37 +533,66 @@ async def scheduled_push():
     await start_practice(app_instance, USER_ID)
 
 
+async def scheduled_sync():
+    """Daily sync: write buffer to .md files on GitHub, clear buffer."""
+    global daily_buffer
+    if not github:
+        return
+    if not daily_buffer:
+        logger.info("No buffer data to sync")
+        return
+
+    logger.info(f"Starting daily sync, buffer has {sum(len(v) for v in daily_buffer.values())} updates")
+
+    try:
+        # Save buffer to GitHub first (backup)
+        await github.save_buffer(daily_buffer)
+        # Now sync to .md files
+        await github.sync_buffer_to_markdown()
+        # Clear in-memory buffer
+        daily_buffer = {}
+        logger.info("Daily sync complete")
+    except Exception as e:
+        logger.error(f"Daily sync failed: {e}")
+
+
 def _apply_schedule():
-    """Apply/update the daily push schedule."""
+    """Apply/update scheduled jobs."""
     global scheduler
     if not scheduler:
         return
 
-    # Remove existing job if any
+    # Daily push
     if scheduler.get_job("daily_push"):
         scheduler.remove_job("daily_push")
+    if not bot_config.get("paused"):
+        hour = bot_config.get("push_hour", 9)
+        minute = bot_config.get("push_minute", 0)
+        tz = pytz.timezone(TIMEZONE)
+        scheduler.add_job(
+            scheduled_push,
+            CronTrigger(hour=hour, minute=minute, timezone=tz),
+            id="daily_push",
+            misfire_grace_time=120,
+        )
+        logger.info(f"Scheduled daily push at {hour:02d}:{minute:02d}")
 
-    if bot_config.get("paused"):
-        return
-
-    hour = bot_config.get("push_hour", 9)
-    minute = bot_config.get("push_minute", 0)
-    tz = pytz.timezone(TIMEZONE)
-
-    scheduler.add_job(
-        scheduled_push,
-        CronTrigger(hour=hour, minute=minute, timezone=tz),
-        id="daily_push",
-        misfire_grace_time=120,
-    )
-    logger.info(f"Scheduled daily push at {hour:02d}:{minute:02d}")
+    # Daily sync at 3:03 AM (offset from round numbers to avoid Obsidian sync)
+    if not scheduler.get_job("daily_sync"):
+        tz = pytz.timezone(TIMEZONE)
+        scheduler.add_job(
+            scheduled_sync,
+            CronTrigger(hour=3, minute=3, timezone=tz),
+            id="daily_sync",
+            misfire_grace_time=300,
+        )
+        logger.info("Scheduled daily sync at 03:03")
 
 
 # ── Application Setup ─────────────────────────────────────────────
 
 async def post_init(app: Application):
-    """Initialize after application starts."""
-    global github, scheduler, bot_config, app_instance
+    global github, scheduler, bot_config, app_instance, daily_buffer
     app_instance = app
 
     print(f"Grammar bot post_init: USER_ID={USER_ID}, TIMEZONE={TIMEZONE}")
@@ -678,24 +605,31 @@ async def post_init(app: Application):
         logger.error(f"GitHubHandler init failed: {e}")
         github = None
 
-    # Load config from GitHub
     if github:
         try:
             bot_config = await github.fetch_config()
             logger.info(f"Loaded config: {bot_config}")
         except Exception as e:
             logger.error(f"Failed to load config: {e}")
-            bot_config = {"push_hour": 9, "push_minute": 0, "cards_per_session": 5, "paused": False}
-    else:
-        bot_config = {"push_hour": 9, "push_minute": 0, "cards_per_session": 5, "paused": False}
+            bot_config = {"push_hour": 9, "push_minute": 0, "grammar_count": 5, "phrase_count": 3, "paused": False}
 
-    # Start scheduler
+        # Load any unsynced buffer from previous run
+        try:
+            daily_buffer = await github.load_buffer()
+            if daily_buffer:
+                logger.info(f"Loaded unsynced buffer: {sum(len(v) for v in daily_buffer.values())} updates")
+        except Exception as e:
+            logger.error(f"Failed to load buffer: {e}")
+            daily_buffer = {}
+    else:
+        bot_config = {"push_hour": 9, "push_minute": 0, "grammar_count": 5, "phrase_count": 3, "paused": False}
+
     tz = pytz.timezone(TIMEZONE)
     scheduler = AsyncIOScheduler(timezone=tz, misfire_grace_time=120)
     _apply_schedule()
     scheduler.start()
 
-    print(f"Grammar Drill Bot initialized successfully")
+    print("Grammar Drill Bot initialized successfully")
     logger.info("Grammar Drill Bot initialized")
 
 
@@ -706,7 +640,6 @@ def main():
 
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
-    # Command handlers
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("status", cmd_status))
@@ -714,19 +647,15 @@ def main():
     app.add_handler(CommandHandler("stop", cmd_stop))
     app.add_handler(CommandHandler("resume", cmd_resume))
 
-    # Callback handler for rating buttons
-    app.add_handler(CallbackQueryHandler(handle_rating, pattern=r"^rate_"))
+    app.add_handler(CallbackQueryHandler(handle_rating, pattern=r"^r_"))
 
-    # Practice button (reply keyboard)
     app.add_handler(MessageHandler(
         filters.TEXT & filters.Regex(r"^Practice$") & ~filters.COMMAND,
         handle_practice_button,
     ))
-
-    # Answer handler (any text when awaiting answer)
     app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        handle_answer,
+        filters.TEXT & filters.Regex(r"^Schedule$") & ~filters.COMMAND,
+        handle_schedule,
     ))
 
     print("Grammar Drill Bot starting...")
