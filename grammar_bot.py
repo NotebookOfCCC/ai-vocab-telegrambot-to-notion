@@ -259,13 +259,16 @@ async def send_flashcards(bot, chat_id: int, cards: list[dict], category: str, c
                 zh_line = f"_{_escape_md(card['_chinese'])}_\n"
 
             if card_type == "phrase":
-                # Top Phrases: Chinese prompt + keyword, spoiler answer
+                # Top Phrases: Chinese prompt + keyword, spoiler answer + example
+                example = card.get("example_sentence", "").strip()
                 text = (
                     f"*{_escape_md(category)} {i + 1}/{len(cards)}*\n\n"
                     f"{_escape_md(card['chinese_prompt'])}\n"
                     f"💡 {_escape_md(card['keyword_hint'])}\n\n"
                     f"||{_escape_md(card['answer'])}||"
                 )
+                if example:
+                    text += f"\n||{_escape_md(example)}||"
             else:
                 # Grammar: sentence with blank, Chinese hint, spoiler answer + rule
                 text = (
