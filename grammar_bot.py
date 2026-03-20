@@ -545,7 +545,12 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def start_practice(bot_or_update, chat_id: int):
     """Start a drill session: grammar cards + top phrases, all sent at once."""
-    bot = bot_or_update.bot if hasattr(bot_or_update, 'bot') else bot_or_update
+    if hasattr(bot_or_update, 'get_bot'):
+        bot = bot_or_update.get_bot()
+    elif hasattr(bot_or_update, 'bot'):
+        bot = bot_or_update.bot
+    else:
+        bot = bot_or_update
 
     if not github:
         logger.error("Practice failed: github handler not initialized")
