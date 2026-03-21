@@ -927,6 +927,10 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     is_paused = True
+    # Persist pause state to Notion so it survives restarts
+    if task_config is not None:
+        task_config["is_paused"] = True
+        save_config(task_config)
     await update.message.reply_text("Reminders paused. Use /resume to continue.")
     logger.info("Habit reminders paused")
 
@@ -940,6 +944,10 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     is_paused = False
+    # Persist resume state to Notion so it survives restarts
+    if task_config is not None:
+        task_config["is_paused"] = False
+        save_config(task_config)
     await update.message.reply_text("Reminders resumed!")
     logger.info("Habit reminders resumed")
 
@@ -1793,7 +1801,8 @@ def main():
     task_config = load_config()
     tz = task_config.get("timezone", TIMEZONE)
     boundary = task_config.get("day_boundary", 4)
-    print(f"Config loaded: timezone={tz}, day_boundary={boundary}am")
+    is_paused = task_config.get("is_paused", False)
+    print(f"Config loaded: timezone={tz}, day_boundary={boundary}am, paused={is_paused}")
 
     # Vocab handler for review stats (optional - only if vocab DB configured)
     vocab_handler = None
