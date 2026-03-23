@@ -457,15 +457,23 @@ async def send_flashcards(bot, chat_id: int, cards: list[dict], category: str, c
                 if example:
                     text += f"\n\n*例句：*\n||{_escape_md(example)}||"
             else:
-                # Grammar: sentence with blank, Chinese hint, spoiler answer + rule
+                # Grammar: Chinese translation visible, keyword hint, spoiler full sentence + rule
                 ex_en = card.get("_example", "").strip()
                 ex_zh = card.get("_example_chinese", "").strip()
+                # Reconstruct full sentence by filling in the blank
+                q = card.get("question", "")
+                a = card.get("answer", "")
+                full_sentence = q.replace("__", a).replace("___", a) if ("__" in q or "___" in q) else q
+                # Chinese translation as visible prompt
+                chinese_prompt = card.get("_chinese", "").strip()
+                # Use answer as keyword hint (the word/form to practice)
+                hint = a.strip()
                 text = (
                     f"*{_escape_md(category)} {i + 1}/{len(cards)}*\n\n"
-                    f"{_escape_md(card['question'])}\n"
-                    f"{zh_line}\n"
+                    f"{_escape_md(chinese_prompt)}\n"
+                    f"💡 {_escape_md(hint)}\n\n"
                     f"*说明：*\n"
-                    f"||{_escape_md(card['answer'])}||\n"
+                    f"||{_escape_md(full_sentence)}||\n"
                     f"||{_escape_md(card['rule'])}||"
                 )
                 if ex_en:
@@ -495,7 +503,10 @@ async def send_flashcards(bot, chat_id: int, cards: list[dict], category: str, c
                 if card_type == "phrase":
                     plain += f"{card.get('chinese_prompt', '')}\n💡 {card.get('keyword_hint', '')}\n\nAnswer: {card.get('answer', '')}"
                 else:
-                    plain += f"{card.get('question', '')}\n\nAnswer: {card.get('answer', '')}\nRule: {card.get('rule', '')}"
+                    q = card.get("question", "")
+                    a = card.get("answer", "")
+                    full = q.replace("__", a).replace("___", a) if ("__" in q or "___" in q) else q
+                    plain += f"{card.get('_chinese', '')}\n💡 {a}\n\nAnswer: {full}\nRule: {card.get('rule', '')}"
                 await bot.send_message(chat_id=chat_id, text=plain, reply_markup=keyboard)
             except Exception:
                 pass
