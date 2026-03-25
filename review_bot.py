@@ -14,6 +14,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from notion_handler import NotionHandler
+from review_stats_handler import ReviewStatsHandler
 
 # Load environment variables
 load_dotenv()
@@ -31,6 +32,7 @@ REVIEW_USER_ID = os.getenv("REVIEW_USER_ID")
 NOTION_KEY = os.getenv("NOTION_API_KEY")
 NOTION_DB_ID = os.getenv("NOTION_DATABASE_ID")
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
+REVIEW_STATS_DB_ID = os.getenv("REVIEW_STATS_DB_ID")
 
 # Additional database IDs for review (comma-separated)
 # Example: ADDITIONAL_DATABASE_IDS=db_id_2,db_id_3
@@ -99,6 +101,7 @@ scheduler = None
 application = None
 is_paused = False
 review_config = None
+stats_handler = None
 sent_but_unrated: dict = {}  # page_id → {"entry": entry, "sent_at": datetime}; accumulates across batches, expires after 2 days
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
@@ -675,6 +678,8 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
         page_id = data[6:]  # Remove "again_" prefix
         sent_but_unrated.pop(page_id, None)
         result = notion_handler.update_review_stats(page_id, response="again")
+        if stats_handler:
+            stats_handler.record_review("again")
         revealed = _unspoiler_html(query.message)
         await query.edit_message_text(text=revealed, parse_mode="HTML", reply_markup=None)
 
@@ -682,6 +687,8 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
         page_id = data[5:]  # Remove "good_" prefix
         sent_but_unrated.pop(page_id, None)
         result = notion_handler.update_review_stats(page_id, response="good")
+        if stats_handler:
+            stats_handler.record_review("good")
         revealed = _unspoiler_html(query.message)
         await query.edit_message_text(text=revealed, parse_mode="HTML", reply_markup=None)
         if result.get("mastered"):
@@ -692,6 +699,8 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
         page_id = data[5:]  # Remove "easy_" prefix
         sent_but_unrated.pop(page_id, None)
         result = notion_handler.update_review_stats(page_id, response="easy")
+        if stats_handler:
+            stats_handler.record_review("easy")
         revealed = _unspoiler_html(query.message)
         await query.edit_message_text(text=revealed, parse_mode="HTML", reply_markup=None)
         if result.get("mastered"):
@@ -764,7 +773,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 def main():
     """Main function to run the review bot."""
-    global notion_handler, application, review_config
+    global notion_handler, application, review_config, stats_handler
 
     # Validate configuration
     if not REVIEW_BOT_TOKEN:
@@ -788,6 +797,12 @@ def main():
             print(f"Additional databases for review: {len(ADDITIONAL_DB_IDS)} configured")
     else:
         print(f"WARNING: Notion connection issue: {notion_test['error']}")
+
+    if REVIEW_STATS_DB_ID:
+        stats_handler = ReviewStatsHandler(NOTION_KEY, REVIEW_STATS_DB_ID, timezone=TIMEZONE)
+        logger.info("Review stats tracking enabled")
+    else:
+        logger.warning("REVIEW_STATS_DB_ID not set — stats tracking disabled")
 
     # Load schedule config
     review_config = load_config()
