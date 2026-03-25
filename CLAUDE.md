@@ -160,6 +160,15 @@ main.py (Entry Point)
 - Category (Select) - Work, Life, Health, Study, Other, Block [optional]
 ```
 
+### Review Stats Database
+```
+- Date (Title) - YYYY-MM-DD
+- Reviewed (Number) - total reviews for the day
+- Again (Number) - again count
+- Good (Number) - good count
+- Easy (Number) - easy count
+```
+
 **Categories:**
 - **Block** - Recurring time blocks (Sleep, Family Time) - show ☀️ in timeline, NOT actionable, NOT scored
 - **Study, Work, Life, Health, Other** - User tasks - actionable and scored
@@ -193,6 +202,7 @@ ALLOWED_USER_IDS=         # Comma-separated user IDs for vocab bot
 REVIEW_USER_ID=           # Review bot user ID
 HABITS_USER_ID=           # Habits bot user ID
 GRAMMAR_USER_ID=          # Grammar drill bot user ID
+REVIEW_STATS_DB_ID=       # Review stats tracking database ID (daily counts)
 
 # Settings
 TIMEZONE=Europe/London    # Timezone for scheduling
@@ -228,6 +238,7 @@ Mastery:
 - `/review` - Manual review trigger
 - `/due` - Show review stats (overdue, due today, new, total)
 - `/stop`, `/resume`, `/status`
+- `/stats` - This week's review stats with bar chart
 - **📋 Pending** (reply keyboard) - Resends all unrated cards from the last 2 days with chunked audio
 
 ### Task Bot
@@ -545,3 +556,4 @@ Row 2: [Cancel]  [More]
 60. **Grammar card labels**: Spoilered answers prefixed with bold "**说明：**", examples prefixed with bold "**例句：**" / "**例句中文：**" for visual clarity.
 61. **Grammar daily sync at 4:03 AM**: Moved from 3:03 AM to 4:03 AM to avoid conflict with late-night usage.
 62. **Grammar cards Chinese-to-English**: Grammar cards now show Chinese translation visible + answer as 💡 keyword hint, with full English sentence spoilered (instead of fill-in-blank). Same format as phrase cards — user practices constructing the full sentence from Chinese context.
+63. **Review stats tracking**: Daily review counts (reviewed/again/good/easy) tracked in dedicated Notion database. /stats command shows weekly bar chart. Automated weekly report (Sunday) and monthly report (1st of month) with trends and comparisons.
