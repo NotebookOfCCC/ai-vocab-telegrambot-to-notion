@@ -107,7 +107,7 @@ sent_but_unrated: dict = {}  # page_id → {"entry": entry, "sent_at": datetime}
 def get_main_keyboard() -> ReplyKeyboardMarkup:
     """Persistent reply keyboard with the two most-used actions."""
     return ReplyKeyboardMarkup(
-        [["📖 Review", "📊 Due", "📋 Pending"]],
+        [["📖 Review", "📊 Due", "📋 Pending", "📈 Stats"]],
         resize_keyboard=True,
         is_persistent=True,
     )
@@ -569,6 +569,42 @@ async def due_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text("Failed to get stats.")
 
 
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /stats command — show this week's review stats."""
+    if str(update.effective_user.id) != REVIEW_USER_ID:
+        await update.message.reply_text("Sorry, this bot is private.")
+        return
+
+    if not stats_handler:
+        await update.message.reply_text("Stats tracking not configured (REVIEW_STATS_DB_ID missing).")
+        return
+
+    from datetime import date, timedelta
+    today = date.today()
+    # Current week (Mon-today)
+    monday = today - timedelta(days=today.weekday())
+    days = stats_handler.get_date_range(monday, today)
+    total = sum(d["reviewed"] for d in days)
+    total_again = sum(d["again"] for d in days)
+    total_good = sum(d["good"] for d in days)
+    total_easy = sum(d["easy"] for d in days)
+    avg = total / len(days) if days else 0
+
+    day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    max_val = max((d["reviewed"] for d in days), default=1) or 1
+    lines = ["📊 This Week's Reviews"]
+    lines.append("")
+    for i, d in enumerate(days):
+        bar_len = int(d["reviewed"] / max_val * 10)
+        bar = "█" * bar_len
+        lines.append(f"{day_names[i]}: {d['reviewed']:>3}  {bar}")
+    lines.append("")
+    lines.append(f"Total: {total} | Avg: {avg:.0f}/day")
+    lines.append(f"🔴 {total_again} | 🟡 {total_good} | 🟢 {total_easy}")
+
+    await update.message.reply_text("\n".join(lines))
+
+
 def format_schedule_text(config: dict) -> str:
     """Format current schedule config as a display string."""
     if not config:
@@ -809,6 +845,8 @@ async def handle_keyboard_button(update: Update, context: ContextTypes.DEFAULT_T
         await due_command(update, context)
     elif text == "📋 Pending":
         await send_pending_resend()
+    elif text == "📈 Stats":
+        await stats_command(update, context)
 
 
 def apply_schedule(sched, config: dict) -> None:
@@ -846,6 +884,26 @@ async def post_init(app: Application) -> None:
     scheduler = AsyncIOScheduler(timezone=TIMEZONE, misfire_grace_time=120)
     apply_schedule(scheduler, review_config)
     scheduler.start()
+
+    # Weekly report — Sunday at first review hour (or 8:00)
+    first_hour = review_config["review_hours"][0] if review_config["review_hours"] else 8
+    scheduler.add_job(
+        send_weekly_report,
+        CronTrigger(day_of_week="sun", hour=first_hour, minute=0, second=0, timezone=TIMEZONE),
+        id="weekly_report",
+        name="Weekly Review Report",
+        misfire_grace_time=300,
+    )
+
+    # Monthly report — 1st of month at 7:00 AM
+    scheduler.add_job(
+        send_monthly_report,
+        CronTrigger(day=1, hour=7, minute=0, timezone=TIMEZONE),
+        id="monthly_report",
+        name="Monthly Review Report",
+        misfire_grace_time=300,
+    )
+
     logger.info(f"Scheduler started with timezone {TIMEZONE}")
 
     # Log next run times for debugging
@@ -908,10 +966,11 @@ def main():
     application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CommandHandler("resume", resume_command))
     application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CallbackQueryHandler(handle_schedule_callback, pattern=r"^sched_"))
     application.add_handler(CallbackQueryHandler(handle_review_callback, pattern=r"^(again|good|easy)_"))
     application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & filters.Regex(r"^(📖 Review|📊 Due|📋 Pending)$"),
+        filters.TEXT & ~filters.COMMAND & filters.Regex(r"^(📖 Review|📊 Due|📋 Pending|📈 Stats)$"),
         handle_keyboard_button
     ))
 
