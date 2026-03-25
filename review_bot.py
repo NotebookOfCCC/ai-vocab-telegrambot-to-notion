@@ -351,6 +351,95 @@ async def send_pending_resend():
             )
 
 
+async def send_weekly_report():
+    """Send weekly review report every Sunday."""
+    if not stats_handler or not REVIEW_USER_ID:
+        return
+
+    from datetime import date, timedelta
+    today = date.today()
+    # Last 7 days (Mon-Sun)
+    end = today - timedelta(days=1)  # Saturday
+    start = end - timedelta(days=6)  # Last Monday
+
+    days = stats_handler.get_date_range(start, end)
+    total = sum(d["reviewed"] for d in days)
+    total_again = sum(d["again"] for d in days)
+    total_good = sum(d["good"] for d in days)
+    total_easy = sum(d["easy"] for d in days)
+    active_days = sum(1 for d in days if d["reviewed"] > 0)
+    avg = total / 7 if total else 0
+
+    # Bar chart
+    max_val = max(d["reviewed"] for d in days) if days else 1
+    day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    lines = [f"📊 Weekly Review Report"]
+    lines.append(f"{start.strftime('%b %d')} – {end.strftime('%b %d')}")
+    lines.append("")
+    for i, d in enumerate(days):
+        bar_len = int(d["reviewed"] / max(max_val, 1) * 10)
+        bar = "█" * bar_len
+        lines.append(f"{day_names[i]}: {d['reviewed']:>3}  {bar}")
+    lines.append("")
+    lines.append(f"Total: {total} words | Avg: {avg:.0f}/day")
+    lines.append(f"🔴 {total_again} | 🟡 {total_good} | 🟢 {total_easy}")
+    lines.append(f"Active: {active_days}/7 days")
+
+    await application.bot.send_message(
+        chat_id=REVIEW_USER_ID,
+        text="\n".join(lines),
+    )
+
+
+async def send_monthly_report():
+    """Send monthly review report on the 1st of each month."""
+    if not stats_handler or not REVIEW_USER_ID:
+        return
+
+    from datetime import date, timedelta
+    today = date.today()
+    # Last month
+    last_month_end = today - timedelta(days=1)
+    last_month_start = last_month_end.replace(day=1)
+    num_days = (last_month_end - last_month_start).days + 1
+
+    days = stats_handler.get_date_range(last_month_start, last_month_end)
+    total = sum(d["reviewed"] for d in days)
+    total_again = sum(d["again"] for d in days)
+    total_good = sum(d["good"] for d in days)
+    total_easy = sum(d["easy"] for d in days)
+    active_days = sum(1 for d in days if d["reviewed"] > 0)
+    best = max(days, key=lambda d: d["reviewed"])
+    avg = total / num_days if total else 0
+
+    # Previous month for comparison
+    prev_month_end = last_month_start - timedelta(days=1)
+    prev_month_start = prev_month_end.replace(day=1)
+    prev_days = stats_handler.get_date_range(prev_month_start, prev_month_end)
+    prev_total = sum(d["reviewed"] for d in prev_days)
+
+    month_name = last_month_start.strftime("%B %Y")
+    lines = [f"📊 Monthly Review Report — {month_name}"]
+    lines.append("")
+    lines.append(f"Total: {total} words | Avg: {avg:.1f}/day")
+    lines.append(f"🔴 Again: {total_again} ({total_again*100//max(total,1)}%)"
+                 f" | 🟡 Good: {total_good} ({total_good*100//max(total,1)}%)"
+                 f" | 🟢 Easy: {total_easy} ({total_easy*100//max(total,1)}%)")
+    lines.append(f"Best day: {best['date']} ({best['reviewed']} words)")
+    lines.append(f"Active: {active_days}/{num_days} days")
+
+    if prev_total > 0:
+        diff = total - prev_total
+        pct = diff * 100 // prev_total
+        sign = "+" if diff >= 0 else ""
+        lines.append(f"\nvs {prev_month_start.strftime('%B')}: {sign}{diff} words ({sign}{pct}%)")
+
+    await application.bot.send_message(
+        chat_id=REVIEW_USER_ID,
+        text="\n".join(lines),
+    )
+
+
 async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /myid command - show user's Telegram ID for setup."""
     user_id = update.effective_user.id
