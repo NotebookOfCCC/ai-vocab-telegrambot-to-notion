@@ -358,9 +358,9 @@ async def send_weekly_report():
 
     from datetime import date, timedelta
     today = date.today()
-    # Last 7 days (Mon-Sun)
-    end = today - timedelta(days=1)  # Saturday
-    start = end - timedelta(days=6)  # Last Monday
+    # Mon-Sun of the current week (report runs on Sunday)
+    start = today - timedelta(days=6)  # Monday
+    end = today  # Sunday
 
     days = stats_handler.get_date_range(start, end)
     total = sum(d["reviewed"] for d in days)
