@@ -20,6 +20,9 @@ A Telegram bot system that helps you learn English vocabulary with AI-powered ex
 - **3-Button System**: Again (review tomorrow), Good (normal interval), Easy (longer interval)
 - **Equal Priority**: New words and due words have same priority (mixed reviews)
 - **Multi-Database**: Supports querying from multiple Notion databases
+- **Stats Tracking**: Daily review counts (reviewed/again/good/easy) in dedicated Notion database
+- **Weekly Report**: Every Sunday — bar chart with daily counts, totals, active days
+- **Monthly Report**: 1st of month — averages, best day, month-over-month comparison
 - **Reliable Fetching**: Auto-retry (3x with exponential backoff) for Notion API errors
 
 ### Grammar Drill Bot (`grammar_bot.py`)
@@ -64,6 +67,7 @@ This bot is optimized to minimize API costs:
 | Task Bot AI parsing (Haiku) | ~$0.001 per task |
 | Common words (~300) | **FREE** (skipped) |
 | Review Bot | **FREE** (no AI) |
+| Review Stats Tracking | **FREE** (Notion only) |
 | Vocab analysis (Sonnet 4) | ~$0.01-0.02 per word |
 | Modifications (Sonnet 3.5) | ~$0.005 per call |
 | Entry detection (Sonnet 3.5) | ~$0.002 per call |
@@ -118,6 +122,14 @@ Optional properties:
 
 **Note:** Block category is for recurring time blocks (Sleep, Family Time) - they show ☀️ in timeline but are NOT actionable or scored.
 
+#### Review Stats Database
+Required properties:
+- Date (Title) - format: YYYY-MM-DD
+- Reviewed (Number) - total reviews for the day
+- Again (Number) - again count
+- Good (Number) - good count
+- Easy (Number) - easy count
+
 #### Recurring Blocks Database (Optional - for Notion Calendar)
 Required properties:
 - Reminder (Title) - block name (e.g., "Family Time", "Sleep")
@@ -150,6 +162,7 @@ HABITS_USER_ID=your_telegram_user_id
 HABITS_REMINDERS_DB_ID=your_reminders_database_id
 HABITS_TRACKING_DB_ID=your_tracking_database_id
 RECURRING_BLOCKS_DB_ID=your_recurring_blocks_database_id  # Optional
+REVIEW_STATS_DB_ID=your_review_stats_database_id  # Optional: daily review counts
 
 # Grammar Drill Bot
 GRAMMAR_BOT_TOKEN=your_grammar_bot_token
@@ -188,6 +201,7 @@ python grammar_bot.py # Grammar drills
 - `/start` - Bot info
 - `/review` - Get review batch now
 - `/due` - See pending reviews count + total words
+- `/stats` - This week's review stats with bar chart
 - `/stop` / `/resume` - Pause/resume scheduled reviews
 - `/status` - Bot status
 
@@ -284,6 +298,7 @@ ai-vocab-telegram-bot/
 ├── habit_handler.py    # Notion API for task/reminder databases
 ├── grammar_bot.py      # Grammar drill bot - flashcard practice from Obsidian
 ├── github_handler.py   # GitHub API for Obsidian .md file read/write
+├── review_stats_handler.py # Notion API for review stats tracking
 ├── task_parser.py      # Regex-based task parser (fallback if no AI)
 ├── schedule_config.json # Recurring blocks configuration
 ├── requirements.txt    # Python dependencies
@@ -297,6 +312,8 @@ ai-vocab-telegram-bot/
 
 ### Review Bot
 - 8:00, 13:00, 19:00, 22:00 - Vocabulary reviews
+- Sunday (at first review hour) - Weekly review report
+- 1st of month, 7:00 AM - Monthly review report
 
 ### Grammar Drill Bot
 - 9:00 AM (configurable) - Daily grammar + phrase push

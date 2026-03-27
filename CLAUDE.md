@@ -41,6 +41,9 @@ main.py (Entry Point)
 - Buttons: Again (1 day) / Good (2^n days) / Easy (skip ahead)
 - New words and due words have equal priority
 - **Multi-database support**: Can query from multiple Notion databases
+- **Stats tracking**: Daily review counts (reviewed/again/good/easy) in dedicated Notion database
+- **Weekly report**: Every Sunday — bar chart + totals + active days
+- **Monthly report**: 1st of month — totals, averages, best day, month-over-month comparison
 - **No API cost** (just Notion queries)
 
 ### 3. Task Bot (`habit_bot.py`)
@@ -94,6 +97,7 @@ main.py (Entry Point)
 | `habit_handler.py` | Task tracking, task management | FREE |
 | `grammar_bot.py` | Grammar drill bot (Obsidian/GitHub) | **FREE** |
 | `github_handler.py` | GitHub API read/write for Obsidian files | FREE |
+| `review_stats_handler.py` | Review stats tracking (Notion) | FREE |
 | `schedule_config.json` | Recurring blocks configuration | - |
 
 ## Cost Optimization
@@ -196,13 +200,13 @@ ADDITIONAL_DATABASE_IDS=  # Optional: comma-separated additional DB IDs for revi
 HABITS_TRACKING_DB_ID=    # Habit tracking database ID
 HABITS_REMINDERS_DB_ID=   # Reminders database ID
 RECURRING_BLOCKS_DB_ID=   # Optional: Recurring time blocks database ID
+REVIEW_STATS_DB_ID=       # Review stats tracking database ID (daily counts)
 
 # User IDs
 ALLOWED_USER_IDS=         # Comma-separated user IDs for vocab bot
 REVIEW_USER_ID=           # Review bot user ID
 HABITS_USER_ID=           # Habits bot user ID
 GRAMMAR_USER_ID=          # Grammar drill bot user ID
-REVIEW_STATS_DB_ID=       # Review stats tracking database ID (daily counts)
 
 # Settings
 TIMEZONE=Europe/London    # Timezone for scheduling
