@@ -21,6 +21,7 @@ from telegram.ext import (
 from ai_handler import AIHandler, CATEGORIES, CATEGORY_LIST
 from notion_handler import NotionHandler
 from cache_handler import CacheHandler
+from obsidian_vocab_handler import ObsidianVocabHandler
 
 # Load environment variables
 load_dotenv()
@@ -47,6 +48,7 @@ ALLOWED_USERS = [uid.strip() for uid in ALLOWED_USERS if uid.strip()]
 ai_handler = None
 notion_handler = None
 cache_handler = None
+obsidian_handler = None
 
 # Store user session data (pending entries to save)
 user_sessions = {}
@@ -787,10 +789,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             result = await loop.run_in_executor(None, notion_handler.save_entry, entry)
             verb = "Saved"
         if result["success"]:
+            # Save to Obsidian (best-effort)
+            obsidian_tag = ""
+            if obsidian_handler:
+                try:
+                    await obsidian_handler.append_entry(entry)
+                    obsidian_tag = " + Obsidian"
+                except Exception as e:
+                    logger.error(f"Obsidian batch save failed for '{entry.get('english', '')}': {e}")
             chinese = entry.get("chinese", "")
             short_zh = chinese.split("；")[0].split(";")[0].split("，")[0].split(",")[0].strip()
             await query.edit_message_text(
-                f"— {verb}: {entry['english']} - {short_zh} ({entry['category']})",
+                f"— {verb}{obsidian_tag}: {entry['english']} - {short_zh} ({entry['category']})",
                 reply_markup=None,
             )
         else:
@@ -1035,6 +1045,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             else:
                 failed_count += 1
 
+        # Save to Obsidian (background, non-blocking, best-effort)
+        if obsidian_handler:
+            for entry in saved_entries + replaced_entries:
+                try:
+                    await obsidian_handler.append_entry(entry)
+                except Exception as e:
+                    logger.error(f"Obsidian save failed for '{entry.get('english', '')}': {e}")
+
         # Invalidate cache for saved words so duplicate detection works next time
         original_input = session.get("original_input", "")
         if original_input and (saved_entries or replaced_entries):
@@ -1046,16 +1064,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Keep content, remove buttons
         await query.edit_message_text(query.message.text, reply_markup=None)
 
+        obsidian_tag = " + Obsidian" if obsidian_handler else ""
+
         # Send save confirmation as separate message
         if saved_entries or replaced_entries:
             for entry in replaced_entries:
                 chinese = entry.get('chinese', '')
                 short_chinese = chinese.split('；')[0].split(';')[0].split('，')[0].split(',')[0].strip()
-                await query.message.reply_text(f"— Replaced in Notion: {entry['english']} - {short_chinese} ({entry['category']})")
+                await query.message.reply_text(f"— Replaced in Notion{obsidian_tag}: {entry['english']} - {short_chinese} ({entry['category']})")
             for entry in saved_entries:
                 chinese = entry.get('chinese', '')
                 short_chinese = chinese.split('；')[0].split(';')[0].split('，')[0].split(',')[0].strip()
-                await query.message.reply_text(f"— Saved to Notion: {entry['english']} - {short_chinese} ({entry['category']})")
+                await query.message.reply_text(f"— Saved to Notion{obsidian_tag}: {entry['english']} - {short_chinese} ({entry['category']})")
             if failed_count > 0:
                 await query.message.reply_text(f"({failed_count} failed)")
         else:
@@ -1073,7 +1093,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 def main():
     """Main function to run the bot."""
-    global ai_handler, notion_handler, cache_handler
+    global ai_handler, notion_handler, cache_handler, obsidian_handler
 
     # Validate configuration
     if not TELEGRAM_TOKEN:
@@ -1096,6 +1116,14 @@ def main():
     notion_handler = NotionHandler(NOTION_KEY, NOTION_DB_ID, additional_database_ids=ADDITIONAL_DB_IDS)
     cache_handler = CacheHandler()
     print(f"Cache loaded: {len(cache_handler.cache)} entries")
+
+    # Initialize Obsidian handler (optional — needs OBSIDIAN_GITHUB_TOKEN)
+    try:
+        obsidian_handler = ObsidianVocabHandler()
+        print("Obsidian vocab handler initialized")
+    except ValueError:
+        obsidian_handler = None
+        print("Obsidian vocab handler skipped (OBSIDIAN_GITHUB_TOKEN not set)")
 
     # Test Notion connection on startup
     notion_test = notion_handler.test_connection()

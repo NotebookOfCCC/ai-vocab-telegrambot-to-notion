@@ -17,7 +17,7 @@ A 4-bot Telegram ecosystem for English vocabulary learning with AI-powered analy
 
 ```
 main.py (Entry Point)
-├── bot.py (Vocab Learner Bot) + ai_handler.py + notion_handler.py
+├── bot.py (Vocab Learner Bot) + ai_handler.py + notion_handler.py + obsidian_vocab_handler.py
 ├── review_bot.py (Spaced Repetition) + notion_handler.py
 ├── habit_bot.py (Task Bot) + habit_handler.py + task_parser.py
 └── grammar_bot.py (Grammar Drill Bot) + github_handler.py
@@ -30,7 +30,7 @@ main.py (Entry Point)
 - Extracts worth-learning phrases with phonetics, part of speech, examples
 - Multiple meanings shown with numbered examples
 - Grammar checking for sentences
-- Saves to Notion vocabulary database
+- Saves to Notion vocabulary database + Obsidian markdown (dual-save via GitHub API)
 - **Cost optimized**: Skips API for ~300 common words
 - **AI fallback chain**: Haiku → Sonnet 4.5 → OpenAI GPT-4o-mini (when Anthropic is overloaded or model not found)
 - **Persistent reply keyboard**: [Batch] for multi-phrase batch input; [Word Count] shows word counts per configured Notion database
@@ -96,6 +96,7 @@ main.py (Entry Point)
 | `notion_handler.py` | Notion database operations (with retry) | FREE |
 | `habit_handler.py` | Task tracking, task management | FREE |
 | `grammar_bot.py` | Grammar drill bot (Obsidian/GitHub) | **FREE** |
+| `obsidian_vocab_handler.py` | Dual-save vocab entries to Obsidian .md via GitHub | FREE |
 | `github_handler.py` | GitHub API read/write for Obsidian files | FREE |
 | `review_stats_handler.py` | Review stats tracking (Notion) | FREE |
 | `schedule_config.json` | Recurring blocks configuration | - |
@@ -561,3 +562,4 @@ Row 2: [Cancel]  [More]
 61. **Grammar daily sync at 4:03 AM**: Moved from 3:03 AM to 4:03 AM to avoid conflict with late-night usage.
 62. **Grammar cards Chinese-to-English**: Grammar cards now show Chinese translation visible + answer as 💡 keyword hint, with full English sentence spoilered (instead of fill-in-blank). Same format as phrase cards — user practices constructing the full sentence from Chinese context.
 63. **Review stats tracking**: Daily review counts (reviewed/again/good/easy) tracked in dedicated Notion database. /stats command shows weekly bar chart. Automated weekly report (Sunday) and monthly report (1st of month) with trends and comparisons.
+64. **Obsidian dual-save**: Vocab entries saved to both Notion and Obsidian markdown table (via GitHub API). Files at `98. 数据库/01. Vocabulary/Vocabulary_NNN.md`, auto-split at 1000 entries per file. Uses same `OBSIDIAN_GITHUB_TOKEN`. Obsidian save is best-effort (failures logged, don't block Notion save). Confirmation messages show "Saved to Notion + Obsidian".
