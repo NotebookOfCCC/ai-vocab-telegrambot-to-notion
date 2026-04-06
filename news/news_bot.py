@@ -31,7 +31,6 @@ from apscheduler.triggers.cron import CronTrigger
 import pytz
 
 from news.digest_handler import DigestHandler
-from shared.notion_handler import NotionHandler
 
 load_dotenv()
 
@@ -66,7 +65,7 @@ REPLY_KEYBOARD = ReplyKeyboardMarkup(
 LANGUAGE_LABELS = {"zh": "中文", "en": "English", "bilingual": "双语"}
 
 # Global state
-notion_handler = None
+config_handler = None
 digest_handler = None
 scheduler = None
 application = None
@@ -84,12 +83,12 @@ def get_default_config() -> dict:
 
 
 def load_config() -> dict:
-    """Load config from Notion, falling back to defaults."""
+    """Load config from central config DB, falling back to defaults."""
     default = get_default_config()
-    if not notion_handler:
+    if not config_handler:
         return default
     try:
-        config = notion_handler.load_bot_config(CONFIG_KEY)
+        config = config_handler.load(CONFIG_KEY)
         if config:
             return {**default, **config}
     except Exception as e:
@@ -98,16 +97,10 @@ def load_config() -> dict:
 
 
 def save_config(config: dict) -> bool:
-    """Save config to Notion (primary). Returns True if successful."""
-    if not notion_handler:
+    """Save config to central config DB. Returns True if successful."""
+    if not config_handler:
         return False
-    try:
-        result = notion_handler.save_bot_config(CONFIG_KEY, config)
-        logger.info(f"Config saved to Notion: {config}")
-        return result if result is not None else True
-    except Exception as e:
-        logger.error(f"Failed to save config to Notion: {e}")
-        return False
+    return config_handler.save(CONFIG_KEY, config)
 
 
 async def save_config_to_github(config: dict) -> bool:
@@ -482,7 +475,7 @@ async def post_init(app: Application):
 
 
 def main():
-    global notion_handler, digest_handler, application, news_config, is_paused
+    global config_handler, digest_handler, application, news_config, is_paused
 
     if not BOT_TOKEN:
         print("ERROR: NEWS_BOT_TOKEN not set")
@@ -498,8 +491,9 @@ def main():
     digest_handler = DigestHandler(ANTHROPIC_KEY)
 
     if NOTION_KEY and CONFIG_DB_ID:
-        notion_handler = NotionHandler(NOTION_KEY, CONFIG_DB_ID)
-        print("Notion config handler initialized")
+        from shared.config_handler import ConfigHandler
+        config_handler = ConfigHandler(NOTION_KEY, CONFIG_DB_ID)
+        print(f"Central config DB connected: {CONFIG_DB_ID[:8]}...")
     else:
         print("WARNING: CONFIG_DB_ID not set — config won't persist")
 

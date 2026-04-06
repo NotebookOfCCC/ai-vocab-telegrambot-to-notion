@@ -78,7 +78,7 @@ def load_config() -> dict:
     if not config_handler:
         return default
     try:
-        config = config_handler.load_bot_config(REVIEW_CONFIG_KEY)
+        config = config_handler.load(REVIEW_CONFIG_KEY)
         if not config:
             return default
         # Validate
@@ -100,12 +100,7 @@ def load_config() -> dict:
 def save_config(config: dict) -> bool:
     """Save review config to central config DB. Returns True if successful."""
     if config_handler:
-        try:
-            result = config_handler.save_bot_config(REVIEW_CONFIG_KEY, config)
-            return result if result is not None else True
-        except Exception as e:
-            logger.error(f"Failed to save config: {e}")
-            return False
+        return config_handler.save(REVIEW_CONFIG_KEY, config)
     return False
 
 
@@ -987,12 +982,11 @@ def main():
 
     # Initialize central config handler
     if CONFIG_DB_ID:
-        config_handler = NotionHandler(NOTION_KEY, CONFIG_DB_ID)
+        from shared.config_handler import ConfigHandler
+        config_handler = ConfigHandler(NOTION_KEY, CONFIG_DB_ID)
         print(f"Central config DB connected: {CONFIG_DB_ID[:8]}...")
     else:
-        # Fallback: use vocab DB for config (legacy behavior)
-        config_handler = notion_handler
-        print("WARNING: CONFIG_DB_ID not set — using vocab DB for config (legacy)")
+        print("WARNING: CONFIG_DB_ID not set — config won't persist across restarts")
 
     # Test Notion connection
     notion_test = notion_handler.test_connection()

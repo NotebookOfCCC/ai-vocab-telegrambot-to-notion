@@ -85,28 +85,19 @@ def get_default_config() -> dict:
 def load_config() -> dict:
     """Load task config from central config DB, falling back to defaults."""
     default = get_default_config()
-    handler = config_handler or habit_handler
-    if not handler:
-        return default
-    try:
-        config = handler.load_bot_config(TASK_CONFIG_KEY)
-        if config:
-            return {**default, **config}
-    except Exception as e:
-        logger.error(f"Error loading config: {e}")
+    if config_handler:
+        try:
+            config = config_handler.load(TASK_CONFIG_KEY)
+            if config:
+                return {**default, **config}
+        except Exception as e:
+            logger.error(f"Error loading config: {e}")
     return default
 
 def save_config(config: dict) -> bool:
     """Save task config to central config DB. Returns True if successful."""
-    handler = config_handler or habit_handler
-    if handler:
-        try:
-            result = handler.save_bot_config(TASK_CONFIG_KEY, config)
-            logger.info(f"Config saved: {config}")
-            return result if result is not None else True
-        except Exception as e:
-            logger.error(f"Failed to save config: {e}")
-            return False
+    if config_handler:
+        return config_handler.save(TASK_CONFIG_KEY, config)
     return False
 
 # Global state
@@ -1824,12 +1815,11 @@ def main():
 
     # Initialize central config handler
     if CONFIG_DB_ID:
-        from shared.notion_handler import NotionHandler
-        config_handler = NotionHandler(NOTION_KEY, CONFIG_DB_ID)
+        from shared.config_handler import ConfigHandler
+        config_handler = ConfigHandler(NOTION_KEY, CONFIG_DB_ID)
         print(f"Central config DB connected: {CONFIG_DB_ID[:8]}...")
     else:
-        # Fallback: use habit_handler for config (legacy behavior)
-        print("WARNING: CONFIG_DB_ID not set — using tracking DB for config (legacy)")
+        print("WARNING: CONFIG_DB_ID not set — config won't persist across restarts")
 
     # Load task config (day boundary, timezone) - from central config DB
     task_config = load_config()
