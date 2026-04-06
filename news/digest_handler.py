@@ -43,6 +43,49 @@ class DigestHandler:
                     feeds[name] = None
         return feeds
 
+    def _build_full_digest(self, feeds: dict) -> str | None:
+        """Build a formatted full-content digest (no AI, free)."""
+        today = datetime.now().strftime("%b %d, %Y")
+        parts = [f"📰 AI Builders Daily — {today}"]
+
+        # Podcasts
+        podcasts = feeds.get("podcasts", {})
+        if podcasts and podcasts.get("podcasts"):
+            parts.append("\n🎙 PODCASTS")
+            for pod in podcasts["podcasts"][:5]:
+                name = pod.get("name", "")
+                title = pod.get("title", "")
+                url = pod.get("url", "")
+                parts.append(f"• {name}: {title}\n  🔗 {url}")
+
+        # X/Twitter
+        x_data = feeds.get("x", {})
+        if x_data and x_data.get("x"):
+            parts.append("\n💬 X / TWITTER")
+            for builder in x_data["x"]:
+                name = builder.get("name", "")
+                tweets = builder.get("tweets", [])
+                if not tweets:
+                    continue
+                for tweet in tweets[:2]:
+                    text = tweet.get("text", "")[:200]
+                    url = tweet.get("url", "")
+                    parts.append(f"• {name}: {text}\n  🔗 {url}")
+
+        # Blogs
+        blogs = feeds.get("blogs", {})
+        if blogs and blogs.get("blogs"):
+            parts.append("\n📝 BLOGS")
+            for blog in blogs["blogs"][:5]:
+                name = blog.get("name", "")
+                title = blog.get("title", "")
+                url = blog.get("url", "")
+                parts.append(f"• {name}: {title}\n  🔗 {url}")
+
+        if len(parts) <= 1:
+            return None
+        return "\n".join(parts)
+
     def _build_raw_content(self, feeds: dict) -> str:
         """Build raw content string from feeds for AI summarization."""
         parts = []
@@ -86,11 +129,12 @@ class DigestHandler:
 
         return "\n".join(parts)
 
-    async def generate_digest(self, language: str = "zh") -> str | None:
-        """Fetch feeds and generate a summarized digest.
+    async def generate_digest(self, language: str = "zh", mode: str = "summary") -> str | None:
+        """Fetch feeds and generate a digest.
 
         Args:
             language: "en", "zh", or "bilingual"
+            mode: "summary" (AI digest) or "full" (raw formatted content)
 
         Returns:
             Formatted digest string, or None if no content available.
@@ -110,6 +154,10 @@ class DigestHandler:
 
         if not has_content:
             return None
+
+        # Full mode: return formatted raw content (no AI cost)
+        if mode == "full":
+            return self._build_full_digest(feeds)
 
         raw_content = self._build_raw_content(feeds)
         if not raw_content.strip():

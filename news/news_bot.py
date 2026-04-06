@@ -57,12 +57,13 @@ GITHUB_CONFIG_PATH = "98. 数据库/02. Bot Config/.news_bot_config.json"
 CONFIG_KEY = "__CONFIG_news_settings__"
 
 REPLY_KEYBOARD = ReplyKeyboardMarkup(
-    [["Digest", "Settings"]],
+    [["📰 Digest", "⚙️ Settings"]],
     resize_keyboard=True,
     is_persistent=True,
 )
 
 LANGUAGE_LABELS = {"zh": "中文", "en": "English", "bilingual": "双语"}
+MODE_LABELS = {"summary": "AI 总结", "full": "全文"}
 
 # Global state
 config_handler = None
@@ -78,6 +79,7 @@ def get_default_config() -> dict:
         "push_hour": 9,
         "push_minute": 0,
         "language": "zh",
+        "mode": "summary",  # "summary" (AI digest) or "full" (raw content)
         "is_paused": False,
     }
 
@@ -161,11 +163,13 @@ def _format_settings_text() -> str:
     hour = news_config.get("push_hour", 9)
     minute = news_config.get("push_minute", 0)
     lang = news_config.get("language", "zh")
+    mode = news_config.get("mode", "summary")
     paused = news_config.get("is_paused", False)
     return (
         f"📰 News Digest Settings\n\n"
         f"Push time: {hour:02d}:{minute:02d}\n"
         f"Language: {LANGUAGE_LABELS.get(lang, lang)}\n"
+        f"Mode: {MODE_LABELS.get(mode, mode)}\n"
         f"Status: {'⏸ Paused' if paused else '▶️ Active'}"
     )
 
@@ -214,7 +218,8 @@ async def digest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📰 Generating digest...")
 
     language = news_config.get("language", "zh")
-    digest = await digest_handler.generate_digest(language=language)
+    mode = news_config.get("mode", "summary")
+    digest = await digest_handler.generate_digest(language=language, mode=mode)
 
     if digest:
         # Split long messages (Telegram limit ~4096 chars)
@@ -297,6 +302,9 @@ async def send_settings_display(message_or_query, edit: bool = False):
             InlineKeyboardButton("Edit Time", callback_data="nsched_edit_time"),
             InlineKeyboardButton("Edit Language", callback_data="nsched_edit_lang"),
         ],
+        [
+            InlineKeyboardButton("Edit Mode", callback_data="nsched_edit_mode"),
+        ],
     ]
     markup = InlineKeyboardMarkup(keyboard)
     if edit:
@@ -336,6 +344,16 @@ def _build_language_options() -> InlineKeyboardMarkup:
     for code, label in options:
         display = f"✅ {label}" if code == current else label
         row.append(InlineKeyboardButton(display, callback_data=f"nsched_lang_{code}"))
+    return InlineKeyboardMarkup([row, [InlineKeyboardButton("Back", callback_data="nsched_back")]])
+
+
+def _build_mode_options() -> InlineKeyboardMarkup:
+    current = news_config.get("mode", "summary")
+    options = [("summary", "🤖 AI 总结"), ("full", "📄 全文")]
+    row = []
+    for code, label in options:
+        display = f"✅ {label}" if code == current else label
+        row.append(InlineKeyboardButton(display, callback_data=f"nsched_mode_{code}"))
     return InlineKeyboardMarkup([row, [InlineKeyboardButton("Back", callback_data="nsched_back")]])
 
 
@@ -388,6 +406,20 @@ async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT
         await dual_save_config(news_config)
         await send_settings_display(query, edit=True)
 
+    elif data == "nsched_edit_mode":
+        await query.answer()
+        await query.edit_message_text(
+            text="Select mode:",
+            reply_markup=_build_mode_options(),
+        )
+
+    elif data.startswith("nsched_mode_"):
+        await query.answer()
+        mode = data.split("_")[-1]
+        news_config["mode"] = mode
+        await dual_save_config(news_config)
+        await send_settings_display(query, edit=True)
+
     elif data == "nsched_back":
         await query.answer()
         await send_settings_display(query, edit=True)
@@ -399,9 +431,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
     text = update.message.text.strip()
-    if text == "Digest":
+    if text in ("Digest", "📰 Digest"):
         await digest_command(update, context)
-    elif text == "Settings":
+    elif text in ("Settings", "⚙️ Settings"):
         await settings_command(update, context)
 
 
@@ -419,7 +451,8 @@ async def send_daily_digest():
 
     try:
         language = news_config.get("language", "zh")
-        digest = await digest_handler.generate_digest(language=language)
+        mode = news_config.get("mode", "summary")
+        digest = await digest_handler.generate_digest(language=language, mode=mode)
 
         if digest:
             if len(digest) <= 4096:
@@ -516,7 +549,7 @@ def main():
     application.add_handler(CommandHandler("settings", settings_command))
     application.add_handler(CallbackQueryHandler(handle_settings_callback, pattern=r"^nsched_"))
     application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & filters.Regex(r"^(Digest|Settings)$"),
+        filters.TEXT & ~filters.COMMAND & filters.Regex(r"^(📰 Digest|⚙️ Settings|Digest|Settings)$"),
         handle_text,
     ))
 
