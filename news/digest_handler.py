@@ -34,7 +34,7 @@ class DigestHandler:
                 try:
                     async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
                         if resp.status == 200:
-                            feeds[name] = await resp.json()
+                            feeds[name] = await resp.json(content_type=None)
                         else:
                             logger.warning(f"Feed {name} returned {resp.status}")
                             feeds[name] = None
