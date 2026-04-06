@@ -15,6 +15,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from notion_handler import NotionHandler
 from review_stats_handler import ReviewStatsHandler
+from obsidian_review_stats_handler import ObsidianReviewStatsHandler
 
 # Load environment variables
 load_dotenv()
@@ -102,6 +103,7 @@ application = None
 is_paused = False
 review_config = None
 stats_handler = None
+obsidian_stats_handler = None
 sent_but_unrated: dict = {}  # page_id → {"entry": entry, "sent_at": datetime}; accumulates across batches, expires after 2 days
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
@@ -805,6 +807,11 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
         result = notion_handler.update_review_stats(page_id, response="again")
         if stats_handler:
             stats_handler.record_review("again")
+        if obsidian_stats_handler:
+            try:
+                await obsidian_stats_handler.record_review("again")
+            except Exception as e:
+                logger.error(f"Obsidian stats save failed: {e}")
         revealed = _unspoiler_html(query.message)
         await query.edit_message_text(text=revealed, parse_mode="HTML", reply_markup=None)
 
@@ -814,6 +821,11 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
         result = notion_handler.update_review_stats(page_id, response="good")
         if stats_handler:
             stats_handler.record_review("good")
+        if obsidian_stats_handler:
+            try:
+                await obsidian_stats_handler.record_review("good")
+            except Exception as e:
+                logger.error(f"Obsidian stats save failed: {e}")
         revealed = _unspoiler_html(query.message)
         await query.edit_message_text(text=revealed, parse_mode="HTML", reply_markup=None)
         if result.get("mastered"):
@@ -826,6 +838,11 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
         result = notion_handler.update_review_stats(page_id, response="easy")
         if stats_handler:
             stats_handler.record_review("easy")
+        if obsidian_stats_handler:
+            try:
+                await obsidian_stats_handler.record_review("easy")
+            except Exception as e:
+                logger.error(f"Obsidian stats save failed: {e}")
         revealed = _unspoiler_html(query.message)
         await query.edit_message_text(text=revealed, parse_mode="HTML", reply_markup=None)
         if result.get("mastered"):
@@ -920,7 +937,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 def main():
     """Main function to run the review bot."""
-    global notion_handler, application, review_config, stats_handler
+    global notion_handler, application, review_config, stats_handler, obsidian_stats_handler
 
     # Validate configuration
     if not REVIEW_BOT_TOKEN:
@@ -950,6 +967,14 @@ def main():
         logger.info("Review stats tracking enabled")
     else:
         logger.warning("REVIEW_STATS_DB_ID not set — stats tracking disabled")
+
+    # Initialize Obsidian review stats handler (best-effort)
+    try:
+        obsidian_stats_handler = ObsidianReviewStatsHandler()
+        print("Obsidian review stats handler initialized")
+    except ValueError:
+        obsidian_stats_handler = None
+        logger.info("Obsidian review stats disabled (OBSIDIAN_GITHUB_TOKEN not set)")
 
     # Load schedule config
     review_config = load_config()

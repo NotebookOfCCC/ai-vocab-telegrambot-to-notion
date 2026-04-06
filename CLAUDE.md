@@ -99,6 +99,7 @@ main.py (Entry Point)
 | `obsidian_vocab_handler.py` | Dual-save vocab entries to Obsidian .md via GitHub | FREE |
 | `github_handler.py` | GitHub API read/write for Obsidian files | FREE |
 | `review_stats_handler.py` | Review stats tracking (Notion) | FREE |
+| `obsidian_review_stats_handler.py` | Dual-save review stats to Obsidian .md via GitHub | FREE |
 | `schedule_config.json` | Recurring blocks configuration | - |
 
 ## Cost Optimization
@@ -564,3 +565,4 @@ Row 2: [Cancel]  [More]
 63. **Review stats tracking**: Daily review counts (reviewed/again/good/easy) tracked in dedicated Notion database. /stats command shows weekly bar chart. Automated weekly report (Sunday) and monthly report (1st of month) with trends and comparisons.
 64. **Obsidian dual-save**: Vocab entries saved to both Notion and Obsidian markdown table (via GitHub API). Files at `98. 数据库/01. Vocabulary/Vocabulary_NNN.md`. Files 001-004 are historical imports (one per Notion database), new entries go to 005+ with auto-split at 1000 entries. Uses same `OBSIDIAN_GITHUB_TOKEN`. Obsidian save is best-effort (failures logged, don't block Notion save). Confirmation messages show "Saved to Notion + Obsidian".
 65. **Notion→Obsidian migration**: One-time migration script `migrate_to_obsidian.py` exports all 4 Notion vocab databases to Vocabulary_001-004.md (3,932 entries total). Also added databases 3 & 4 to `ADDITIONAL_DATABASE_IDS` for review bot coverage.
+66. **Review stats dual-save**: Review stats (daily reviewed/again/good/easy counts) now saved to both Notion and Obsidian markdown. File at `98. 数据库/02. Review Stats/Review_Stats.md`. Migration script `migrate_review_stats_to_obsidian.py` syncs existing Notion data. Obsidian save is best-effort (failures logged, don't block Notion save).
