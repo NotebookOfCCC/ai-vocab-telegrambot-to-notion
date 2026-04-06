@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, patch
 
 
 def _make_handler(db_ids):
-    from notion_handler import NotionHandler
-    with patch("notion_handler.Client"):
+    from shared.notion_handler import NotionHandler
+    with patch("shared.notion_handler.Client"):
         handler = NotionHandler.__new__(NotionHandler)
         handler.client = MagicMock()
         handler.database_id = db_ids[0]

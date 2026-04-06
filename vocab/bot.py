@@ -2,7 +2,9 @@
 Telegram Vocabulary Learning Bot
 Main entry point - handles Telegram interactions
 """
-import os
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import io
 import re
 import asyncio
@@ -18,10 +20,10 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-from ai_handler import AIHandler, CATEGORIES, CATEGORY_LIST
-from notion_handler import NotionHandler
-from cache_handler import CacheHandler
-from obsidian_vocab_handler import ObsidianVocabHandler
+from vocab.ai_handler import AIHandler, CATEGORIES, CATEGORY_LIST
+from shared.notion_handler import NotionHandler
+from vocab.cache_handler import CacheHandler
+from vocab.obsidian_vocab_handler import ObsidianVocabHandler
 
 # Load environment variables
 load_dotenv()

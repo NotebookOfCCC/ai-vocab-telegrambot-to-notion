@@ -17,15 +17,17 @@ A 4-bot Telegram ecosystem for English vocabulary learning with AI-powered analy
 
 ```
 main.py (Entry Point)
-├── bot.py (Vocab Learner Bot) + ai_handler.py + notion_handler.py + obsidian_vocab_handler.py
-├── review_bot.py (Spaced Repetition) + notion_handler.py
-├── habit_bot.py (Task Bot) + habit_handler.py + task_parser.py
-└── grammar_bot.py (Grammar Drill Bot) + github_handler.py
+├── vocab/          bot.py + ai_handler.py + cache_handler.py + obsidian_vocab_handler.py
+├── review/         review_bot.py + review_stats_handler.py + obsidian_review_stats_handler.py
+├── habit/          habit_bot.py + habit_handler.py + task_parser.py + task_ai_handler.py
+├── grammar/        grammar_bot.py + github_handler.py
+├── shared/         notion_handler.py (used by vocab, review, habit)
+└── scripts/        migrate_to_obsidian.py, migrate_review_stats_to_obsidian.py
 ```
 
 ## Bots Overview
 
-### 1. Vocab Learner Bot (`bot.py`)
+### 1. Vocab Learner Bot (`vocab/bot.py`)
 - Analyzes English text using Claude AI (Haiku)
 - Extracts worth-learning phrases with phonetics, part of speech, examples
 - Multiple meanings shown with numbered examples
@@ -35,7 +37,7 @@ main.py (Entry Point)
 - **AI fallback chain**: Haiku → Sonnet 4.5 → OpenAI GPT-4o-mini (when Anthropic is overloaded or model not found)
 - **Persistent reply keyboard**: [Batch] for multi-phrase batch input; [Word Count] shows word counts per configured Notion database
 
-### 2. Review Bot (`review_bot.py`)
+### 2. Review Bot (`review/review_bot.py`)
 - Spaced repetition system (SM-2 variant)
 - Schedule: 8:00, 13:00, 19:00, 22:00
 - Buttons: Again (1 day) / Good (2^n days) / Easy (skip ahead)
@@ -46,7 +48,7 @@ main.py (Entry Point)
 - **Monthly report**: 1st of month — totals, averages, best day, month-over-month comparison
 - **No API cost** (just Notion queries)
 
-### 3. Task Bot (`habit_bot.py`)
+### 3. Task Bot (`habit/habit_bot.py`)
 - **Consolidated schedule view** - One message with numbered timeline + actionable tasks
 - **Block category** - Recurring time blocks (Sleep, Family Time) show ☀️ in timeline, not actionable
 - **All other categories scored** - Study, Work, Life, Health, Other tasks are actionable and graded
@@ -62,7 +64,7 @@ main.py (Entry Point)
 - **Weekly summary** - Sunday 7am summary with daily scores and streak
 - **Auto-cleanup** - Monthly cleanup of tasks older than 3 months
 
-### 4. Grammar Drill Bot (`grammar_bot.py`)
+### 4. Grammar Drill Bot (`grammar/grammar_bot.py`)
 - Reads grammar practice cards from Obsidian markdown files via GitHub API
 - **Private repo**: `NotebookOfCCC/Obsidian` → `01. Daily Reflection/05. Grammar Practice/`
 - **8-week rotation**: 7 grammar categories (Chinese-to-English translation) + 1 phrase category (Chinese-to-English)
@@ -91,16 +93,15 @@ main.py (Entry Point)
 
 | File | Purpose | API Cost |
 |------|---------|----------|
-| `ai_handler.py` | Claude API for vocab analysis | ~$0.002/word |
-| `task_parser.py` | Regex task parsing (fallback) | **FREE** |
-| `notion_handler.py` | Notion database operations (with retry) | FREE |
-| `habit_handler.py` | Task tracking, task management | FREE |
-| `grammar_bot.py` | Grammar drill bot (Obsidian/GitHub) | **FREE** |
-| `obsidian_vocab_handler.py` | Dual-save vocab entries to Obsidian .md via GitHub | FREE |
-| `github_handler.py` | GitHub API read/write for Obsidian files | FREE |
-| `review_stats_handler.py` | Review stats tracking (Notion) | FREE |
-| `obsidian_review_stats_handler.py` | Dual-save review stats to Obsidian .md via GitHub | FREE |
-| `schedule_config.json` | Recurring blocks configuration | - |
+| `vocab/ai_handler.py` | Claude API for vocab analysis | ~$0.002/word |
+| `vocab/cache_handler.py` | Cache for common words | FREE |
+| `vocab/obsidian_vocab_handler.py` | Dual-save vocab to Obsidian .md via GitHub | FREE |
+| `review/review_stats_handler.py` | Review stats tracking (Notion) | FREE |
+| `review/obsidian_review_stats_handler.py` | Dual-save review stats to Obsidian .md via GitHub | FREE |
+| `habit/habit_handler.py` | Task tracking, task management | FREE |
+| `habit/task_parser.py` | Regex task parsing (fallback) | **FREE** |
+| `grammar/github_handler.py` | GitHub API read/write for Obsidian files | FREE |
+| `shared/notion_handler.py` | Notion database operations (with retry) | FREE |
 
 ## Cost Optimization
 
@@ -329,10 +330,10 @@ RECURRING_BLOCKS_DB_ID=your_database_id_here
 ## Testing
 
 ```bash
-python bot.py         # Test vocab bot alone
-python review_bot.py  # Test review bot alone
-python habit_bot.py   # Test habit bot alone
-python main.py        # Run all bots together
+python vocab/bot.py         # Test vocab bot alone
+python review/review_bot.py # Test review bot alone
+python habit/habit_bot.py   # Test habit bot alone
+python main.py              # Run all bots together
 ```
 
 ## Multi-Database Support
@@ -565,4 +566,5 @@ Row 2: [Cancel]  [More]
 63. **Review stats tracking**: Daily review counts (reviewed/again/good/easy) tracked in dedicated Notion database. /stats command shows weekly bar chart. Automated weekly report (Sunday) and monthly report (1st of month) with trends and comparisons.
 64. **Obsidian dual-save**: Vocab entries saved to both Notion and Obsidian markdown table (via GitHub API). Files at `98. 数据库/01. Vocabulary/Vocabulary_NNN.md`. Files 001-004 are historical imports (one per Notion database), new entries go to 005+ with auto-split at 1000 entries. Uses same `OBSIDIAN_GITHUB_TOKEN`. Obsidian save is best-effort (failures logged, don't block Notion save). Confirmation messages show "Saved to Notion + Obsidian".
 65. **Notion→Obsidian migration**: One-time migration script `migrate_to_obsidian.py` exports all 4 Notion vocab databases to Vocabulary_001-004.md (3,932 entries total). Also added databases 3 & 4 to `ADDITIONAL_DATABASE_IDS` for review bot coverage.
-66. **Review stats dual-save**: Review stats (daily reviewed/again/good/easy counts) now saved to both Notion and Obsidian markdown. File at `98. 数据库/02. Review Stats/Review_Stats.md`. Migration script `migrate_review_stats_to_obsidian.py` syncs existing Notion data. Obsidian save is best-effort (failures logged, don't block Notion save).
+66. **Review stats dual-save**: Review stats (daily reviewed/again/good/easy counts) now saved to both Notion and Obsidian markdown. File at `98. 数据库/02. Review Stats/Review_Stats.md`. Migration script `scripts/migrate_review_stats_to_obsidian.py` syncs existing Notion data. Obsidian save is best-effort (failures logged, don't block Notion save).
+67. **Project restructure**: Organized Python files into package folders — `vocab/`, `review/`, `habit/`, `grammar/`, `shared/`, `scripts/`. Each bot is a subprocess launched from `main.py`. No performance impact.

@@ -7,12 +7,14 @@ New entries from bot go to Vocabulary_005.md onwards.
 Usage: python migrate_to_obsidian.py
 """
 
-import os
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import asyncio
 import logging
 from dotenv import load_dotenv
 from notion_client import Client
-from obsidian_vocab_handler import ObsidianVocabHandler
+from vocab.obsidian_vocab_handler import ObsidianVocabHandler
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")

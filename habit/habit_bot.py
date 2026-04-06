@@ -31,14 +31,16 @@ Environment variables required:
 - ANTHROPIC_API_KEY: Claude API key for AI task parsing (optional)
 - TIMEZONE: Timezone for scheduling (default: Europe/London)
 """
-import os
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import logging
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from habit_handler import HabitHandler
+from habit.habit_handler import HabitHandler
 from telegram.ext import MessageHandler, filters
 import anthropic
 from datetime import datetime, timedelta
@@ -173,7 +175,7 @@ def parse_task_with_ai(text: str, timezone: str = "Europe/London") -> dict:
     """
     if not ai_client:
         # Fallback to regex parser
-        from task_parser import TaskParser
+        from habit.task_parser import TaskParser
         parser = TaskParser(timezone)
         return parser.parse(text)
 
@@ -235,7 +237,7 @@ Return ONLY the JSON object, no other text."""
     except Exception as e:
         logger.error(f"AI task parsing failed: {e}, falling back to regex")
         # Fallback to regex parser
-        from task_parser import TaskParser
+        from habit.task_parser import TaskParser
         parser = TaskParser(timezone)
         return parser.parse(text)
 
@@ -1807,7 +1809,7 @@ def main():
     # Vocab handler for review stats (optional - only if vocab DB configured)
     vocab_handler = None
     if VOCAB_DB_ID and NOTION_KEY:
-        from notion_handler import NotionHandler
+        from shared.notion_handler import NotionHandler
         vocab_handler = NotionHandler(NOTION_KEY, VOCAB_DB_ID, additional_database_ids=ADDITIONAL_DB_IDS)
         print(f"Vocab review stats enabled ({1 + len(ADDITIONAL_DB_IDS)} database(s))")
     else:

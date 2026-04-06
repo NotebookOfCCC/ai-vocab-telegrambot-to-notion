@@ -7,7 +7,9 @@ Telegram bot for English grammar drills from Obsidian markdown files via GitHub.
 - Status tracking buffered daily, synced to GitHub once per day
 """
 
-import os
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import logging
 import re
 import random
@@ -27,7 +29,7 @@ from apscheduler.triggers.cron import CronTrigger
 import pytz
 import anthropic
 
-from github_handler import GitHubHandler, CATEGORY_NAMES, CATEGORY_FILES
+from grammar.github_handler import GitHubHandler, CATEGORY_NAMES, CATEGORY_FILES
 
 load_dotenv()
 

@@ -7,11 +7,13 @@ Usage:
 Requires: NOTION_API_KEY, REVIEW_STATS_DB_ID, OBSIDIAN_GITHUB_TOKEN in .env
 """
 
-import os
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import asyncio
 from dotenv import load_dotenv
 from notion_client import Client
-from obsidian_review_stats_handler import ObsidianReviewStatsHandler
+from review.obsidian_review_stats_handler import ObsidianReviewStatsHandler
 
 load_dotenv()
 

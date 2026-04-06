@@ -21,10 +21,10 @@ def main():
     print("Starting all bots...")
 
     # Start all bot processes
-    bot_process = subprocess.Popen([sys.executable, "bot.py"])
-    review_process = subprocess.Popen([sys.executable, "review_bot.py"])
-    habit_process = subprocess.Popen([sys.executable, "habit_bot.py"])
-    grammar_process = subprocess.Popen([sys.executable, "grammar_bot.py"])
+    bot_process = subprocess.Popen([sys.executable, "vocab/bot.py"])
+    review_process = subprocess.Popen([sys.executable, "review/review_bot.py"])
+    habit_process = subprocess.Popen([sys.executable, "habit/habit_bot.py"])
+    grammar_process = subprocess.Popen([sys.executable, "grammar/grammar_bot.py"])
 
     print(f"Vocab Learner bot PID: {bot_process.pid}")
     print(f"Review bot PID: {review_process.pid}")

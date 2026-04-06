@@ -2,7 +2,9 @@
 Vocabulary Review Bot
 Sends scheduled vocabulary review messages from Notion database.
 """
-import os
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import io
 import json
 import re
@@ -13,9 +15,9 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKe
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from notion_handler import NotionHandler
-from review_stats_handler import ReviewStatsHandler
-from obsidian_review_stats_handler import ObsidianReviewStatsHandler
+from shared.notion_handler import NotionHandler
+from review.review_stats_handler import ReviewStatsHandler
+from review.obsidian_review_stats_handler import ObsidianReviewStatsHandler
 
 # Load environment variables
 load_dotenv()
