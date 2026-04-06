@@ -1,6 +1,6 @@
 # Vocab Learning Telegram Bot
 
-A Telegram bot system that helps you learn English vocabulary with AI-powered explanations, automatic saving to Notion, scheduled reviews, and daily task management with Notion Calendar integration.
+A Telegram bot system that helps you learn English vocabulary with AI-powered explanations, automatic saving to Notion, scheduled reviews, daily task management with Notion Calendar integration, grammar drills, and AI news digests.
 
 ## Features
 
@@ -41,6 +41,15 @@ A Telegram bot system that helps you learn English vocabulary with AI-powered ex
 - **Interactive Schedule**: Inline button UI for push time, grammar count, phrase count, category override
 - **Minimal AI Cost**: Haiku called once per new card (~$0.001/session), then stored permanently
 
+### News Digest Bot (`news_bot.py`)
+- **AI Builder Digests**: Daily summaries of top AI researchers, founders, and engineers
+- **Feed Sources**: 25 AI builders' tweets, 6 podcasts, 2 blogs (Anthropic + Claude) via [follow-builders](https://github.com/zarazhangrui/follow-builders)
+- **AI Summarization**: Haiku generates concise digests (~$0.005/day)
+- **Language Options**: Chinese, English, or bilingual — configurable via inline buttons
+- **Configurable Push Time**: Default 9:00 AM, adjustable via interactive settings
+- **Config Dual-Save**: Notion (primary) + GitHub/Obsidian (backup)
+- **Manual Trigger**: /digest or [Digest] button for on-demand digest
+
 ### Task Bot (`habit_bot.py`)
 - **AI Task Parsing**: Natural language task input with Claude Haiku - just type "4pm to 5pm job application" or "明天下午3点开会"
 - **Consolidated Schedule**: One message showing numbered timeline + actionable tasks
@@ -64,6 +73,7 @@ This bot is optimized to minimize API costs:
 
 | Feature | Cost |
 |---------|------|
+| News Digest (Haiku) | ~$0.005 per day |
 | Task Bot AI parsing (Haiku) | ~$0.001 per task |
 | Common words (~300) | **FREE** (skipped) |
 | Review Bot | **FREE** (no AI) |
@@ -80,11 +90,12 @@ This bot is optimized to minimize API costs:
 
 ### Step 1: Create Telegram Bots
 
-Create 4 bots via `@BotFather` on Telegram:
+Create 5 bots via `@BotFather` on Telegram:
 1. **Vocab Learner Bot** - for learning new vocabulary
 2. **Review Bot** - for scheduled reviews
 3. **Task Bot** - for daily task management
 4. **Grammar Drill Bot** - for grammar practice from Obsidian
+5. **News Digest Bot** - for daily AI builder digests
 
 ### Step 2: Get API Keys
 
@@ -169,6 +180,11 @@ GRAMMAR_BOT_TOKEN=your_grammar_bot_token
 GRAMMAR_USER_ID=your_telegram_user_id
 OBSIDIAN_GITHUB_TOKEN=your_github_pat  # Fine-grained, Contents R/W on Obsidian repo
 
+# News Digest Bot
+NEWS_BOT_TOKEN=your_news_bot_token
+NEWS_USER_ID=your_telegram_user_id
+NEWS_CONFIG_DB_ID=your_config_database_id  # Can reuse existing DB
+
 # Timezone
 TIMEZONE=Europe/London
 ```
@@ -183,10 +199,11 @@ pip install -r requirements.txt
 python main.py
 
 # Or run individual bots
-python bot.py         # Vocab learner
-python review_bot.py  # Scheduled reviews
-python habit_bot.py   # Task management
-python grammar_bot.py # Grammar drills
+python vocab/bot.py         # Vocab learner
+python review/review_bot.py # Scheduled reviews
+python habit/habit_bot.py   # Task management
+python grammar/grammar_bot.py # Grammar drills
+python news/news_bot.py     # AI news digests
 ```
 
 ## Commands
@@ -213,6 +230,15 @@ python grammar_bot.py # Grammar drills
 - **Practice** - Start a drill session (grammar + phrases, no duplicates per day)
 - **Schedule** - Interactive settings (push time, card counts, category override)
 - **Sync** - Push buffered updates to Obsidian immediately
+
+### News Digest Bot
+- `/start` - Bot info
+- `/digest` - Get today's AI builder digest
+- `/settings` - Configure push time and language (inline buttons)
+- `/stop` / `/resume` - Pause/resume daily pushes
+- `/status` - Current settings
+- **Digest** (reply keyboard) - Same as /digest
+- **Settings** (reply keyboard) - Configure push time and language
 
 ### Task Bot
 - `/start` - Bot info
@@ -283,7 +309,7 @@ Example recurring blocks:
 python main.py
 ```
 
-This runs all four bots as separate processes.
+This runs all five bots as separate processes.
 
 ## Files
 
@@ -307,6 +333,9 @@ ai-vocab-telegram-bot/
 ├── grammar/                # Grammar Drill Bot
 │   ├── grammar_bot.py      # Flashcard practice from Obsidian
 │   └── github_handler.py   # GitHub API for Obsidian .md read/write
+├── news/                   # News Digest Bot
+│   ├── news_bot.py         # Daily AI builder digest + scheduler
+│   └── digest_handler.py   # Feed fetching + Haiku summarization
 ├── shared/                 # Shared modules
 │   └── notion_handler.py   # Notion API (used by vocab, review, habit)
 ├── scripts/                # One-time migration scripts
@@ -326,6 +355,9 @@ ai-vocab-telegram-bot/
 - 9:00 AM (configurable) - Daily grammar + phrase push
 - 4:03 AM - Daily auto-sync (buffer → .md files on GitHub)
 - Manual sync anytime via [Sync] button or /sync
+
+### News Digest Bot
+- 9:00 AM (configurable) - Daily AI builder digest
 
 ### Task Bot
 - 6:00 AM - Create recurring blocks (next 7 days)

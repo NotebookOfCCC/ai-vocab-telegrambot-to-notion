@@ -1,6 +1,6 @@
 # AI Vocabulary Telegram Bot to Notion
 
-A 4-bot Telegram ecosystem for English vocabulary learning with AI-powered analysis, spaced repetition, habit tracking, and grammar drills - integrated with Notion and Obsidian via GitHub.
+A 5-bot Telegram ecosystem for English vocabulary learning with AI-powered analysis, spaced repetition, habit tracking, grammar drills, and AI news digests - integrated with Notion and Obsidian via GitHub.
 
 ---
 
@@ -21,7 +21,8 @@ main.py (Entry Point)
 ├── review/         review_bot.py + review_stats_handler.py + obsidian_review_stats_handler.py
 ├── habit/          habit_bot.py + habit_handler.py + task_parser.py + task_ai_handler.py
 ├── grammar/        grammar_bot.py + github_handler.py
-├── shared/         notion_handler.py (used by vocab, review, habit)
+├── news/           news_bot.py + digest_handler.py
+├── shared/         notion_handler.py (used by vocab, review, habit, news)
 └── scripts/        migrate_to_obsidian.py, migrate_review_stats_to_obsidian.py
 ```
 
@@ -89,6 +90,17 @@ main.py (Entry Point)
 - **Markdown table columns (grammar)**: `# | Source | Date | Question | Answer | Wrong | Rule | Chinese | Example | Example Chinese | Status | Last Reviewed | Next Review | Easy Streak`
 - **Markdown table columns (phrases)**: `# | Source | Date | Chinese Prompt | Keyword Hint | Answer (Target Phrase) | Example Sentence | Example Chinese | Status | Last Reviewed | Next Review | Easy Streak`
 
+### 5. News Digest Bot (`news/news_bot.py`)
+- Fetches daily AI builder digests from [follow-builders](https://github.com/zarazhangrui/follow-builders) GitHub feeds
+- **Feed sources** (GitHub CDN, free): 25 AI builders' tweets, 6 podcasts, 2 blogs (Anthropic + Claude)
+- Summarizes via Haiku (~$0.005/day)
+- **Configurable language**: Chinese / English / bilingual
+- **Configurable push time**: Default 9:00 AM, adjustable via inline buttons
+- **Config dual-saved**: Notion (primary, read) + GitHub/Obsidian (backup)
+- **Reply keyboard**: [Digest] [Settings]
+- **Commands**: `/start`, `/help`, `/digest`, `/stop`, `/resume`, `/status`, `/settings`
+- **Settings UI**: Inline buttons — [Edit Time] (hour grid + minute picker), [Edit Language] (中文/English/双语)
+
 ## Key Files
 
 | File | Purpose | API Cost |
@@ -101,6 +113,8 @@ main.py (Entry Point)
 | `habit/habit_handler.py` | Task tracking, task management | FREE |
 | `habit/task_parser.py` | Regex task parsing (fallback) | **FREE** |
 | `grammar/github_handler.py` | GitHub API read/write for Obsidian files | FREE |
+| `news/digest_handler.py` | Fetch follow-builders feeds + Haiku summarization | ~$0.005/day |
+| `news/news_bot.py` | News digest Telegram bot + scheduler | FREE |
 | `shared/notion_handler.py` | Notion database operations (with retry) | FREE |
 
 ## Cost Optimization
@@ -190,6 +204,7 @@ TELEGRAM_BOT_TOKEN=       # Vocab bot token
 REVIEW_BOT_TOKEN=         # Review bot token
 HABITS_BOT_TOKEN=         # Habit bot token
 GRAMMAR_BOT_TOKEN=        # Grammar drill bot token
+NEWS_BOT_TOKEN=           # News digest bot token
 
 # API Keys
 ANTHROPIC_API_KEY=        # Claude API key (for vocab analysis + task parsing)
@@ -204,12 +219,14 @@ HABITS_TRACKING_DB_ID=    # Habit tracking database ID
 HABITS_REMINDERS_DB_ID=   # Reminders database ID
 RECURRING_BLOCKS_DB_ID=   # Optional: Recurring time blocks database ID
 REVIEW_STATS_DB_ID=       # Review stats tracking database ID (daily counts)
+NEWS_CONFIG_DB_ID=        # News bot config database ID (can reuse existing DB)
 
 # User IDs
 ALLOWED_USER_IDS=         # Comma-separated user IDs for vocab bot
 REVIEW_USER_ID=           # Review bot user ID
 HABITS_USER_ID=           # Habits bot user ID
 GRAMMAR_USER_ID=          # Grammar drill bot user ID
+NEWS_USER_ID=             # News digest bot user ID
 
 # Settings
 TIMEZONE=Europe/London    # Timezone for scheduling
@@ -270,6 +287,17 @@ Mastery:
   - [Edit Grammar Count] → preset options (3, 5, 8, 10, 15)
   - [Edit Phrase Count] → preset options (3, 5, 8, 10, 15)
 - **Sync** (reply keyboard) - Push buffered updates + new column headers to Obsidian immediately
+
+### News Digest Bot
+- `/start`, `/help` - Welcome message
+- `/digest` - Get today's AI builder digest now
+- `/settings` - Configure push time and language (inline buttons)
+- `/stop`, `/resume` - Pause/resume daily pushes
+- `/status` - Show current settings
+- **Digest** (reply keyboard) - Same as /digest
+- **Settings** (reply keyboard) - Interactive settings with inline buttons:
+  - [Edit Time] → hour grid (7-23), then minute picker (00/15/30/45)
+  - [Edit Language] → [中文] [English] [双语]
 
 ## Task Parser Patterns
 
@@ -568,3 +596,5 @@ Row 2: [Cancel]  [More]
 65. **Notion→Obsidian migration**: One-time migration script `migrate_to_obsidian.py` exports all 4 Notion vocab databases to Vocabulary_001-004.md (3,932 entries total). Also added databases 3 & 4 to `ADDITIONAL_DATABASE_IDS` for review bot coverage.
 66. **Review stats dual-save**: Review stats (daily reviewed/again/good/easy counts) now saved to both Notion and Obsidian markdown. File at `98. 数据库/01. Vocabulary Telegram/Review_Stats.md`. Migration script `scripts/migrate_review_stats_to_obsidian.py` syncs existing Notion data. Obsidian save is best-effort (failures logged, don't block Notion save).
 67. **Project restructure**: Organized Python files into package folders — `vocab/`, `review/`, `habit/`, `grammar/`, `shared/`, `scripts/`. Each bot is a subprocess launched from `main.py`. No performance impact.
+68. **News Digest Bot**: 5th bot for daily AI builder digests from [follow-builders](https://github.com/zarazhangrui/follow-builders) feeds (tweets, podcasts, blogs). Summarized via Haiku (~$0.005/day), configurable language (zh/en/bilingual) and push time. Config dual-saved to Notion + GitHub. Reply keyboard [Digest] [Settings].
+69. **Review bot stop/resume fix**: `is_paused` state now persisted to Notion config — previously lost on restart, causing reviews to continue after `/stop`.
