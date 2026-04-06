@@ -219,7 +219,7 @@ HABITS_TRACKING_DB_ID=    # Habit tracking database ID
 HABITS_REMINDERS_DB_ID=   # Reminders database ID
 RECURRING_BLOCKS_DB_ID=   # Optional: Recurring time blocks database ID
 REVIEW_STATS_DB_ID=       # Review stats tracking database ID (daily counts)
-NEWS_CONFIG_DB_ID=        # News bot config database ID (can reuse existing DB)
+CONFIG_DB_ID=             # Central config database (all bots share this for settings)
 
 # User IDs
 ALLOWED_USER_IDS=         # Comma-separated user IDs for vocab bot
@@ -561,7 +561,7 @@ Row 2: [Cancel]  [More]
 30. **Cleaner formatting**: Numbered schedule, sun icon for blocks, no duplicate headers
 31. **Word mastery**: Auto-mark words as Mastered after 7+ reviews, excluded from future reviews, shown in /due stats
 32. **Vocab review stats in habit bot**: Shows words reviewed count in all habit bot messages (morning: yesterday's count, check-ins/tasks: today's count, weekly summary: week total)
-33. **Config persisted in Notion**: Review schedule and task settings stored as Notion pages (survives Railway redeploys). Config pages use `__CONFIG_` prefix and are filtered from reviews/stats.
+33. **Config persisted in Notion**: All bot configs stored in central `CONFIG_DB_ID` database (survives Railway redeploys). Config pages use `__CONFIG_` prefix. Review bot: `__CONFIG_review_schedule__`, Habit bot: `__CONFIG_task_settings__`, News bot: `__CONFIG_news_settings__`. Grammar bot uses GitHub config independently.
 34. **Mobile popup instructions**: /schedule Edit Times/Edit Word Count buttons show popup alert on all platforms (mobile + desktop)
 35. **精美句子 category**: New category for beautiful/inspirational sentences — saves the whole sentence as one entry with Chinese translation and literary analysis
 36. **OpenAI fallback**: When Anthropic is overloaded (529), vocab bot automatically falls back: Haiku → Sonnet 3.5 → OpenAI GPT-4o-mini. Requires OPENAI_API_KEY env var.
@@ -598,3 +598,4 @@ Row 2: [Cancel]  [More]
 67. **Project restructure**: Organized Python files into package folders — `vocab/`, `review/`, `habit/`, `grammar/`, `shared/`, `scripts/`. Each bot is a subprocess launched from `main.py`. No performance impact.
 68. **News Digest Bot**: 5th bot for daily AI builder digests from [follow-builders](https://github.com/zarazhangrui/follow-builders) feeds (tweets, podcasts, blogs). Summarized via Haiku (~$0.005/day), configurable language (zh/en/bilingual) and push time. Config dual-saved to Notion + GitHub. Reply keyboard [Digest] [Settings].
 69. **Review bot stop/resume fix**: `is_paused` state now persisted to Notion config — previously lost on restart, causing reviews to continue after `/stop`.
+70. **Central config database**: New `CONFIG_DB_ID` env var — all bot configs (review schedule, task settings, news settings) stored in one Notion database. Survives Railway restarts. Falls back to legacy per-bot storage if not set.

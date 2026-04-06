@@ -183,7 +183,8 @@ OBSIDIAN_GITHUB_TOKEN=your_github_pat  # Fine-grained, Contents R/W on Obsidian 
 # News Digest Bot
 NEWS_BOT_TOKEN=your_news_bot_token
 NEWS_USER_ID=your_telegram_user_id
-NEWS_CONFIG_DB_ID=your_config_database_id  # Can reuse existing DB
+# Central Config Database (shared by all bots)
+CONFIG_DB_ID=your_config_database_id  # All bot settings stored here
 
 # Timezone
 TIMEZONE=Europe/London

@@ -36,6 +36,7 @@ NOTION_KEY = os.getenv("NOTION_API_KEY")
 NOTION_DB_ID = os.getenv("NOTION_DATABASE_ID")
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 REVIEW_STATS_DB_ID = os.getenv("REVIEW_STATS_DB_ID")
+CONFIG_DB_ID = os.getenv("CONFIG_DB_ID")
 
 # Additional database IDs for review (comma-separated)
 # Example: ADDITIONAL_DATABASE_IDS=db_id_2,db_id_3
@@ -72,12 +73,12 @@ REVIEW_CONFIG_KEY = "__CONFIG_review_schedule__"
 
 
 def load_config() -> dict:
-    """Load review config from Notion, falling back to env var defaults."""
+    """Load review config from central config DB, falling back to env var defaults."""
     default = get_default_config()
-    if not notion_handler:
+    if not config_handler:
         return default
     try:
-        config = notion_handler.load_bot_config(REVIEW_CONFIG_KEY)
+        config = config_handler.load_bot_config(REVIEW_CONFIG_KEY)
         if not config:
             return default
         # Validate
@@ -97,10 +98,10 @@ def load_config() -> dict:
 
 
 def save_config(config: dict) -> bool:
-    """Save review config to Notion. Returns True if successful."""
-    if notion_handler:
+    """Save review config to central config DB. Returns True if successful."""
+    if config_handler:
         try:
-            result = notion_handler.save_bot_config(REVIEW_CONFIG_KEY, config)
+            result = config_handler.save_bot_config(REVIEW_CONFIG_KEY, config)
             return result if result is not None else True
         except Exception as e:
             logger.error(f"Failed to save config: {e}")
@@ -110,6 +111,7 @@ def save_config(config: dict) -> bool:
 
 # Global state
 notion_handler = None
+config_handler = None  # Separate handler for central config DB
 scheduler = None
 application = None
 is_paused = False
@@ -967,7 +969,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 def main():
     """Main function to run the review bot."""
-    global notion_handler, application, review_config, stats_handler, obsidian_stats_handler
+    global notion_handler, config_handler, application, review_config, stats_handler, obsidian_stats_handler
 
     # Validate configuration
     if not REVIEW_BOT_TOKEN:
@@ -982,6 +984,15 @@ def main():
 
     # Initialize Notion handler with additional databases for review
     notion_handler = NotionHandler(NOTION_KEY, NOTION_DB_ID, additional_database_ids=ADDITIONAL_DB_IDS)
+
+    # Initialize central config handler
+    if CONFIG_DB_ID:
+        config_handler = NotionHandler(NOTION_KEY, CONFIG_DB_ID)
+        print(f"Central config DB connected: {CONFIG_DB_ID[:8]}...")
+    else:
+        # Fallback: use vocab DB for config (legacy behavior)
+        config_handler = notion_handler
+        print("WARNING: CONFIG_DB_ID not set — using vocab DB for config (legacy)")
 
     # Test Notion connection
     notion_test = notion_handler.test_connection()

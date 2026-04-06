@@ -47,7 +47,7 @@ USER_ID = os.getenv("NEWS_USER_ID", "")
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY")
 NOTION_KEY = os.getenv("NOTION_API_KEY")
-CONFIG_DB_ID = os.getenv("NEWS_CONFIG_DB_ID")
+CONFIG_DB_ID = os.getenv("CONFIG_DB_ID")
 GITHUB_TOKEN = os.getenv("OBSIDIAN_GITHUB_TOKEN")
 
 # GitHub config backup path
@@ -501,7 +501,7 @@ def main():
         notion_handler = NotionHandler(NOTION_KEY, CONFIG_DB_ID)
         print("Notion config handler initialized")
     else:
-        print("WARNING: NEWS_CONFIG_DB_ID not set — config won't persist")
+        print("WARNING: CONFIG_DB_ID not set — config won't persist")
 
     # Load config
     news_config = load_config()

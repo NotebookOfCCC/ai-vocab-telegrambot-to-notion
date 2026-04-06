@@ -66,6 +66,7 @@ REMINDERS_DB_ID = os.getenv("HABITS_REMINDERS_DB_ID")
 RECURRING_BLOCKS_DB_ID = os.getenv("RECURRING_BLOCKS_DB_ID")  # Optional: Notion DB for recurring blocks
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
+CONFIG_DB_ID = os.getenv("CONFIG_DB_ID")
 
 # Vocab database access (for review stats in reminders)
 VOCAB_DB_ID = os.getenv("NOTION_DATABASE_ID")
@@ -82,12 +83,13 @@ def get_default_config() -> dict:
     }
 
 def load_config() -> dict:
-    """Load task config from Notion, falling back to defaults."""
+    """Load task config from central config DB, falling back to defaults."""
     default = get_default_config()
-    if not habit_handler:
+    handler = config_handler or habit_handler
+    if not handler:
         return default
     try:
-        config = habit_handler.load_bot_config(TASK_CONFIG_KEY)
+        config = handler.load_bot_config(TASK_CONFIG_KEY)
         if config:
             return {**default, **config}
     except Exception as e:
@@ -95,10 +97,11 @@ def load_config() -> dict:
     return default
 
 def save_config(config: dict) -> bool:
-    """Save task config to Notion. Returns True if successful."""
-    if habit_handler:
+    """Save task config to central config DB. Returns True if successful."""
+    handler = config_handler or habit_handler
+    if handler:
         try:
-            result = habit_handler.save_bot_config(TASK_CONFIG_KEY, config)
+            result = handler.save_bot_config(TASK_CONFIG_KEY, config)
             logger.info(f"Config saved: {config}")
             return result if result is not None else True
         except Exception as e:
@@ -108,6 +111,7 @@ def save_config(config: dict) -> bool:
 
 # Global state
 habit_handler = None
+config_handler = None  # Separate handler for central config DB
 vocab_handler = None  # For vocab review stats (optional)
 scheduler = None
 application = None
@@ -1796,7 +1800,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 def main():
     """Main function to run the task bot."""
-    global habit_handler, vocab_handler, application, task_config
+    global habit_handler, config_handler, vocab_handler, application, task_config
 
     # Validate configuration
     if not HABITS_BOT_TOKEN:
@@ -1815,10 +1819,19 @@ def main():
         print("ERROR: HABITS_REMINDERS_DB_ID not set")
         return
 
-    # Initialize handlers (must be before load_config which uses habit_handler)
+    # Initialize handlers (must be before load_config which uses config_handler/habit_handler)
     habit_handler = HabitHandler(NOTION_KEY, TRACKING_DB_ID, REMINDERS_DB_ID, RECURRING_BLOCKS_DB_ID)
 
-    # Load task config (day boundary, timezone) - from Notion via habit_handler
+    # Initialize central config handler
+    if CONFIG_DB_ID:
+        from shared.notion_handler import NotionHandler
+        config_handler = NotionHandler(NOTION_KEY, CONFIG_DB_ID)
+        print(f"Central config DB connected: {CONFIG_DB_ID[:8]}...")
+    else:
+        # Fallback: use habit_handler for config (legacy behavior)
+        print("WARNING: CONFIG_DB_ID not set — using tracking DB for config (legacy)")
+
+    # Load task config (day boundary, timezone) - from central config DB
     task_config = load_config()
     tz = task_config.get("timezone", TIMEZONE)
     boundary = task_config.get("day_boundary", 4)
