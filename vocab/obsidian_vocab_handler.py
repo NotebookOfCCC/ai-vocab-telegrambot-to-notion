@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 GITHUB_API = "https://api.github.com"
 REPO = "NotebookOfCCC/Obsidian"
-BASE_PATH = "98. 数据库/01. Vocabulary"
+BASE_PATH = "98. 数据库/01. Vocabulary Telegram"
 MAX_ENTRIES_PER_FILE = 1000
 MAX_RETRIES = 3
 

@@ -289,23 +289,30 @@ This runs all four bots as separate processes.
 
 ```
 ai-vocab-telegram-bot/
-├── bot.py              # Vocab learner bot - AI analysis and Notion saving
-├── review_bot.py       # Review bot - spaced repetition scheduling
-├── habit_bot.py        # Task bot - daily task management and reminders
-├── main.py             # Entry point - runs all bots together
-├── ai_handler.py       # Claude AI integration for vocab analysis
-├── notion_handler.py   # Notion API for vocab database (with retry)
-├── habit_handler.py    # Notion API for task/reminder databases
-├── grammar_bot.py      # Grammar drill bot - flashcard practice from Obsidian
-├── github_handler.py   # GitHub API for Obsidian .md file read/write
-├── review_stats_handler.py # Notion API for review stats tracking
-├── task_parser.py      # Regex-based task parser (fallback if no AI)
-├── schedule_config.json # Recurring blocks configuration
-├── requirements.txt    # Python dependencies
-├── .env.example        # Environment template
-├── CLAUDE.md           # AI assistant documentation
-├── README.md           # This file
-└── archive/            # Unused files (youtube_handler.py, video_config.json)
+├── main.py                 # Entry point - runs all bots as subprocesses
+├── vocab/                  # Vocab Learner Bot
+│   ├── bot.py              # AI analysis and Notion/Obsidian saving
+│   ├── ai_handler.py       # Claude AI integration for vocab analysis
+│   ├── cache_handler.py    # Common words cache
+│   └── obsidian_vocab_handler.py  # Dual-save vocab to Obsidian .md
+├── review/                 # Review Bot
+│   ├── review_bot.py       # Spaced repetition scheduling
+│   ├── review_stats_handler.py    # Review stats tracking (Notion)
+│   └── obsidian_review_stats_handler.py  # Dual-save stats to Obsidian .md
+├── habit/                  # Task Bot
+│   ├── habit_bot.py        # Daily task management and reminders
+│   ├── habit_handler.py    # Notion API for task/reminder databases
+│   ├── task_parser.py      # Regex-based task parser (fallback)
+│   └── task_ai_handler.py  # AI-powered task parsing
+├── grammar/                # Grammar Drill Bot
+│   ├── grammar_bot.py      # Flashcard practice from Obsidian
+│   └── github_handler.py   # GitHub API for Obsidian .md read/write
+├── shared/                 # Shared modules
+│   └── notion_handler.py   # Notion API (used by vocab, review, habit)
+├── scripts/                # One-time migration scripts
+├── requirements.txt
+├── .env.example
+└── CLAUDE.md
 ```
 
 ## Schedule

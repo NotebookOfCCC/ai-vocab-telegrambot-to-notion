@@ -2,7 +2,7 @@
 Obsidian Review Stats Handler
 
 Dual-saves review stats to Obsidian markdown table via GitHub API.
-Single file: 98. 数据库/02. Review Stats/Review_Stats.md
+Single file: 98. 数据库/01. Vocabulary Telegram/Review_Stats.md
 
 Each row is one day: Date | Reviewed | Again | Good | Easy
 """
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 GITHUB_API = "https://api.github.com"
 REPO = "NotebookOfCCC/Obsidian"
-FILE_PATH = "98. 数据库/02. Review Stats/Review_Stats.md"
+FILE_PATH = "98. 数据库/01. Vocabulary Telegram/Review_Stats.md"
 MAX_RETRIES = 3
 
 FILE_HEADER = """# Review Stats
