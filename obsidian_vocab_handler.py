@@ -33,6 +33,8 @@ FILE_HEADER = """# Vocabulary Database - Part {part}
 
 
 class ObsidianVocabHandler:
+    BASE_PATH = BASE_PATH
+
     def __init__(self):
         self.token = os.getenv("OBSIDIAN_GITHUB_TOKEN")
         if not self.token:
@@ -136,24 +138,26 @@ class ObsidianVocabHandler:
     async def append_entry(self, entry: dict):
         """
         Append a vocab entry to the current Obsidian markdown file.
-        Creates a new file if the current one has reached MAX_ENTRIES_PER_FILE.
+        Files 001-004 are historical (one per Notion database), not touched.
+        New entries go to 005+, auto-split at MAX_ENTRIES_PER_FILE.
         """
         files = await self._list_vocab_files()
 
-        if not files:
-            # No files yet — create the first one
-            current_file = "Vocabulary_001.md"
-            content = FILE_HEADER.format(part=1)
+        # Filter to only 005+ files (001-004 are historical imports)
+        active_files = [f for f in files if re.search(r"Vocabulary_(\d+)\.md$", f) and int(re.search(r"(\d+)", f).group()) >= 5]
+
+        if not active_files:
+            current_file = "Vocabulary_005.md"
+            content = FILE_HEADER.format(part=5)
             row_count = 0
         else:
-            current_file = files[-1]  # Latest file
+            current_file = active_files[-1]
             filepath = f"{BASE_PATH}/{current_file}"
             content, _ = await self._get_file(filepath)
             row_count = self._count_table_rows(content)
 
         # Check if we need a new file
         if row_count >= MAX_ENTRIES_PER_FILE:
-            # Extract current part number and create next
             match = re.search(r"Vocabulary_(\d+)\.md$", current_file)
             part = int(match.group(1)) + 1 if match else len(files) + 1
             current_file = f"Vocabulary_{part:03d}.md"
