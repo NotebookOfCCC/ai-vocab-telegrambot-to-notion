@@ -94,11 +94,17 @@ def load_config() -> dict:
         logger.error(f"Error loading config: {e}")
     return default
 
-def save_config(config: dict) -> None:
-    """Save task config to Notion."""
+def save_config(config: dict) -> bool:
+    """Save task config to Notion. Returns True if successful."""
     if habit_handler:
-        habit_handler.save_bot_config(TASK_CONFIG_KEY, config)
-    logger.info(f"Config saved: {config}")
+        try:
+            result = habit_handler.save_bot_config(TASK_CONFIG_KEY, config)
+            logger.info(f"Config saved: {config}")
+            return result if result is not None else True
+        except Exception as e:
+            logger.error(f"Failed to save config: {e}")
+            return False
+    return False
 
 # Global state
 habit_handler = None
@@ -930,11 +936,16 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     is_paused = True
     # Persist pause state to Notion so it survives restarts
+    saved = False
     if task_config is not None:
         task_config["is_paused"] = True
-        save_config(task_config)
-    await update.message.reply_text("Reminders paused. Use /resume to continue.")
-    logger.info("Habit reminders paused")
+        saved = save_config(task_config)
+
+    if saved:
+        await update.message.reply_text("⏸ Reminders paused (saved). Use /resume to continue.")
+    else:
+        await update.message.reply_text("⏸ Reminders paused for this session.\n⚠️ Config save failed — pause may not survive a restart.")
+    logger.info(f"Habit reminders paused (persisted={saved})")
 
 
 async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -947,11 +958,16 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     is_paused = False
     # Persist resume state to Notion so it survives restarts
+    saved = False
     if task_config is not None:
         task_config["is_paused"] = False
-        save_config(task_config)
-    await update.message.reply_text("Reminders resumed!")
-    logger.info("Habit reminders resumed")
+        saved = save_config(task_config)
+
+    if saved:
+        await update.message.reply_text("▶️ Reminders resumed!")
+    else:
+        await update.message.reply_text("▶️ Reminders resumed for this session.\n⚠️ Config save failed — may revert after restart.")
+    logger.info(f"Habit reminders resumed (persisted={saved})")
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1738,6 +1754,9 @@ async def create_daily_blocks():
 
 async def run_monthly_cleanup():
     """Run monthly cleanup of old reminders."""
+    if is_paused:
+        logger.info("Habits bot paused, skipping monthly cleanup")
+        return
     try:
         result = habit_handler.cleanup_old_reminders(months_old=3, max_items=1000)
         logger.info(f"Monthly cleanup: archived={result.get('archived', 0)}, total={result.get('total', 0)}")
