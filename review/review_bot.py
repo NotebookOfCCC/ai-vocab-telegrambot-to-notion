@@ -87,15 +87,25 @@ def load_config() -> dict:
             hours = default["review_hours"]
         if not isinstance(words, int) or words < 1 or words > 50:
             words = default["words_per_batch"]
-        return {"review_hours": sorted(set(hours)), "words_per_batch": words}
+        return {
+            "review_hours": sorted(set(hours)),
+            "words_per_batch": words,
+            "is_paused": config.get("is_paused", False),
+        }
     except Exception:
         return default
 
 
-def save_config(config: dict) -> None:
-    """Save review config to Notion."""
+def save_config(config: dict) -> bool:
+    """Save review config to Notion. Returns True if successful."""
     if notion_handler:
-        notion_handler.save_bot_config(REVIEW_CONFIG_KEY, config)
+        try:
+            result = notion_handler.save_bot_config(REVIEW_CONFIG_KEY, config)
+            return result if result is not None else True
+        except Exception as e:
+            logger.error(f"Failed to save config: {e}")
+            return False
+    return False
 
 
 # Global state
@@ -500,8 +510,17 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     is_paused = True
-    await update.message.reply_text("Scheduled reviews paused. Use /resume to continue.")
-    logger.info("Scheduled reviews paused by user")
+    # Persist pause state to Notion so it survives restarts
+    saved = False
+    if review_config is not None:
+        review_config["is_paused"] = True
+        saved = save_config(review_config)
+
+    if saved:
+        await update.message.reply_text("⏸ Scheduled reviews paused (saved). Use /resume to continue.")
+    else:
+        await update.message.reply_text("⏸ Scheduled reviews paused for this session.\n⚠️ Config save failed — pause may not survive a restart.")
+    logger.info(f"Scheduled reviews paused (persisted={saved})")
 
 
 async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -513,8 +532,17 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     is_paused = False
-    await update.message.reply_text("Scheduled reviews resumed!")
-    logger.info("Scheduled reviews resumed by user")
+    # Persist resume state to Notion so it survives restarts
+    saved = False
+    if review_config is not None:
+        review_config["is_paused"] = False
+        saved = save_config(review_config)
+
+    if saved:
+        await update.message.reply_text("▶️ Scheduled reviews resumed!")
+    else:
+        await update.message.reply_text("▶️ Scheduled reviews resumed for this session.\n⚠️ Config save failed — may revert after restart.")
+    logger.info(f"Scheduled reviews resumed (persisted={saved})")
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -978,8 +1006,10 @@ def main():
         obsidian_stats_handler = None
         logger.info("Obsidian review stats disabled (OBSIDIAN_GITHUB_TOKEN not set)")
 
-    # Load schedule config
+    # Load schedule config (including pause state)
     review_config = load_config()
+    is_paused = review_config.get("is_paused", False)
+    print(f"Config loaded: hours={review_config['review_hours']}, words={review_config['words_per_batch']}, paused={is_paused}")
 
     # Create application
     application = Application.builder().token(REVIEW_BOT_TOKEN).post_init(post_init).build()
