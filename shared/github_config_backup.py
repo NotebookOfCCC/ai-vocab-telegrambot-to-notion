@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 GITHUB_API = "https://api.github.com"
 GITHUB_REPO = "NotebookOfCCC/Obsidian-Database"
 GITHUB_TOKEN = os.getenv("OBSIDIAN_GITHUB_TOKEN")
-BASE_CONFIG_PATH = "02. 数据库/02. Bot Config"
+BASE_CONFIG_PATH = "02. 数据库/01. Vocabulary Telegram"
 
 
 async def save_config_to_github(config: dict, filename: str, bot_name: str) -> bool:
