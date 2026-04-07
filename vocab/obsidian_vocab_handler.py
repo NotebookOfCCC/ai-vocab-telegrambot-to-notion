@@ -17,8 +17,8 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 GITHUB_API = "https://api.github.com"
-REPO = "NotebookOfCCC/Obsidian"
-BASE_PATH = "98. 数据库/01. Vocabulary Telegram"
+REPO = "NotebookOfCCC/Obsidian-Database"
+BASE_PATH = "02. 数据库/01. Vocabulary Telegram"
 MAX_ENTRIES_PER_FILE = 1000
 MAX_RETRIES = 3
 

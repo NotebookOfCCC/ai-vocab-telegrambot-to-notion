@@ -51,8 +51,8 @@ GITHUB_TOKEN = os.getenv("OBSIDIAN_GITHUB_TOKEN")
 
 # GitHub config backup path
 GITHUB_API = "https://api.github.com"
-GITHUB_REPO = "NotebookOfCCC/Obsidian"
-GITHUB_CONFIG_PATH = "98. 数据库/02. Bot Config/.news_bot_config.json"
+GITHUB_REPO = "NotebookOfCCC/Obsidian-Database"
+GITHUB_CONFIG_PATH = "02. 数据库/02. Bot Config/.news_bot_config.json"
 
 CONFIG_KEY = "__CONFIG_news_settings__"
 
