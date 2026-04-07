@@ -1791,7 +1791,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 def main():
     """Main function to run the task bot."""
-    global habit_handler, config_handler, vocab_handler, application, task_config
+    global habit_handler, config_handler, vocab_handler, application, task_config, is_paused
 
     # Validate configuration
     if not HABITS_BOT_TOKEN:

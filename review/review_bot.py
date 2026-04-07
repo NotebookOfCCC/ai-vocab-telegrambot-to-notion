@@ -964,7 +964,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 def main():
     """Main function to run the review bot."""
-    global notion_handler, config_handler, application, review_config, stats_handler, obsidian_stats_handler
+    global notion_handler, config_handler, application, review_config, is_paused, stats_handler, obsidian_stats_handler
 
     # Validate configuration
     if not REVIEW_BOT_TOKEN:
