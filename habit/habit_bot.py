@@ -35,6 +35,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
+import asyncio
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
@@ -95,9 +96,13 @@ def load_config() -> dict:
     return default
 
 def save_config(config: dict) -> bool:
-    """Save task config to central config DB. Returns True if successful."""
+    """Save task config to central config DB + GitHub backup. Returns True if successful."""
     if config_handler:
-        return config_handler.save(TASK_CONFIG_KEY, config)
+        saved = config_handler.save(TASK_CONFIG_KEY, config)
+        # Best-effort GitHub backup
+        from shared.github_config_backup import save_config_to_github
+        asyncio.create_task(save_config_to_github(config, ".habit_bot_config.json", "habit-bot"))
+        return saved
     return False
 
 # Global state

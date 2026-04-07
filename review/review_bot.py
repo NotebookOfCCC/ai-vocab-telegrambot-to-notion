@@ -9,6 +9,7 @@ import io
 import json
 import re
 import html
+import asyncio
 import logging
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
@@ -98,9 +99,13 @@ def load_config() -> dict:
 
 
 def save_config(config: dict) -> bool:
-    """Save review config to central config DB. Returns True if successful."""
+    """Save review config to central config DB + GitHub backup. Returns True if successful."""
     if config_handler:
-        return config_handler.save(REVIEW_CONFIG_KEY, config)
+        saved = config_handler.save(REVIEW_CONFIG_KEY, config)
+        # Best-effort GitHub backup
+        from shared.github_config_backup import save_config_to_github
+        asyncio.create_task(save_config_to_github(config, ".review_bot_config.json", "review-bot"))
+        return saved
     return False
 
 

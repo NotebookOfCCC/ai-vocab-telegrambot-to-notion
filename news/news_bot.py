@@ -47,12 +47,8 @@ TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY")
 NOTION_KEY = os.getenv("NOTION_API_KEY")
 CONFIG_DB_ID = os.getenv("CONFIG_DB_ID")
-GITHUB_TOKEN = os.getenv("OBSIDIAN_GITHUB_TOKEN")
-
-# GitHub config backup path
-GITHUB_API = "https://api.github.com"
-GITHUB_REPO = "NotebookOfCCC/Obsidian-Database"
-GITHUB_CONFIG_PATH = "02. 数据库/02. Bot Config/.news_bot_config.json"
+# GitHub config backup
+from shared.github_config_backup import save_config_to_github as _github_backup
 
 CONFIG_KEY = "__CONFIG_news_settings__"
 
@@ -105,53 +101,11 @@ def save_config(config: dict) -> bool:
     return config_handler.save(CONFIG_KEY, config)
 
 
-async def save_config_to_github(config: dict) -> bool:
-    """Best-effort backup config to GitHub."""
-    if not GITHUB_TOKEN:
-        return False
-    try:
-        headers = {
-            "Authorization": f"token {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github.v3+json",
-        }
-        url = f"{GITHUB_API}/repos/{GITHUB_REPO}/contents/{GITHUB_CONFIG_PATH}"
-        content_json = json.dumps(config, indent=2, ensure_ascii=False) + "\n"
-        import base64
-        encoded = base64.b64encode(content_json.encode()).decode()
-
-        async with aiohttp.ClientSession() as session:
-            # Check if file exists (get SHA)
-            sha = None
-            async with session.get(url, headers=headers) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    sha = data.get("sha")
-
-            # Create or update
-            payload = {
-                "message": f"news-bot config: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-                "content": encoded,
-            }
-            if sha:
-                payload["sha"] = sha
-
-            async with session.put(url, headers=headers, json=payload) as resp:
-                if resp.status in (200, 201):
-                    logger.info("Config backed up to GitHub")
-                    return True
-                else:
-                    logger.warning(f"GitHub config backup failed: {resp.status}")
-                    return False
-    except Exception as e:
-        logger.error(f"GitHub config backup error: {e}")
-        return False
-
-
 async def dual_save_config(config: dict) -> bool:
     """Save to Notion (primary) + GitHub (backup). Returns Notion save result."""
     saved = save_config(config)
-    # GitHub backup is best-effort, don't block on it
-    asyncio.create_task(save_config_to_github(config))
+    # Best-effort GitHub backup
+    asyncio.create_task(_github_backup(config, ".news_bot_config.json", "news-bot"))
     return saved
 
 
