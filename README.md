@@ -12,6 +12,7 @@ A Telegram bot system that helps you learn English vocabulary with AI-powered ex
 - **Part of Speech**: Labels words with (n.), (v.), (adj.), etc.
 - **Multiple Meanings**: Shows numbered meanings with corresponding examples
 - **Notion Integration**: Saves vocabulary entries directly to your Notion database
+- **Obsidian Sync**: Daily sync at 3:00 AM mirrors all Notion vocab databases to Obsidian markdown files
 - **Cost Optimized**: Skips API for common words, uses dynamic token limits
 
 ### Review Bot (`review_bot.py`)
@@ -47,7 +48,7 @@ A Telegram bot system that helps you learn English vocabulary with AI-powered ex
 - **AI Summarization**: Haiku generates concise digests (~$0.005/day)
 - **Language Options**: Chinese, English, or bilingual — configurable via inline buttons
 - **Configurable Push Time**: Default 9:00 AM, adjustable via interactive settings
-- **Config Dual-Save**: Notion (primary) + GitHub/Obsidian (backup)
+- **Config Persistence**: Notion (primary) + GitHub/Obsidian (backup)
 - **Manual Trigger**: /digest or [Digest] button for on-demand digest
 
 ### Task Bot (`habit_bot.py`)
@@ -78,11 +79,10 @@ This bot is optimized to minimize API costs:
 | Common words (~300) | **FREE** (skipped) |
 | Review Bot | **FREE** (no AI) |
 | Review Stats Tracking | **FREE** (Notion only) |
-| Vocab analysis (Sonnet 4) | ~$0.01-0.02 per word |
-| Modifications (Sonnet 3.5) | ~$0.005 per call |
-| Entry detection (Sonnet 3.5) | ~$0.002 per call |
+| Vocab analysis (Haiku) | ~$0.002 per word |
+| Grammar Chinese/examples (Haiku) | ~$0.001 per session |
 
-**Model selection**: Main analysis uses Sonnet 4 for quality, secondary tasks use Sonnet 3.5 (~2x cheaper), task parsing uses Haiku (very cheap).
+**Model selection**: All vocab analysis uses Haiku for cost savings, with fallback chain: Haiku → Sonnet 4.5 → GPT-4o-mini when overloaded.
 
 **Estimated cost**: ~£0.40-0.70/day with normal usage
 
@@ -318,14 +318,14 @@ This runs all five bots as separate processes.
 ai-vocab-telegram-bot/
 ├── main.py                 # Entry point - runs all bots as subprocesses
 ├── vocab/                  # Vocab Learner Bot
-│   ├── bot.py              # AI analysis and Notion/Obsidian saving
+│   ├── bot.py              # AI analysis and Notion saving
 │   ├── ai_handler.py       # Claude AI integration for vocab analysis
 │   ├── cache_handler.py    # Common words cache
-│   └── obsidian_vocab_handler.py  # Dual-save vocab to Obsidian .md
+│   └── obsidian_vocab_handler.py  # Daily Notion→Obsidian sync (3:00 AM)
 ├── review/                 # Review Bot
 │   ├── review_bot.py       # Spaced repetition scheduling
 │   ├── review_stats_handler.py    # Review stats tracking (Notion)
-│   └── obsidian_review_stats_handler.py  # Dual-save stats to Obsidian .md
+│   └── obsidian_review_stats_handler.py  # Daily stats sync to Obsidian (3:10 AM)
 ├── habit/                  # Task Bot
 │   ├── habit_bot.py        # Daily task management and reminders
 │   ├── habit_handler.py    # Notion API for task/reminder databases
@@ -346,6 +346,10 @@ ai-vocab-telegram-bot/
 ```
 
 ## Schedule
+
+### Obsidian Sync
+- 3:00 AM - Vocab: full sync from all Notion databases → Obsidian .md files
+- 3:10 AM - Review stats: full sync from Notion → Obsidian Review_Stats.md
 
 ### Review Bot
 - 8:00, 13:00, 19:00, 22:00 - Vocabulary reviews
