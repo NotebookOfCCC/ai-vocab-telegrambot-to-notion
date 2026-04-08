@@ -23,7 +23,9 @@ from telegram.ext import (
 from vocab.ai_handler import AIHandler, CATEGORIES, CATEGORY_LIST
 from shared.notion_handler import NotionHandler
 from vocab.cache_handler import CacheHandler
-from vocab.obsidian_vocab_handler import ObsidianVocabHandler
+from vocab.obsidian_vocab_handler import ObsidianVocabSync
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 # Load environment variables
 load_dotenv()
@@ -46,11 +48,12 @@ ADDITIONAL_DB_IDS = [db_id.strip() for db_id in ADDITIONAL_DB_IDS_RAW.split(",")
 USE_CHEAP_MODEL = os.getenv("USE_CHEAP_MODEL", "false").lower() == "true"  # Set to "true" to save ~90% on API costs
 ALLOWED_USERS = os.getenv("ALLOWED_USER_IDS", "").split(",")
 ALLOWED_USERS = [uid.strip() for uid in ALLOWED_USERS if uid.strip()]
+TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 
 ai_handler = None
 notion_handler = None
 cache_handler = None
-obsidian_handler = None
+obsidian_sync = None
 
 # Store user session data (pending entries to save)
 user_sessions = {}
@@ -791,21 +794,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             result = await loop.run_in_executor(None, notion_handler.save_entry, entry)
             verb = "Saved"
         if result["success"]:
-            # Save to Obsidian (best-effort)
-            obsidian_tag = ""
-            if obsidian_handler:
-                try:
-                    if verb == "Replaced":
-                        await obsidian_handler.replace_entry(entry)
-                    else:
-                        await obsidian_handler.append_entry(entry)
-                    obsidian_tag = " + Obsidian"
-                except Exception as e:
-                    logger.error(f"Obsidian batch save failed for '{entry.get('english', '')}': {e}")
             chinese = entry.get("chinese", "")
             short_zh = chinese.split("；")[0].split(";")[0].split("，")[0].split(",")[0].strip()
             await query.edit_message_text(
-                f"— {verb}{obsidian_tag}: {entry['english']} - {short_zh} ({entry['category']})",
+                f"— {verb}: {entry['english']} - {short_zh} ({entry['category']})",
                 reply_markup=None,
             )
         else:
@@ -1050,19 +1042,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             else:
                 failed_count += 1
 
-        # Save to Obsidian (background, non-blocking, best-effort)
-        if obsidian_handler:
-            for entry in saved_entries:
-                try:
-                    await obsidian_handler.append_entry(entry)
-                except Exception as e:
-                    logger.error(f"Obsidian save failed for '{entry.get('english', '')}': {e}")
-            for entry in replaced_entries:
-                try:
-                    await obsidian_handler.replace_entry(entry)
-                except Exception as e:
-                    logger.error(f"Obsidian replace failed for '{entry.get('english', '')}': {e}")
-
         # Invalidate cache for saved words so duplicate detection works next time
         original_input = session.get("original_input", "")
         if original_input and (saved_entries or replaced_entries):
@@ -1074,18 +1053,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Keep content, remove buttons
         await query.edit_message_text(query.message.text, reply_markup=None)
 
-        obsidian_tag = " + Obsidian" if obsidian_handler else ""
-
         # Send save confirmation as separate message
         if saved_entries or replaced_entries:
             for entry in replaced_entries:
                 chinese = entry.get('chinese', '')
                 short_chinese = chinese.split('；')[0].split(';')[0].split('，')[0].split(',')[0].strip()
-                await query.message.reply_text(f"— Replaced in Notion{obsidian_tag}: {entry['english']} - {short_chinese} ({entry['category']})")
+                await query.message.reply_text(f"— Replaced: {entry['english']} - {short_chinese} ({entry['category']})")
             for entry in saved_entries:
                 chinese = entry.get('chinese', '')
                 short_chinese = chinese.split('；')[0].split(';')[0].split('，')[0].split(',')[0].strip()
-                await query.message.reply_text(f"— Saved to Notion{obsidian_tag}: {entry['english']} - {short_chinese} ({entry['category']})")
+                await query.message.reply_text(f"— Saved: {entry['english']} - {short_chinese} ({entry['category']})")
             if failed_count > 0:
                 await query.message.reply_text(f"({failed_count} failed)")
         else:
@@ -1101,9 +1078,123 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text("An error occurred. Please try again.")
 
 
+def _fetch_all_entries_from_db(notion_client, db_id: str) -> list[dict]:
+    """Fetch all vocabulary entries from a single Notion database (for Obsidian sync)."""
+    import re as _re
+    entries = []
+    cursor = None
+    while True:
+        kwargs = {"database_id": db_id, "page_size": 100}
+        if cursor:
+            kwargs["start_cursor"] = cursor
+        resp = notion_client.databases.query(**kwargs)
+        for page in resp.get("results", []):
+            entry = _parse_notion_page(page)
+            if entry:
+                entries.append(entry)
+        if resp.get("has_more"):
+            cursor = resp.get("next_cursor")
+        else:
+            break
+    return entries
+
+
+def _parse_notion_page(page: dict) -> dict | None:
+    """Parse a Notion page into a vocab entry dict."""
+    properties = page.get("properties", {})
+    entry = {}
+    for prop_name, prop_value in properties.items():
+        prop_type = prop_value.get("type")
+        prop_name_lower = prop_name.lower()
+        if prop_type == "title":
+            title_content = prop_value.get("title", [])
+            if title_content:
+                title_text = title_content[0].get("plain_text", "")
+                if title_text.startswith("__CONFIG_"):
+                    return None
+                entry["english"] = title_text
+        elif prop_type == "rich_text":
+            rich_text = prop_value.get("rich_text", [])
+            content = rich_text[0].get("plain_text", "") if rich_text else ""
+            if "chinese" in prop_name_lower or "中文" in prop_name_lower:
+                entry["chinese"] = content
+            elif "explanation" in prop_name_lower or "解释" in prop_name_lower:
+                entry["explanation"] = content
+            elif "example" in prop_name_lower or "例句" in prop_name_lower:
+                entry["example_combined"] = content
+        elif prop_type == "select":
+            if "category" in prop_name_lower or "类别" in prop_name_lower:
+                select_value = prop_value.get("select")
+                if select_value:
+                    entry["category"] = select_value.get("name", "")
+        elif prop_type == "date":
+            date_value = prop_value.get("date")
+            if date_value:
+                date_start = date_value.get("start", "")
+                if prop_name_lower == "date" or "added" in prop_name_lower:
+                    entry["date"] = date_start
+    if not entry.get("english"):
+        return None
+    # Split combined example into EN and ZH
+    example = entry.pop("example_combined", "")
+    if example:
+        lines = example.split("\n", 1)
+        entry["example_en"] = lines[0]
+        entry["example_zh"] = lines[1] if len(lines) > 1 else ""
+    else:
+        entry["example_en"] = ""
+        entry["example_zh"] = ""
+    return entry
+
+
+async def daily_obsidian_sync():
+    """Daily sync: read all Notion databases, overwrite Obsidian markdown files."""
+    if not obsidian_sync or not notion_handler:
+        logger.warning("Obsidian sync skipped: handler not initialized")
+        return
+
+    logger.info("Starting daily Obsidian vocab sync...")
+    try:
+        # DB order: additional DBs first (oldest), then primary DB (newest)
+        # This matches the file numbering: 001, 002, 003... with primary last
+        db_ids_ordered = ADDITIONAL_DB_IDS + [NOTION_DB_ID]
+
+        loop = asyncio.get_running_loop()
+        database_entries = []
+        for db_id in db_ids_ordered:
+            entries = await loop.run_in_executor(
+                None, _fetch_all_entries_from_db, notion_handler.client, db_id
+            )
+            database_entries.append((db_id, entries))
+            logger.info(f"Fetched {len(entries)} entries from DB {db_id[:8]}")
+
+        await obsidian_sync.sync_databases(database_entries)
+
+        total = sum(len(e) for _, e in database_entries)
+        logger.info(f"Daily Obsidian sync complete: {total} entries across {len(database_entries)} databases")
+    except Exception as e:
+        logger.error(f"Daily Obsidian sync failed: {e}")
+
+
+async def post_init(app: Application) -> None:
+    """Initialize scheduler after application starts."""
+    if not obsidian_sync:
+        return
+
+    scheduler = AsyncIOScheduler(timezone=TIMEZONE, misfire_grace_time=120)
+    scheduler.add_job(
+        daily_obsidian_sync,
+        CronTrigger(hour=3, minute=0, timezone=TIMEZONE),
+        id="obsidian_vocab_sync",
+        name="Daily Obsidian vocab sync",
+    )
+    scheduler.start()
+    logger.info("Obsidian sync scheduled: daily at 3:00 AM")
+
+
 def main():
     """Main function to run the bot."""
-    global ai_handler, notion_handler, cache_handler, obsidian_handler
+    global ai_handler, notion_handler, cache_handler, obsidian_sync
 
     # Validate configuration
     if not TELEGRAM_TOKEN:
@@ -1127,13 +1218,13 @@ def main():
     cache_handler = CacheHandler()
     print(f"Cache loaded: {len(cache_handler.cache)} entries")
 
-    # Initialize Obsidian handler (optional — needs OBSIDIAN_GITHUB_TOKEN)
+    # Initialize Obsidian sync (optional — needs OBSIDIAN_GITHUB_TOKEN)
     try:
-        obsidian_handler = ObsidianVocabHandler()
-        print("Obsidian vocab handler initialized")
+        obsidian_sync = ObsidianVocabSync()
+        print("Obsidian daily sync initialized (3:00 AM)")
     except ValueError:
-        obsidian_handler = None
-        print("Obsidian vocab handler skipped (OBSIDIAN_GITHUB_TOKEN not set)")
+        obsidian_sync = None
+        print("Obsidian sync skipped (OBSIDIAN_GITHUB_TOKEN not set)")
 
     # Test Notion connection on startup
     notion_test = notion_handler.test_connection()
@@ -1143,7 +1234,7 @@ def main():
         print(f"WARNING: Notion connection issue: {notion_test['error']}")
 
     # Create application
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
+    application = Application.builder().token(TELEGRAM_TOKEN).post_init(post_init).build()
 
     # Add handlers
     application.add_handler(CommandHandler("start", start))

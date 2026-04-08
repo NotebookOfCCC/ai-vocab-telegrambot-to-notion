@@ -18,7 +18,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from shared.notion_handler import NotionHandler
 from review.review_stats_handler import ReviewStatsHandler
-from review.obsidian_review_stats_handler import ObsidianReviewStatsHandler
+from review.obsidian_review_stats_handler import ObsidianReviewStatsHandler  # used by daily sync
 
 # Load environment variables
 load_dotenv()
@@ -117,7 +117,6 @@ application = None
 is_paused = False
 review_config = None
 stats_handler = None
-obsidian_stats_handler = None
 sent_but_unrated: dict = {}  # page_id → {"entry": entry, "sent_at": datetime}; accumulates across batches, expires after 2 days
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
@@ -839,11 +838,6 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
         result = notion_handler.update_review_stats(page_id, response="again")
         if stats_handler:
             stats_handler.record_review("again")
-        if obsidian_stats_handler:
-            try:
-                await obsidian_stats_handler.record_review("again")
-            except Exception as e:
-                logger.error(f"Obsidian stats save failed: {e}")
         revealed = _unspoiler_html(query.message)
         await query.edit_message_text(text=revealed, parse_mode="HTML", reply_markup=None)
 
@@ -853,11 +847,6 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
         result = notion_handler.update_review_stats(page_id, response="good")
         if stats_handler:
             stats_handler.record_review("good")
-        if obsidian_stats_handler:
-            try:
-                await obsidian_stats_handler.record_review("good")
-            except Exception as e:
-                logger.error(f"Obsidian stats save failed: {e}")
         revealed = _unspoiler_html(query.message)
         await query.edit_message_text(text=revealed, parse_mode="HTML", reply_markup=None)
         if result.get("mastered"):
@@ -870,11 +859,6 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
         result = notion_handler.update_review_stats(page_id, response="easy")
         if stats_handler:
             stats_handler.record_review("easy")
-        if obsidian_stats_handler:
-            try:
-                await obsidian_stats_handler.record_review("easy")
-            except Exception as e:
-                logger.error(f"Obsidian stats save failed: {e}")
         revealed = _unspoiler_html(query.message)
         await query.edit_message_text(text=revealed, parse_mode="HTML", reply_markup=None)
         if result.get("mastered"):
@@ -926,6 +910,24 @@ def apply_schedule(sched, config: dict) -> None:
                 logger.info(f"Job '{job.name}' next run: {next_time}")
 
 
+async def daily_obsidian_stats_sync():
+    """Daily sync: read all review stats from Notion, overwrite Obsidian markdown."""
+    if not stats_handler:
+        return
+    try:
+        obsidian = ObsidianReviewStatsHandler()
+        # Fetch all stats from Notion
+        loop = asyncio.get_running_loop()
+        all_stats = await loop.run_in_executor(None, stats_handler.get_all_stats)
+        if all_stats:
+            await obsidian.bulk_upsert(all_stats)
+            logger.info(f"Daily Obsidian stats sync: {len(all_stats)} days written")
+        else:
+            logger.info("Daily Obsidian stats sync: no stats found")
+    except Exception as e:
+        logger.error(f"Daily Obsidian stats sync failed: {e}")
+
+
 async def post_init(app: Application) -> None:
     """Initialize scheduler after application starts."""
     global scheduler
@@ -953,6 +955,20 @@ async def post_init(app: Application) -> None:
         misfire_grace_time=300,
     )
 
+    # Daily Obsidian review stats sync — 3:10 AM (after vocab sync at 3:00)
+    try:
+        ObsidianReviewStatsHandler()  # test if token is available
+        scheduler.add_job(
+            daily_obsidian_stats_sync,
+            CronTrigger(hour=3, minute=10, timezone=TIMEZONE),
+            id="obsidian_stats_sync",
+            name="Daily Obsidian review stats sync",
+            misfire_grace_time=300,
+        )
+        logger.info("Obsidian review stats sync scheduled: daily at 3:10 AM")
+    except ValueError:
+        logger.info("Obsidian review stats sync skipped (OBSIDIAN_GITHUB_TOKEN not set)")
+
     logger.info(f"Scheduler started with timezone {TIMEZONE}")
 
     # Log next run times for debugging
@@ -969,7 +985,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 def main():
     """Main function to run the review bot."""
-    global notion_handler, config_handler, application, review_config, is_paused, stats_handler, obsidian_stats_handler
+    global notion_handler, config_handler, application, review_config, is_paused, stats_handler
 
     # Validate configuration
     if not REVIEW_BOT_TOKEN:
@@ -1007,14 +1023,6 @@ def main():
         logger.info("Review stats tracking enabled")
     else:
         logger.warning("REVIEW_STATS_DB_ID not set — stats tracking disabled")
-
-    # Initialize Obsidian review stats handler (best-effort)
-    try:
-        obsidian_stats_handler = ObsidianReviewStatsHandler()
-        print("Obsidian review stats handler initialized")
-    except ValueError:
-        obsidian_stats_handler = None
-        logger.info("Obsidian review stats disabled (OBSIDIAN_GITHUB_TOKEN not set)")
 
     # Load schedule config (including pause state)
     review_config = load_config()

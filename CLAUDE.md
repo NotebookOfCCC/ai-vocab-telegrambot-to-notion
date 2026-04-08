@@ -33,7 +33,7 @@ main.py (Entry Point)
 - Extracts worth-learning phrases with phonetics, part of speech, examples
 - Multiple meanings shown with numbered examples
 - Grammar checking for sentences
-- Saves to Notion vocabulary database + Obsidian markdown (dual-save via GitHub API)
+- Saves to Notion vocabulary database; Obsidian synced daily at 3 AM via GitHub API
 - **Cost optimized**: Skips API for ~300 common words
 - **AI fallback chain**: Haiku → Sonnet 4.5 → OpenAI GPT-4o-mini (when Anthropic is overloaded or model not found)
 - **Persistent reply keyboard**: [Batch] for multi-phrase batch input; [Word Count] shows word counts per configured Notion database
@@ -107,9 +107,9 @@ main.py (Entry Point)
 |------|---------|----------|
 | `vocab/ai_handler.py` | Claude API for vocab analysis | ~$0.002/word |
 | `vocab/cache_handler.py` | Cache for common words | FREE |
-| `vocab/obsidian_vocab_handler.py` | Dual-save vocab to Obsidian .md via GitHub | FREE |
+| `vocab/obsidian_vocab_handler.py` | Daily sync vocab to Obsidian .md via GitHub (3 AM) | FREE |
 | `review/review_stats_handler.py` | Review stats tracking (Notion) | FREE |
-| `review/obsidian_review_stats_handler.py` | Dual-save review stats to Obsidian .md via GitHub | FREE |
+| `review/obsidian_review_stats_handler.py` | Daily sync review stats to Obsidian .md via GitHub (3:10 AM) | FREE |
 | `habit/habit_handler.py` | Task tracking, task management | FREE |
 | `habit/task_parser.py` | Regex task parsing (fallback) | **FREE** |
 | `grammar/github_handler.py` | GitHub API read/write for Obsidian files | FREE |
@@ -599,5 +599,5 @@ Row 2: [Cancel]  [More]
 68. **News Digest Bot**: 5th bot for daily AI builder digests from [follow-builders](https://github.com/zarazhangrui/follow-builders) feeds (tweets, podcasts, blogs). Summarized via Haiku (~$0.005/day), configurable language (zh/en/bilingual) and push time. Config dual-saved to Notion + GitHub. Reply keyboard [Digest] [Settings].
 69. **Review bot stop/resume fix**: `is_paused` state now persisted to Notion config — previously lost on restart, causing reviews to continue after `/stop`.
 70. **Central config database**: New `CONFIG_DB_ID` env var — all bot configs (review schedule, task settings, news settings) stored in one Notion database. Survives Railway restarts. Falls back to legacy per-bot storage if not set.
-71. **Obsidian duplicate replace**: When replacing a duplicate word in Notion, Obsidian now also replaces the existing row in-place (searches all files 001+) instead of appending a duplicate. Falls back to append if not found.
+71. **Obsidian daily sync**: Replaced real-time dual-save with daily sync at 3:00 AM. Vocab bot reads all Notion databases and overwrites Obsidian .md files (one per database). Review stats sync at 3:10 AM. No more real-time GitHub API calls during save. SHA fetched from directory listing to avoid 1MB GET limit.
 72. **Rule 6 strengthened**: Added explicit "reference" example to AI prompt Rule 6 — single words with multiple parts of speech must include ALL meanings across ALL POS, not just the one used in the input sentence.

@@ -123,3 +123,40 @@ class ReviewStatsHandler:
                 result.append({"date": d_str, "reviewed": 0, "again": 0, "good": 0, "easy": 0})
             current += timedelta(days=1)
         return result
+
+    def get_all_stats(self) -> list[dict]:
+        """Fetch all stats from the database (for Obsidian sync).
+
+        Returns list of dicts: {"date": "YYYY-MM-DD", "reviewed": int, "again": int, "good": int, "easy": int}
+        """
+        results = []
+        cursor = None
+        while True:
+            kwargs = {"database_id": self.stats_db_id, "page_size": 100}
+            if cursor:
+                kwargs["start_cursor"] = cursor
+            try:
+                resp = self.client.databases.query(**kwargs)
+            except Exception as e:
+                logger.error(f"Error fetching all stats: {e}")
+                break
+            for page in resp.get("results", []):
+                props = page.get("properties", {})
+                title = props.get("Date", {}).get("title", [])
+                if not title:
+                    continue
+                date_str = title[0].get("plain_text", "")
+                if not date_str or date_str.startswith("__CONFIG_"):
+                    continue
+                results.append({
+                    "date": date_str,
+                    "reviewed": (props.get("Reviewed") or {}).get("number") or 0,
+                    "again": (props.get("Again") or {}).get("number") or 0,
+                    "good": (props.get("Good") or {}).get("number") or 0,
+                    "easy": (props.get("Easy") or {}).get("number") or 0,
+                })
+            if resp.get("has_more"):
+                cursor = resp.get("next_cursor")
+            else:
+                break
+        return sorted(results, key=lambda x: x["date"])
