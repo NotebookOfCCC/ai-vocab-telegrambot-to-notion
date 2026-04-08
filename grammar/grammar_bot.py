@@ -985,12 +985,18 @@ async def start_practice(bot_or_update, chat_id: int):
             logger.error(f"Failed to fetch phrase cards: {e}", exc_info=True)
 
     if not grammar_cards and not phrase_cards:
+        # Count how many cards were already sent today
+        total_sent = sum(len(nums) for nums in sent_today.values())
+        if total_sent > 0:
+            msg = f"今天已练习 {total_sent} 张卡片，没有更多可用卡片了！✅"
+        else:
+            msg = "No more cards available today!"
         if hasattr(bot_or_update, 'effective_message'):
             await bot_or_update.effective_message.reply_text(
-                "No more cards available today!", reply_markup=REPLY_KEYBOARD)
+                msg, reply_markup=REPLY_KEYBOARD)
         else:
             await bot.send_message(chat_id=chat_id,
-                text="No more cards available today!", reply_markup=REPLY_KEYBOARD)
+                text=msg, reply_markup=REPLY_KEYBOARD)
         return
 
     # Mark selected cards as sent today (avoid duplicates on repeat Practice presses)
