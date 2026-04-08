@@ -795,7 +795,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             obsidian_tag = ""
             if obsidian_handler:
                 try:
-                    await obsidian_handler.append_entry(entry)
+                    if verb == "Replaced":
+                        await obsidian_handler.replace_entry(entry)
+                    else:
+                        await obsidian_handler.append_entry(entry)
                     obsidian_tag = " + Obsidian"
                 except Exception as e:
                     logger.error(f"Obsidian batch save failed for '{entry.get('english', '')}': {e}")
@@ -1049,11 +1052,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         # Save to Obsidian (background, non-blocking, best-effort)
         if obsidian_handler:
-            for entry in saved_entries + replaced_entries:
+            for entry in saved_entries:
                 try:
                     await obsidian_handler.append_entry(entry)
                 except Exception as e:
                     logger.error(f"Obsidian save failed for '{entry.get('english', '')}': {e}")
+            for entry in replaced_entries:
+                try:
+                    await obsidian_handler.replace_entry(entry)
+                except Exception as e:
+                    logger.error(f"Obsidian replace failed for '{entry.get('english', '')}': {e}")
 
         # Invalidate cache for saved words so duplicate detection works next time
         original_input = session.get("original_input", "")

@@ -273,6 +273,10 @@ CRITICAL RULES:
    - ✓ CORRECT: input "blocking out an hour" → "block out" covers ALL meanings:
        1. 遮挡或阻隔光线、声音等 2. 忽视或压制某种感受、记忆、干扰 3. 划掉或删除文本 4. 为某项活动预留时间
    - Another example: "hook up the microphone" → "hook up" must include ALL meanings (1. connect/接上 2. casual relationship/约炮 3. meet up/碰面), not just "connect"
+   - SINGLE WORDS WITH MULTIPLE PARTS OF SPEECH: This rule applies equally to common words used as different parts of speech.
+     ✗ WRONG: input "We will reference ways to apply..." → "reference" only explains verb meaning (引用/参考)
+     ✓ CORRECT: "reference" must cover ALL meanings across ALL parts of speech: 1. 参考/查阅(v.) 2. 提及/涉及(v.) 3. 参考资料/文献(n.) 4. 推荐信/证明人(n.)
+     The sentence used "reference" as a verb, but the entry MUST still include all noun meanings too.
    - For EACH numbered meaning, provide a CORRESPONDING numbered example sentence
 
 OUTPUT FORMAT (strict JSON):

@@ -118,6 +118,20 @@ class ObsidianVocabHandler:
         return count
 
     @staticmethod
+    def _extract_base_word(english_field: str) -> str:
+        """Extract base word/phrase from english field, stripping IPA and POS."""
+        text = english_field.strip()
+        # Also unescape pipe chars from markdown table cells
+        text = text.replace("\\|", "|")
+        # Cut at first '/' (start of IPA) or '(' (start of POS)
+        for delimiter in ['/', '(']:
+            idx = text.find(delimiter)
+            if idx > 0:
+                text = text[:idx]
+                break
+        return text.strip().lower()
+
+    @staticmethod
     def _escape_cell(text: str) -> str:
         """Escape pipe and newline characters for markdown table cells."""
         if not text:
@@ -173,3 +187,55 @@ class ObsidianVocabHandler:
         english = entry.get("english", "unknown")
         await self._put_file(filepath, content, f"vocab-bot: add '{english}' ({ts})")
         logger.info(f"Saved '{english}' to Obsidian: {current_file} (row {row_count + 1})")
+
+    async def replace_entry(self, entry: dict):
+        """
+        Replace an existing row matching the entry's english word in Obsidian.
+        Searches all vocab files (001+). Falls back to append_entry if not found.
+        """
+        target_word = self._extract_base_word(entry.get("english", ""))
+        if not target_word:
+            await self.append_entry(entry)
+            return
+
+        files = await self._list_vocab_files()
+        # Search newest first — most likely to find recent entries faster
+        for filename in reversed(files):
+            filepath = f"{BASE_PATH}/{filename}"
+            try:
+                content, _ = await self._get_file(filepath)
+            except FileNotFoundError:
+                continue
+
+            lines = content.split("\n")
+            replaced = False
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                if not stripped.startswith("|") or stripped.startswith("|---") or stripped.startswith("| #"):
+                    continue
+                # Split by unescaped pipes
+                cells = re.split(r'(?<!\\)\|', stripped)
+                if len(cells) < 3:
+                    continue
+                row_english = cells[2].strip()  # Column 2 is English
+                row_word = self._extract_base_word(row_english)
+                if row_word == target_word:
+                    # Keep existing row number
+                    try:
+                        row_num = int(cells[1].strip())
+                    except (ValueError, IndexError):
+                        row_num = 1
+                    lines[i] = self._entry_to_row(entry, row_num)
+                    replaced = True
+                    break
+
+            if replaced:
+                new_content = "\n".join(lines)
+                ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+                english = entry.get("english", "unknown")
+                await self._put_file(filepath, new_content, f"vocab-bot: replace '{english}' ({ts})")
+                logger.info(f"Replaced '{english}' in Obsidian: {filename}")
+                return
+
+        # Not found in any file — fall back to append
+        await self.append_entry(entry)
