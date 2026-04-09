@@ -320,13 +320,31 @@ async def send_pending_resend():
         return
 
     if not sent_but_unrated:
-        await application.bot.send_message(
-            chat_id=REVIEW_USER_ID,
-            text="✅ All caught up! No pending cards.",
+        # After restart, sent_but_unrated is empty. Fall back to querying Notion
+        # for overdue/due cards — these are the ones the user hasn't reviewed yet.
+        logger.info("sent_but_unrated empty (likely after restart), querying Notion for due cards")
+        import asyncio
+        loop = asyncio.get_running_loop()
+        batch_size = review_config["words_per_batch"] if review_config else get_default_config()["words_per_batch"]
+        due_entries = await loop.run_in_executor(
+            None, lambda: notion_handler.fetch_entries_for_review(batch_size, smart=True)
         )
-        return
-
-    entries = [v["entry"] for v in sent_but_unrated.values()]
+        if not due_entries:
+            await application.bot.send_message(
+                chat_id=REVIEW_USER_ID,
+                text="✅ All caught up! No pending cards.",
+            )
+            return
+        # Re-populate sent_but_unrated so subsequent Pending presses work
+        import datetime as _dt
+        _now = _dt.datetime.now()
+        for entry in due_entries:
+            pid = entry.get("page_id", "")
+            if pid:
+                sent_but_unrated[pid] = {"entry": entry, "sent_at": _now}
+        entries = due_entries
+    else:
+        entries = [v["entry"] for v in sent_but_unrated.values()]
     total = len(entries)
     logger.info(f"Resending {total} pending cards from last 2 days")
 

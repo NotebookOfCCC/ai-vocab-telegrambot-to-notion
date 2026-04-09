@@ -90,6 +90,16 @@ class ObsidianVocabSync:
                     if item["type"] == "file" and re.match(r"Vocabulary_\d+\.md$", item["name"])
                 }
 
+    async def _get_file_sha(self, filepath: str) -> str | None:
+        """Fetch only the SHA of a file (via directory listing or direct HEAD)."""
+        url = f"{GITHUB_API}/repos/{REPO}/contents/{filepath}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=self.headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get("sha")
+                return None
+
     async def _put_file(self, filepath: str, content: str, message: str, sha: str = None):
         """Write file content to GitHub."""
         for attempt in range(MAX_RETRIES):
@@ -104,9 +114,9 @@ class ObsidianVocabSync:
                     if resp.status in (200, 201):
                         logger.info(f"Wrote {filepath} to GitHub")
                         return
-                    elif resp.status == 409 and attempt < MAX_RETRIES - 1:
-                        logger.warning(f"Conflict on {filepath}, retrying (attempt {attempt + 1})")
-                        sha = None  # Force GitHub to resolve
+                    elif resp.status in (409, 422) and attempt < MAX_RETRIES - 1:
+                        logger.warning(f"Conflict on {filepath}, fetching fresh SHA (attempt {attempt + 1})")
+                        sha = await self._get_file_sha(filepath)
                         continue
                     else:
                         text = await resp.text()
@@ -134,9 +144,13 @@ class ObsidianVocabSync:
 
             content = build_file_content(entries, part)
             ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-            await self._put_file(
-                filepath, content,
-                f"daily-sync: {len(entries)} entries → {filename} ({ts})",
-                sha=sha,
-            )
-            logger.info(f"Synced {filename}: {len(entries)} entries from DB {db_id[:8]}")
+            try:
+                await self._put_file(
+                    filepath, content,
+                    f"daily-sync: {len(entries)} entries → {filename} ({ts})",
+                    sha=sha,
+                )
+                logger.info(f"Synced {filename}: {len(entries)} entries from DB {db_id[:8]}")
+            except Exception as e:
+                logger.error(f"Failed to sync {filename}: {e}")
+                continue  # Don't let one file failure stop the rest
