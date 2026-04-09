@@ -71,7 +71,6 @@ def get_default_config() -> dict:
 
 
 REVIEW_CONFIG_KEY = "__CONFIG_review_schedule__"
-PENDING_CONFIG_KEY = "__CONFIG_review_pending__"
 
 
 def load_config() -> dict:
@@ -109,58 +108,6 @@ def save_config(config: dict) -> bool:
         return saved
     return False
 
-
-def _save_pending():
-    """Persist sent_but_unrated page IDs + timestamps to Notion config DB.
-
-    Only stores page_id → sent_at (not full entry data) to stay under
-    Notion's 2000-char rich_text limit. Entry data is re-fetched on load.
-    """
-    if not config_handler:
-        return
-    try:
-        import datetime
-        data = {}
-        cutoff = datetime.datetime.now() - datetime.timedelta(days=2)
-        for pid, v in sent_but_unrated.items():
-            if v["sent_at"] >= cutoff:
-                data[pid] = v["sent_at"].isoformat()
-        config_handler.save(PENDING_CONFIG_KEY, data)
-    except Exception as e:
-        logger.error(f"Failed to save pending state: {e}")
-
-
-def _load_pending():
-    """Load sent_but_unrated from Notion config DB, re-fetching entry data."""
-    global sent_but_unrated
-    if not config_handler or not notion_handler:
-        return
-    try:
-        import datetime
-        data = config_handler.load(PENDING_CONFIG_KEY)
-        if not data or not isinstance(data, dict):
-            return
-        cutoff = datetime.datetime.now() - datetime.timedelta(days=2)
-        loaded = 0
-        for pid, sent_at_str in data.items():
-            if not isinstance(sent_at_str, str):
-                continue
-            sent_at = datetime.datetime.fromisoformat(sent_at_str)
-            if sent_at < cutoff:
-                continue
-            # Re-fetch entry data from Notion
-            try:
-                page = notion_handler.client.pages.retrieve(page_id=pid)
-                entry = notion_handler._parse_page_to_entry(page)
-                if entry:
-                    sent_but_unrated[pid] = {"entry": entry, "sent_at": sent_at}
-                    loaded += 1
-            except Exception:
-                continue  # Page may have been deleted
-        if loaded:
-            logger.info(f"Loaded {loaded} pending cards from config")
-    except Exception as e:
-        logger.error(f"Failed to load pending state: {e}")
 
 
 # Global state
@@ -323,7 +270,6 @@ async def send_review_batch(manual: bool = False):
             pid = entry.get("page_id", "")
             if pid and pid not in sent_but_unrated:
                 sent_but_unrated[pid] = {"entry": entry, "sent_at": now}
-        _save_pending()
 
         total = len(entries)
         for i, entry in enumerate(entries, 1):
@@ -920,11 +866,6 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
             word = query.message.text.split("\n")[2].strip() if query.message.text else ""
             await query.message.reply_text(f"🎓 Mastered: {word}")
 
-    # Persist pending state after any rating
-    if data.startswith(("again_", "good_", "easy_")):
-        _save_pending()
-
-
 async def handle_keyboard_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle taps on the persistent reply keyboard buttons."""
     if str(update.effective_user.id) != REVIEW_USER_ID:
@@ -1087,9 +1028,6 @@ def main():
     review_config = load_config()
     is_paused = review_config.get("is_paused", False)
     print(f"Config loaded: hours={review_config['review_hours']}, words={review_config['words_per_batch']}, paused={is_paused}")
-
-    # Load pending cards from last session (survives restarts)
-    _load_pending()
 
     # Create application
     application = Application.builder().token(REVIEW_BOT_TOKEN).post_init(post_init).build()
