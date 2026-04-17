@@ -44,6 +44,14 @@ CONFIG_DB_ID = os.getenv("CONFIG_DB_ID")
 ADDITIONAL_DB_IDS_RAW = os.getenv("ADDITIONAL_DATABASE_IDS", "")
 ADDITIONAL_DB_IDS = [db_id.strip() for db_id in ADDITIONAL_DB_IDS_RAW.split(",") if db_id.strip()]
 
+# Available TTS voices (en-GB only)
+TTS_VOICES = {
+    "en-GB-SoniaNeural": "🇬🇧 Sonia (女)",
+    "en-GB-LibbyNeural": "🇬🇧 Libby (女)",
+    "en-GB-RyanNeural": "🇬🇧 Ryan (男)",
+    "en-GB-ThomasNeural": "🇬🇧 Thomas (男)",
+}
+
 # Schedule configuration from environment variables
 # REVIEW_HOURS: comma-separated hours (e.g., "8,13,17,19,22")
 # WORDS_PER_BATCH: number of words per review session (e.g., "20")
@@ -67,7 +75,7 @@ def get_default_config() -> dict:
     except ValueError:
         words = 20
 
-    return {"review_hours": sorted(set(hours)), "words_per_batch": words}
+    return {"review_hours": sorted(set(hours)), "words_per_batch": words, "tts_voice": "en-GB-SoniaNeural"}
 
 
 REVIEW_CONFIG_KEY = "__CONFIG_review_schedule__"
@@ -89,10 +97,14 @@ def load_config() -> dict:
             hours = default["review_hours"]
         if not isinstance(words, int) or words < 1 or words > 50:
             words = default["words_per_batch"]
+        voice = config.get("tts_voice", "en-GB-SoniaNeural")
+        if voice not in TTS_VOICES:
+            voice = "en-GB-SoniaNeural"
         return {
             "review_hours": sorted(set(hours)),
             "words_per_batch": words,
             "is_paused": config.get("is_paused", False),
+            "tts_voice": voice,
         }
     except Exception:
         return default
@@ -135,7 +147,7 @@ def _clean_phrase_for_tts(english: str) -> str:
     return re.split(r'\s+[/(]', english)[0].strip()
 
 
-async def generate_chunked_audio(entries: list, chunk_size: int = 10) -> list:
+async def generate_chunked_audio(entries: list, chunk_size: int = 10, voice: str = None) -> list:
     """Generate audio in chunks of chunk_size phrases each.
 
     Returns list of (audio_buf, caption) tuples, e.g.:
@@ -148,7 +160,8 @@ async def generate_chunked_audio(entries: list, chunk_size: int = 10) -> list:
         logger.warning("edge-tts not installed, skipping audio")
         return []
 
-    voice = "en-GB-SoniaNeural"
+    if not voice or voice not in TTS_VOICES:
+        voice = "en-GB-SoniaNeural"
     phrases = [_clean_phrase_for_tts(e.get("english", "")) for e in entries]
     phrases = [p for p in phrases if p]
     if not phrases:
@@ -294,7 +307,8 @@ async def send_review_batch(manual: bool = False):
         logger.info(f"Sent {total} review entries to user {REVIEW_USER_ID}")
 
         # Send pronunciation audio in chunks of 10
-        audio_chunks = await generate_chunked_audio(entries)
+        cfg_voice = review_config.get("tts_voice") if review_config else None
+        audio_chunks = await generate_chunked_audio(entries, voice=cfg_voice)
         if audio_chunks:
             for audio_buf, caption in audio_chunks:
                 await application.bot.send_audio(
@@ -355,7 +369,8 @@ async def send_pending_resend():
             )
 
         # Send audio for this chunk immediately after
-        audio_chunks = await generate_chunked_audio(chunk)
+        cfg_voice = review_config.get("tts_voice") if review_config else None
+        audio_chunks = await generate_chunked_audio(chunk, voice=cfg_voice)
         if audio_chunks:
             audio_buf, caption = audio_chunks[0]
             filename = f"{now.strftime('%Y-%m-%d_%H-%M')}_part{chunk_idx}.mp3"
@@ -646,8 +661,10 @@ def format_schedule_text(config: dict) -> str:
     default = get_default_config()
     hours = config.get("review_hours", default["review_hours"])
     words = config.get("words_per_batch", default["words_per_batch"])
+    voice = config.get("tts_voice", "en-GB-SoniaNeural")
+    voice_label = TTS_VOICES.get(voice, voice)
     hours_str = ", ".join(f"{h:02d}:00" for h in hours)
-    return f"Schedule: {hours_str} ({TIMEZONE})\nWords per batch: {words}"
+    return f"Schedule: {hours_str} ({TIMEZONE})\nWords per batch: {words}\nVoice: {voice_label}"
 
 
 def get_next_review_time() -> str:
@@ -669,10 +686,15 @@ async def send_schedule_display(message_or_query, config: dict, edit: bool = Fal
     next_run = get_next_review_time()
     if next_run:
         text += f"\n\nNext review: {next_run}"
-    keyboard = [[
-        InlineKeyboardButton("Edit Times", callback_data="sched_edit_times"),
-        InlineKeyboardButton("Edit Word Count", callback_data="sched_edit_words"),
-    ]]
+    keyboard = [
+        [
+            InlineKeyboardButton("Edit Times", callback_data="sched_edit_times"),
+            InlineKeyboardButton("Edit Word Count", callback_data="sched_edit_words"),
+        ],
+        [
+            InlineKeyboardButton("Edit Voice", callback_data="sched_edit_voice"),
+        ],
+    ]
     markup = InlineKeyboardMarkup(keyboard)
     if edit:
         await message_or_query.edit_message_text(text=text, reply_markup=markup)
@@ -704,6 +726,16 @@ def build_word_options(current: int) -> InlineKeyboardMarkup:
         label = f"✅ {n}" if n == current else str(n)
         row.append(InlineKeyboardButton(label, callback_data=f"sched_words_{n}"))
     return InlineKeyboardMarkup([row, [InlineKeyboardButton("Back", callback_data="sched_back")]])
+
+
+def build_voice_options(current: str) -> InlineKeyboardMarkup:
+    """Build voice selection buttons."""
+    rows = []
+    for voice_id, voice_label in TTS_VOICES.items():
+        label = f"✅ {voice_label}" if voice_id == current else voice_label
+        rows.append([InlineKeyboardButton(label, callback_data=f"sched_voice_{voice_id}")])
+    rows.append([InlineKeyboardButton("Back", callback_data="sched_back")])
+    return InlineKeyboardMarkup(rows)
 
 
 def parse_schedule_text(text: str):
@@ -808,6 +840,21 @@ async def handle_schedule_callback(update: Update, context: ContextTypes.DEFAULT
         n = int(data.split("_")[-1])
         review_config["words_per_batch"] = n
         save_config(review_config)
+        await send_schedule_display(query, review_config, edit=True)
+
+    elif data == "sched_edit_voice":
+        await query.answer("Tap to select TTS voice", show_alert=True)
+        await query.edit_message_text(
+            text="Select TTS voice:",
+            reply_markup=build_voice_options(review_config.get("tts_voice", "en-GB-SoniaNeural"))
+        )
+
+    elif data.startswith("sched_voice_"):
+        await query.answer()
+        voice_id = data[len("sched_voice_"):]
+        if voice_id in TTS_VOICES:
+            review_config["tts_voice"] = voice_id
+            save_config(review_config)
         await send_schedule_display(query, review_config, edit=True)
 
     elif data == "sched_back":
@@ -1027,7 +1074,7 @@ def main():
     # Load schedule config (including pause state)
     review_config = load_config()
     is_paused = review_config.get("is_paused", False)
-    print(f"Config loaded: hours={review_config['review_hours']}, words={review_config['words_per_batch']}, paused={is_paused}")
+    print(f"Config loaded: hours={review_config['review_hours']}, words={review_config['words_per_batch']}, voice={review_config.get('tts_voice', 'en-GB-SoniaNeural')}, paused={is_paused}")
 
     # Create application
     application = Application.builder().token(REVIEW_BOT_TOKEN).post_init(post_init).build()
