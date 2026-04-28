@@ -456,12 +456,59 @@ class NotionHandler:
 
         return False
 
+    def _find_entry_in_single_db(self, db_id: str, text: str, search_text: str):
+        """Search a single Notion database for an entry matching the English word/phrase.
+
+        Returns the entry dict or None.
+        """
+        response = self.client.databases.query(
+            database_id=db_id,
+            filter={
+                "property": "English",
+                "title": {
+                    "contains": search_text
+                }
+            },
+            page_size=10
+        )
+
+        for page in response["results"]:
+            props = page["properties"]
+
+            english = ""
+            if props.get("English", {}).get("title"):
+                english = props["English"]["title"][0]["plain_text"]
+
+            if english.startswith("__CONFIG_"):
+                continue
+
+            if not self._is_same_word(text, english):
+                continue
+
+            date_val = ""
+            if props.get("Date", {}).get("date"):
+                date_val = props["Date"]["date"].get("start", "")
+
+            chinese = ""
+            if props.get("Chinese", {}).get("rich_text"):
+                chinese = props["Chinese"]["rich_text"][0]["plain_text"]
+
+            return {
+                "english": english,
+                "chinese": chinese,
+                "date": date_val,
+                "page_id": page["id"],
+            }
+        return None
+
     def find_entry_by_english(self, text: str):
         """Search ALL Notion databases for an existing entry matching the English word/phrase.
 
         Returns the entry dict with english, chinese, date fields, or None if not found.
         Matches base words (blow = blowing) but not phrases containing the word
         (blow != land a blow).
+
+        Queries all databases in parallel for speed.
         """
         try:
             # Normalize: strip phonetics/part-of-speech for search
@@ -469,50 +516,23 @@ class NotionHandler:
             search_text = re.sub(r'\([^)]*\)', '', search_text).strip()  # Remove (pos.)
             search_text = search_text.strip('.!?,;:…"\'')  # Strip trailing punctuation
 
-            for db_id in self.all_database_ids:
-                response = self.client.databases.query(
-                    database_id=db_id,
-                    filter={
-                        "property": "English",
-                        "title": {
-                            "contains": search_text
-                        }
-                    },
-                    page_size=10  # Get more results to filter
-                )
+            if len(self.all_database_ids) == 1:
+                return self._find_entry_in_single_db(self.all_database_ids[0], text, search_text)
 
-                for page in response["results"]:
-                    props = page["properties"]
+            # Query all databases in parallel
+            with ThreadPoolExecutor(max_workers=len(self.all_database_ids)) as executor:
+                futures = {
+                    executor.submit(self._find_entry_in_single_db, db_id, text, search_text): db_id
+                    for db_id in self.all_database_ids
+                }
+                for future in as_completed(futures):
+                    try:
+                        result = future.result()
+                        if result:
+                            return result
+                    except Exception as e:
+                        logger.error(f"Error checking DB {futures[future][:8]}: {e}")
 
-                    # Extract English title
-                    english = ""
-                    if props.get("English", {}).get("title"):
-                        english = props["English"]["title"][0]["plain_text"]
-
-                    # Skip config pages
-                    if english.startswith("__CONFIG_"):
-                        continue
-
-                    # Check if it's actually the same word (not just substring)
-                    if not self._is_same_word(text, english):
-                        continue
-
-                    # Extract date
-                    date_val = ""
-                    if props.get("Date", {}).get("date"):
-                        date_val = props["Date"]["date"].get("start", "")
-
-                    # Extract Chinese
-                    chinese = ""
-                    if props.get("Chinese", {}).get("rich_text"):
-                        chinese = props["Chinese"]["rich_text"][0]["plain_text"]
-
-                    return {
-                        "english": english,
-                        "chinese": chinese,
-                        "date": date_val,
-                        "page_id": page["id"],
-                    }
         except Exception as e:
             logger.error(f"Error checking for duplicate in Notion: {e}")
 

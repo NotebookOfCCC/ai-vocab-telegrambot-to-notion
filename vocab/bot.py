@@ -435,42 +435,49 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         user_sessions[user_id]["last_button_message_chat_id"] = sent_message.chat_id
         return
 
-    # Step 2: For short phrase/word inputs only, check Notion for exact duplicates.
-    # Skip for sentence-like inputs (>3 words): the raw sentence won't match stored phrases,
-    # so the pre-check is always a miss and just delays "Analyzing..." feedback.
-    word_count = len(text.split())
-    if word_count <= 3:
-        loop = asyncio.get_running_loop()
-        duplicate = await loop.run_in_executor(None, notion_handler.find_entry_by_english, text)
-        if duplicate:
-            user_sessions[user_id] = {
-                "duplicate_text": text,
-            }
-            keyboard = [[
-                InlineKeyboardButton("Re-analyze", callback_data="reanalyze"),
-                InlineKeyboardButton("Cancel", callback_data="cancel")
-            ]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            date_str = f" (saved: {duplicate['date']})" if duplicate.get('date') else ""
-            sent_message = await update.message.reply_text(
-                f"Already in Notion{date_str}:\n\n"
-                f"{duplicate['english']}\n{duplicate['chinese']}\n\n"
-                f"Re-analyze anyway?",
-                reply_markup=reply_markup,
-            )
-            user_sessions[user_id]["last_button_message_id"] = sent_message.message_id
-            user_sessions[user_id]["last_button_message_chat_id"] = sent_message.chat_id
-            return
+    # Step 2: Show "Analyzing..." immediately, then run pre-check + AI in parallel
+    status_msg = await update.message.reply_text("Analyzing...")
 
-    # Step 3: No cache hit, no duplicate - call AI
-    await update.message.reply_text("Analyzing...")
+    word_count = len(text.split())
+    loop = asyncio.get_running_loop()
 
     try:
-        loop = asyncio.get_running_loop()
-        analysis = await loop.run_in_executor(None, ai_handler.analyze_input, text)
+        if word_count <= 3:
+            # Short phrase: run Notion pre-check AND AI call in parallel
+            dup_task = loop.run_in_executor(None, notion_handler.find_entry_by_english, text)
+            ai_task = loop.run_in_executor(None, ai_handler.analyze_input, text)
+            duplicate, analysis = await asyncio.gather(dup_task, ai_task)
+
+            # If duplicate found, let user decide (but AI result is already cached for instant re-analyze)
+            if duplicate:
+                # Cache the AI result so re-analyze is instant
+                if not analysis.get("skipped_ai") and "error" not in analysis:
+                    cache_handler.put(text, analysis)
+
+                user_sessions[user_id] = {
+                    "duplicate_text": text,
+                }
+                keyboard = [[
+                    InlineKeyboardButton("Re-analyze", callback_data="reanalyze"),
+                    InlineKeyboardButton("Cancel", callback_data="cancel")
+                ]]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                date_str = f" (saved: {duplicate['date']})" if duplicate.get('date') else ""
+                await status_msg.edit_text(
+                    f"Already in Notion{date_str}:\n\n"
+                    f"{duplicate['english']}\n{duplicate['chinese']}\n\n"
+                    f"Re-analyze anyway?",
+                    reply_markup=reply_markup,
+                )
+                user_sessions[user_id]["last_button_message_id"] = status_msg.message_id
+                user_sessions[user_id]["last_button_message_chat_id"] = status_msg.chat_id
+                return
+        else:
+            # Sentence: no pre-check needed, just call AI
+            analysis = await loop.run_in_executor(None, ai_handler.analyze_input, text)
 
         if "error" in analysis:
-            await update.message.reply_text(f"Error: {analysis['error']}")
+            await status_msg.edit_text(f"Error: {analysis['error']}")
             return
 
         # Cache the result for future lookups
@@ -496,7 +503,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             response = "\n".join(dup_notes) + "\n\n" + response
 
         reply_markup = _build_save_keyboard(entries, dup_indices=set(dup_page_ids.keys()))
-        sent_message = await update.message.reply_text(response, reply_markup=reply_markup)
+
+        # Edit the "Analyzing..." message with results instead of sending new message
+        try:
+            await status_msg.edit_text(response, reply_markup=reply_markup)
+            sent_message = status_msg
+        except Exception:
+            # If edit fails (e.g., message too long), send as new message
+            sent_message = await update.message.reply_text(response, reply_markup=reply_markup)
 
         # Store message info so we can remove buttons later
         user_sessions[user_id]["last_button_message_id"] = sent_message.message_id
@@ -504,7 +518,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     except Exception as e:
         logger.error(f"Error processing message: {e}")
-        await update.message.reply_text(f"Error processing your input: {str(e)}")
+        await status_msg.edit_text(f"Error processing your input: {str(e)}")
 
 
 async def handle_selection(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
