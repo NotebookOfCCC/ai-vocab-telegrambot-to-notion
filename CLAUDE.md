@@ -67,7 +67,7 @@ main.py (Entry Point)
 
 ### 4. Grammar Drill Bot (`grammar/grammar_bot.py`)
 - Reads grammar practice cards from Obsidian markdown files via GitHub API
-- **Private repo**: `NotebookOfCCC/Obsidian` → `01. Daily Reflection/05. Grammar Practice/`
+- **Private repo**: `NotebookOfCCC/Obsidian` → `01. Daily Reflection/98. Grammar Practice/`
 - **8-week rotation**: 7 grammar categories (Chinese-to-English translation) + 1 phrase category (Chinese-to-English)
 - **Spaced repetition**: new → again ⇄ good → easy → retired (3 consecutive easy = auto-retire)
 - **Spacing**: Again = +1 day, Good = +4 days, Easy = +14 days, 3× Easy in a row = retired

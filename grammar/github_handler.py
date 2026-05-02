@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 GITHUB_API = "https://api.github.com"
 REPO = "NotebookOfCCC/Obsidian"
-BASE_PATH = "01. Daily Reflection/05. Grammar Practice"
+BASE_PATH = "01. Daily Reflection/98. Grammar Practice"
 
 CATEGORY_FILES = {
     0: "01. Articles.md",
