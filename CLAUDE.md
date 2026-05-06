@@ -157,7 +157,7 @@ main.py (Entry Point)
 - Chinese (Rich text) - translation
 - Explanation (Rich text) - 2-3 sentence Chinese explanation
 - Example (Rich text) - English + Chinese examples (numbered if multiple meanings)
-- Category (Select) - 固定词组, 口语, 新闻, 职场, 学术词汇, 写作, 情绪, 科技, 精美句子, 其他
+- Category (Select) - 固定词组, 口语, 新闻, 职场, 学术词汇, 写作, 情绪, 科技, 精美句子, Slang, 其他
 - Date (Date) - when added
 - Review Count (Number) - tracks review iterations
 - Next Review (Date) - calculated review date
@@ -602,3 +602,4 @@ Row 2: [Cancel]  [More]
 71. **Obsidian daily sync**: Replaced real-time dual-save with daily sync at 3:00 AM. Vocab bot reads all Notion databases and overwrites Obsidian .md files (one per database). Review stats sync at 3:10 AM. No more real-time GitHub API calls during save. SHA fetched from directory listing to avoid 1MB GET limit.
 72. **Rule 6 strengthened**: Added explicit "reference" example to AI prompt Rule 6 — single words with multiple parts of speech must include ALL meanings across ALL POS, not just the one used in the input sentence.
 73. **Review TTS voice selector**: Review bot Schedule settings now include [Edit Voice] button — multi-select from 4 en-GB voices (Sonia, Libby, Ryan, Thomas). Voices rotate per review batch (9:00→Sonia, 10:00→Ryan, 11:00→Sonia...). Persisted in config DB as `tts_voices` list.
+74. **Slang category**: New vocabulary category "Slang" for internet slang, Gen Z expressions, viral catchphrases, memes, and trendy informal language (e.g. "this is mad", "slay", "no cap").

@@ -165,6 +165,7 @@ CATEGORIES = {
     "情绪": "Emotions, feelings",
     "科技": "Technology, computing, software, internet",
     "精美句子": "Inspirational, poetic, or beautifully crafted sentences worth saving as a whole",
+    "Slang": "Internet slang, Gen Z expressions, viral catchphrases, memes, trendy informal language (e.g. 'this is mad', 'slay', 'no cap', 'that's fire')",
     "其他": "Other",
 }
 
