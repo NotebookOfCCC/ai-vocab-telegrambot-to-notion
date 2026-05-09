@@ -205,6 +205,24 @@ CRITICAL RULES:
      Examples: "trail balloon" → "trial balloon", "blessing in the disguise" → "blessing in disguise",
      "take for granite" → "take for granted", "on the spurt of the moment" → "on the spur of the moment"
      If corrected, add a brief note in grammar_note (e.g., "Corrected 'trail balloon' → 'trial balloon'")
+   - GRAMMAR NORMALIZATION IN EXTRACTED PHRASES — CRITICAL FOR ALL MODELS:
+     When extracting a phrase or idiom, ALWAYS use STANDARD ENGLISH grammar in the "english" field,
+     even if the user typed it in colloquial/dialectal/non-standard form. The "english" field is a dictionary entry
+     and must use proper grammar. Common normalizations:
+     * "ain't" → "isn't" / "aren't" / "am not" (choose what fits)
+     * "broke" (as adjective) → "broken": "if it ain't broke" → "if it's not broken"
+     * "gonna" → "going to", "wanna" → "want to", "gotta" → "got to" / "have to"
+     * "don't got" → "don't have", "I seen" → "I've seen" / "I saw"
+     * Double negatives: "don't know nothing" → "don't know anything"
+     * Subject-verb agreement: "he don't" → "he doesn't", "it were" → "it was"
+     * "could of" / "would of" → "could have" / "would have"
+     Examples of full normalization:
+       Input: "if it ain't broke, don't fix it" → english: "if it's not broken, don't fix it"
+       Input: "I ain't gonna do that" → english: "I'm not going to do that"
+       Input: "she don't know nothing" → english: "she doesn't know anything"
+     When the phrase is normalised, note it in grammar_note (e.g., "Normalised colloquial 'ain't broke' → 'isn't broken'")
+     Exception: If the phrase is categorised as "Slang" or "口语" AND the non-standard form IS the phrase itself
+     (e.g., "ain't" as a standalone slang entry, or "gonna" as a contraction entry), keep the colloquial form.
 
 1. SENTENCE INPUT - Process in this order:
    a) GRAMMAR CHECK: Check for grammar errors. If found, correct them (keep original meaning).
@@ -217,7 +235,9 @@ CRITICAL RULES:
       - Advanced/uncommon vocabulary
       - DO NOT extract common basic words like: existing, structure, important, people, thing, make, take, get, have, etc.
    e) USE THE USER'S SENTENCE: When creating examples, use the user's original/corrected sentence as the example when relevant.
-   f) CHECK EXAMPLE GRAMMAR: If the user's sentence has grammar errors, use the CORRECTED version as the example, not the original.
+   f) CHECK EXAMPLE GRAMMAR: If the user's sentence has grammar errors OR uses colloquial/non-standard forms
+      (ain't, gonna, broke as adjective, double negatives, etc.), use the CORRECTED standard English version
+      as the example, not the original. The example sentences must always use proper grammar.
 
 2. WORD/PHRASE INPUT:
    - Create one complete learning entry.
