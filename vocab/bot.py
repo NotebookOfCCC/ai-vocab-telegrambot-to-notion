@@ -185,17 +185,22 @@ async def handle_word_count(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await update.message.reply_text("Counting words...")
     loop = asyncio.get_running_loop()
     try:
-        counts = await loop.run_in_executor(None, notion_handler.count_entries_per_db)
+        counts, titles = await asyncio.gather(
+            loop.run_in_executor(None, notion_handler.count_entries_per_db),
+            loop.run_in_executor(None, notion_handler.get_database_titles),
+        )
     except Exception as e:
         await update.message.reply_text(f"Error fetching counts: {e}")
         return
 
     db_ids = list(counts.keys())
     lines = []
-    for i, db_id in enumerate(db_ids):
-        label = "Primary DB" if db_id == NOTION_DB_ID else f"Archive DB {i}"
+    for db_id in db_ids:
+        name = titles.get(db_id, "Unknown")
         count_str = str(counts[db_id]) if counts[db_id] is not None else "?"
-        lines.append(f"- {label}: {count_str} words")
+        is_active = db_id == NOTION_DB_ID
+        marker = " (active)" if is_active else ""
+        lines.append(f"- {name}{marker}: {count_str} words")
     total_known = sum(v for v in counts.values() if v is not None)
     has_unknown = any(v is None for v in counts.values())
     total_str = f"{total_known:,}+" if has_unknown else f"{total_known:,}"

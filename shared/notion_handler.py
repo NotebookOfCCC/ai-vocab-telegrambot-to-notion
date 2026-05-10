@@ -270,6 +270,21 @@ class NotionHandler:
                 "error": str(e)
             }
 
+    def get_database_titles(self) -> dict:
+        """Return a mapping of database_id -> title for all databases."""
+        titles = {}
+        for db_id in self.all_database_ids:
+            try:
+                db = self.client.databases.retrieve(database_id=db_id)
+                title = "Untitled"
+                if db.get("title"):
+                    title = db["title"][0].get("plain_text", "Untitled")
+                titles[db_id] = title
+            except Exception as e:
+                logger.warning(f"get_database_titles failed for {db_id}: {e}")
+                titles[db_id] = "Unknown"
+        return titles
+
     def count_entries_per_db(self) -> dict:
         """Return word count per database, excluding __CONFIG_ pages.
 
