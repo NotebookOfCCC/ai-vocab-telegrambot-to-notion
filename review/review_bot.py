@@ -912,8 +912,9 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     if data.startswith("again_"):
         page_id = data[6:]  # Remove "again_" prefix
-        sent_but_unrated.pop(page_id, None)
-        result = notion_handler.update_review_stats(page_id, response="again")
+        cached = sent_but_unrated.pop(page_id, None)
+        review_count = cached["entry"].get("review_count", 0) if cached else None
+        result = notion_handler.update_review_stats(page_id, response="again", current_review_count=review_count)
         if stats_handler:
             stats_handler.record_review("again")
         revealed = _unspoiler_html(query.message)
@@ -921,8 +922,9 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     elif data.startswith("good_"):
         page_id = data[5:]  # Remove "good_" prefix
-        sent_but_unrated.pop(page_id, None)
-        result = notion_handler.update_review_stats(page_id, response="good")
+        cached = sent_but_unrated.pop(page_id, None)
+        review_count = cached["entry"].get("review_count", 0) if cached else None
+        result = notion_handler.update_review_stats(page_id, response="good", current_review_count=review_count)
         if stats_handler:
             stats_handler.record_review("good")
         revealed = _unspoiler_html(query.message)
@@ -933,8 +935,9 @@ async def handle_review_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     elif data.startswith("easy_"):
         page_id = data[5:]  # Remove "easy_" prefix
-        sent_but_unrated.pop(page_id, None)
-        result = notion_handler.update_review_stats(page_id, response="easy")
+        cached = sent_but_unrated.pop(page_id, None)
+        review_count = cached["entry"].get("review_count", 0) if cached else None
+        result = notion_handler.update_review_stats(page_id, response="easy", current_review_count=review_count)
         if stats_handler:
             stats_handler.record_review("easy")
         revealed = _unspoiler_html(query.message)

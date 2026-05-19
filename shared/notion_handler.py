@@ -813,7 +813,7 @@ class NotionHandler:
 
         return score
 
-    def update_review_stats(self, page_id: str, response: str = "good", knew: bool = None) -> dict:
+    def update_review_stats(self, page_id: str, response: str = "good", knew: bool = None, current_review_count: int = None) -> dict:
         """
         Update review stats based on user's response.
 
@@ -821,6 +821,8 @@ class NotionHandler:
             page_id: Notion page ID
             response: "again", "good", or "easy"
             knew: Deprecated, kept for backward compatibility
+            current_review_count: If provided, skip the extra pages.retrieve API call.
+                Pass this from the fetched entry's review_count to save ~200ms per rating.
 
         Scheduling:
             - Again: Next review = tomorrow, reset count to 0
@@ -833,15 +835,18 @@ class NotionHandler:
             response = "good" if knew else "again"
 
         try:
-            # First get current review count
-            page = self.client.pages.retrieve(page_id=page_id)
-            properties = page.get("properties", {})
-
-            current_count = 0
-            for prop_name, prop_value in properties.items():
-                if prop_value.get("type") == "number" and "review" in prop_name.lower() and "count" in prop_name.lower():
-                    current_count = prop_value.get("number") or 0
-                    break
+            if current_review_count is not None:
+                # Fast path: use cached review count, skip pages.retrieve
+                current_count = current_review_count
+            else:
+                # Fallback: fetch from Notion (legacy callers)
+                page = self.client.pages.retrieve(page_id=page_id)
+                properties = page.get("properties", {})
+                current_count = 0
+                for prop_name, prop_value in properties.items():
+                    if prop_value.get("type") == "number" and "review" in prop_name.lower() and "count" in prop_name.lower():
+                        current_count = prop_value.get("number") or 0
+                        break
 
             # Calculate next review date and new count based on response
             today = date.today()
@@ -864,32 +869,16 @@ class NotionHandler:
             # Check if word has reached mastery
             mastered = new_count >= MASTERY_THRESHOLD and response != "again"
 
-            # Update properties
-            update_props = {}
+            # Update with known property names (consistent across all vocab databases)
+            update_props = {
+                "Last Reviewed": {"date": {"start": today.isoformat()}},
+                "Next Review": {"date": {"start": next_review.isoformat()}},
+                "Review Count": {"number": new_count},
+            }
+            if mastered:
+                update_props["Mastered"] = {"checkbox": True}
 
-            # Find the exact property names and update
-            for prop_name, prop_value in properties.items():
-                prop_name_lower = prop_name.lower()
-                prop_type = prop_value.get("type")
-
-                if prop_type == "date" and "last" in prop_name_lower and "review" in prop_name_lower:
-                    update_props[prop_name] = {
-                        "date": {"start": today.isoformat()}
-                    }
-                elif prop_type == "date" and "next" in prop_name_lower and "review" in prop_name_lower:
-                    update_props[prop_name] = {
-                        "date": {"start": next_review.isoformat()}
-                    }
-                elif prop_type == "number" and "review" in prop_name_lower and "count" in prop_name_lower:
-                    update_props[prop_name] = {
-                        "number": new_count
-                    }
-                elif prop_type == "checkbox" and "master" in prop_name_lower:
-                    if mastered:
-                        update_props[prop_name] = {"checkbox": True}
-
-            if update_props:
-                self.client.pages.update(page_id=page_id, properties=update_props)
+            self.client.pages.update(page_id=page_id, properties=update_props)
 
             return {"success": True, "next_review": next_review.isoformat(), "mastered": mastered}
 
