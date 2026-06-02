@@ -10,7 +10,7 @@ import re
 import asyncio
 import logging
 from dotenv import load_dotenv
-from gtts import gTTS
+import edge_tts
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -833,11 +833,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not word:
             return
         try:
-            tts = gTTS(word, lang="en")
             audio = io.BytesIO()
-            tts.write_to_fp(audio)
+            communicate = edge_tts.Communicate(word, "en-GB-SoniaNeural")
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    audio.write(chunk["data"])
             audio.seek(0)
-            await query.message.reply_voice(voice=audio)
+            if audio.getbuffer().nbytes > 0:
+                await query.message.reply_voice(voice=audio)
+            else:
+                await query.answer("Failed to generate audio", show_alert=True)
         except Exception as e:
             logger.error(f"TTS error for '{word}': {e}")
             await query.answer("Failed to generate audio", show_alert=True)
