@@ -357,9 +357,16 @@ async def send_pending_resend():
         )
         return
 
-    entries = [v["entry"] for v in sent_but_unrated.values()]
+    all_entries = [v["entry"] for v in sent_but_unrated.values()]
+    total_pending = len(all_entries)
+
+    # Only send words_per_batch at a time (same as normal review), not all at once
+    batch_size = review_config["words_per_batch"] if review_config else get_default_config()["words_per_batch"]
+    entries = all_entries[:batch_size]
     total = len(entries)
-    logger.info(f"Resending {total} pending cards from last 2 days")
+    remaining = total_pending - total
+
+    logger.info(f"Resending {total}/{total_pending} pending cards (batch_size={batch_size})")
 
     import datetime
     now = datetime.datetime.now()
@@ -396,6 +403,12 @@ async def send_pending_resend():
                 filename=filename,
                 caption=caption,
             )
+
+    if remaining > 0:
+        await application.bot.send_message(
+            chat_id=REVIEW_USER_ID,
+            text=f"📋 {remaining} more pending cards — tap Pending again for the next batch.",
+        )
 
 
 async def send_weekly_report():
