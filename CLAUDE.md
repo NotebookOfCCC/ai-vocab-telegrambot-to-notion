@@ -1,6 +1,6 @@
 # AI Vocabulary Telegram Bot to Notion
 
-A 5-bot Telegram ecosystem for English vocabulary learning with AI-powered analysis, spaced repetition, habit tracking, grammar drills, and AI news digests - integrated with Notion and Obsidian via GitHub.
+A 6-bot Telegram ecosystem for English vocabulary learning with AI-powered analysis, spaced repetition, habit tracking, grammar drills, AI news digests, and story capture - integrated with Notion and Obsidian via GitHub.
 
 ---
 
@@ -22,6 +22,7 @@ main.py (Entry Point)
 ├── habit/          habit_bot.py + habit_handler.py + task_parser.py + task_ai_handler.py
 ├── grammar/        grammar_bot.py + github_handler.py
 ├── news/           news_bot.py + digest_handler.py
+├── story/          story_bot.py
 ├── shared/         notion_handler.py (used by vocab, review, habit, news)
 └── scripts/        migrate_to_obsidian.py, migrate_review_stats_to_obsidian.py
 ```
@@ -101,6 +102,17 @@ main.py (Entry Point)
 - **Commands**: `/start`, `/help`, `/digest`, `/stop`, `/resume`, `/status`, `/settings`
 - **Settings UI**: Inline buttons — [Edit Time] (hour grid + minute picker), [Edit Language] (中文/English/双语)
 
+### 6. Story Bot (`story/story_bot.py`)
+- Captures fleeting thoughts/reflections via Telegram, saves to Obsidian via GitHub API
+- **Private repo**: `NotebookOfCCC/Obsidian` → `01. Daily Reflection/99. Story Bot/`
+- **File structure**: `YYYY-MM/YYYY-MM-DD.md` — one file per day, grouped by month
+- **Format**: Each entry has `### HH:MM` timestamp heading + text content
+- **Interaction**: Send text → saved with timestamp → replies `Saved (HH:MM)` + [Delete] button
+- **Delete**: Inline [Delete] button removes that specific entry from the file
+- **Reply keyboard**: [Today] — view all entries for today
+- **Commands**: `/start`, `/help`, `/today`
+- **No AI cost, no Notion** — only GitHub API calls (free)
+
 ## Key Files
 
 | File | Purpose | API Cost |
@@ -115,6 +127,7 @@ main.py (Entry Point)
 | `grammar/github_handler.py` | GitHub API read/write for Obsidian files | FREE |
 | `news/digest_handler.py` | Fetch follow-builders feeds + Haiku summarization | ~$0.005/day |
 | `news/news_bot.py` | News digest Telegram bot + scheduler | FREE |
+| `story/story_bot.py` | Story capture to Obsidian via GitHub | FREE |
 | `shared/notion_handler.py` | Notion database operations (with retry) | FREE |
 
 ## Cost Optimization
@@ -205,6 +218,7 @@ REVIEW_BOT_TOKEN=         # Review bot token
 HABITS_BOT_TOKEN=         # Habit bot token
 GRAMMAR_BOT_TOKEN=        # Grammar drill bot token
 NEWS_BOT_TOKEN=           # News digest bot token
+STORY_BOT_TOKEN=          # Story bot token
 
 # API Keys
 ANTHROPIC_API_KEY=        # Claude API key (for vocab analysis + task parsing)
@@ -227,6 +241,7 @@ REVIEW_USER_ID=           # Review bot user ID
 HABITS_USER_ID=           # Habits bot user ID
 GRAMMAR_USER_ID=          # Grammar drill bot user ID
 NEWS_USER_ID=             # News digest bot user ID
+STORY_USER_ID=            # Story bot user ID
 
 # Settings
 TIMEZONE=Europe/London    # Timezone for scheduling
@@ -298,6 +313,13 @@ Mastery:
 - **Settings** (reply keyboard) - Interactive settings with inline buttons:
   - [Edit Time] → hour grid (7-23), then minute picker (00/15/30/45)
   - [Edit Language] → [中文] [English] [双语]
+
+### Story Bot
+- `/start`, `/help` - Welcome message
+- `/today` - View all entries for today
+- **Today** (reply keyboard) - Same as /today
+- **Any text** - Saves as a timestamped entry to Obsidian
+- **Delete** (inline button) - Remove a specific entry
 
 ## Task Parser Patterns
 
@@ -603,3 +625,4 @@ Row 2: [Cancel]  [More]
 72. **Rule 6 strengthened**: Added explicit "reference" example to AI prompt Rule 6 — single words with multiple parts of speech must include ALL meanings across ALL POS, not just the one used in the input sentence.
 73. **Review TTS voice selector**: Review bot Schedule settings now include [Edit Voice] button — multi-select from 4 en-GB voices (Sonia, Libby, Ryan, Thomas). Voices rotate per review batch (9:00→Sonia, 10:00→Ryan, 11:00→Sonia...). Persisted in config DB as `tts_voices` list.
 74. **Slang category**: New vocabulary category "Slang" for internet slang, Gen Z expressions, viral catchphrases, memes, and trendy informal language (e.g. "this is mad", "slay", "no cap").
+75. **Story Bot**: 6th bot for capturing fleeting thoughts/reflections to Obsidian via GitHub API. Send text → saved with timestamp to `01. Daily Reflection/99. Story Bot/YYYY-MM-DD.md`. Delete button to remove entries. No AI, no Notion — free.
