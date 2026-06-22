@@ -104,9 +104,9 @@ main.py (Entry Point)
 
 ### 6. Story Bot (`story/story_bot.py`)
 - Captures fleeting thoughts/reflections via Telegram, saves to Obsidian via GitHub API
-- **Private repo**: `NotebookOfCCC/Obsidian` → `01. Daily Reflection/99. Story Bot/`
-- **File structure**: `YYYY-MM/YYYY-MM-DD.md` — one file per day, grouped by month
-- **Format**: Each entry has `### HH:MM` timestamp heading + text content
+- **Private repo**: `NotebookOfCCC/Obsidian` → `01. Daily Reflection/99. Story Bot.md`
+- **Single file**: All entries in one `.md` file, organized by date headers (`## YYYY-MM-DD`)
+- **Table format**: Each day has a `| Time | Story |` table with timestamped rows
 - **Interaction**: Send text → saved with timestamp → replies `Saved (HH:MM)` + [Delete] button
 - **Delete**: Inline [Delete] button removes that specific entry from the file
 - **Reply keyboard**: [Today] — view all entries for today
