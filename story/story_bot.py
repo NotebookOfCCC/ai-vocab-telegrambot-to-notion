@@ -29,6 +29,8 @@ from telegram.ext import (
 )
 import pytz
 
+from story.ai_handler import StoryAIHandler
+
 load_dotenv()
 
 logging.basicConfig(
@@ -47,13 +49,22 @@ GITHUB_API = "https://api.github.com"
 REPO = "NotebookOfCCC/Obsidian"
 FILEPATH = "01. Daily Reflection/99. Story Bot.md"
 
-TABLE_HEADER = "| Time | Story |\n|------|-------|"
+TABLE_HEADER = "| Time | Story | Revised | Notes |\n|------|-------|---------|-------|"
 
 REPLY_KEYBOARD = ReplyKeyboardMarkup(
     [["Today"]],
     resize_keyboard=True,
     is_persistent=True,
 )
+
+# AI handler for text revision
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+_ai_handler = None
+if ANTHROPIC_API_KEY:
+    _ai_handler = StoryAIHandler(ANTHROPIC_API_KEY, OPENAI_API_KEY)
+else:
+    logger.warning("ANTHROPIC_API_KEY not set - Story AI revision disabled")
 
 # SHA cache for GitHub conflict resolution
 _sha_cache = {}
@@ -137,7 +148,7 @@ async def _append_entry(text: str) -> str:
     today_str = now.strftime("%Y-%m-%d")
     date_header = f"## {today_str}"
     escaped_text = _escape_pipe(text)
-    new_row = f"| {timestamp} | {escaped_text} |"
+    new_row = f"| {timestamp} | {escaped_text} |  |  |"
 
     existing, _ = await _github_get()
 
@@ -184,7 +195,44 @@ async def _append_entry(text: str) -> str:
             content += "\n"
 
     await _github_put(content, f"story: {today_str} {timestamp}")
-    return timestamp
+    return timestamp, today_str
+
+
+async def _update_entry_revision(date_str: str, timestamp: str, revised: str, notes: str):
+    """Update the Revised and Notes columns for an existing entry."""
+    content, _ = await _github_get()
+    if not content:
+        return
+
+    date_header = f"## {date_str}"
+    if date_header not in content:
+        return
+
+    escaped_revised = _escape_pipe(revised) if revised else ""
+    escaped_notes = _escape_pipe(notes) if notes else ""
+
+    lines = content.split("\n")
+    in_target_date = False
+    for i, line in enumerate(lines):
+        if line.strip() == date_header:
+            in_target_date = True
+        elif in_target_date and line.startswith("## "):
+            break
+        elif in_target_date and line.startswith(f"| {timestamp} |"):
+            # Parse existing row to get original story text
+            match = re.match(r"\|\s*\S+\s*\|\s*(.*?)\s*\|.*\|.*\|$", line)
+            if match:
+                original_story = match.group(1)
+            else:
+                match2 = re.match(r"\|\s*\S+\s*\|\s*(.*?)\s*\|$", line)
+                original_story = match2.group(1) if match2 else ""
+            lines[i] = f"| {timestamp} | {original_story} | {escaped_revised} | {escaped_notes} |"
+            break
+
+    new_content = "\n".join(lines)
+    if not new_content.endswith("\n"):
+        new_content += "\n"
+    await _github_put(new_content, f"story: revision {date_str} {timestamp}")
 
 
 async def _delete_entry(date_str: str, timestamp: str) -> bool:
@@ -271,14 +319,26 @@ async def _get_today_entries() -> str | None:
         if in_today and line.startswith("## "):
             break
         if in_today and line.startswith("| ") and not line.startswith("|---") and not line.startswith("| Time"):
-            # Parse table row: | HH:MM | text |
-            match = re.match(r"\|\s*(\S+)\s*\|\s*(.*?)\s*\|$", line)
-            if match:
-                entries.append(f"{match.group(1)}  {match.group(2)}")
+            # Parse table row: 4-column or 2-column
+            match4 = re.match(r"\|\s*(\S+)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\|$", line)
+            match2 = re.match(r"\|\s*(\S+)\s*\|\s*(.*?)\s*\|$", line)
+            if match4:
+                time_str = match4.group(1)
+                story = match4.group(2).strip()
+                revised = match4.group(3).strip()
+                notes = match4.group(4).strip()
+                entry_text = f"{time_str}  {story}"
+                if revised:
+                    entry_text += f"\n  ✍️ {revised}"
+                if notes:
+                    entry_text += f"\n  📝 {notes}"
+                entries.append(entry_text)
+            elif match2:
+                entries.append(f"{match2.group(1)}  {match2.group(2)}")
 
     if not entries:
         return None
-    return f"Today ({today_str}):\n\n" + "\n".join(entries)
+    return f"Today ({today_str}):\n\n" + "\n\n".join(entries)
 
 
 # -- Handlers --
@@ -314,7 +374,7 @@ async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Save any text message as a story entry."""
+    """Save any text message as a story entry, then revise with AI."""
     if not is_authorized(update):
         return
 
@@ -324,8 +384,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        timestamp = await _append_entry(text)
-        today_str = _now().strftime("%Y-%m-%d")
+        timestamp, today_str = await _append_entry(text)
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("Delete", callback_data=f"sdel_{today_str}_{timestamp}")]
         ])
@@ -333,9 +392,39 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Saved ({timestamp})",
             reply_markup=keyboard,
         )
+
+        # Call AI in background for revision
+        if _ai_handler:
+            import asyncio
+            asyncio.create_task(_revise_and_reply(update, text, today_str, timestamp))
+
     except Exception as e:
         logger.error(f"Failed to save entry: {e}")
         await update.message.reply_text(f"Failed to save: {e}")
+
+
+async def _revise_and_reply(update: Update, text: str, date_str: str, timestamp: str):
+    """Background task: call AI for revision, send result, update file."""
+    try:
+        result = await _ai_handler.revise_text(text)
+        revised = result.get("revised")
+        notes = result.get("notes")
+
+        if revised and notes:
+            msg = f"✍️ Revised:\n{revised}\n\n📝 Notes:\n{notes}"
+            await update.message.reply_text(msg, reply_markup=REPLY_KEYBOARD)
+            await _update_entry_revision(date_str, timestamp, revised, notes)
+        else:
+            await update.message.reply_text(
+                "AI revision unavailable.",
+                reply_markup=REPLY_KEYBOARD,
+            )
+    except Exception as e:
+        logger.error(f"AI revision failed: {e}")
+        await update.message.reply_text(
+            "AI revision unavailable.",
+            reply_markup=REPLY_KEYBOARD,
+        )
 
 
 async def handle_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
