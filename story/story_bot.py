@@ -5,8 +5,8 @@ Telegram bot for capturing fleeting thoughts and daily reflections.
 - Send text -> saved to Obsidian via GitHub API with timestamp
 - Delete button to remove last entry
 - /today to view all entries for today
-- Single file: 01. Daily Reflection/99. Story Bot.md
-- Format: date headers with table rows (| Time | Story |)
+- Monthly files: 01. Daily Reflection/100. Story Bot/YYYY-MM.md
+- Format: ## date headers > ### time sub-headers > story text + Revised + Notes
 """
 
 import sys, os
@@ -48,9 +48,14 @@ GITHUB_TOKEN = os.getenv("OBSIDIAN_GITHUB_TOKEN")
 
 GITHUB_API = "https://api.github.com"
 REPO = "NotebookOfCCC/Obsidian"
-FILEPATH = "01. Daily Reflection/99. Story Bot.md"
+STORY_DIR = "01. Daily Reflection/100. Story Bot"
 
-TABLE_HEADER = "| Time | Story | Revised | Notes |\n|------|-------|---------|-------|"
+
+def _filepath_for(dt: datetime = None) -> str:
+    """Return the file path for a given month (defaults to current month)."""
+    if dt is None:
+        dt = _now()
+    return f"{STORY_DIR}/{dt.strftime('%Y-%m')}.md"
 
 REPLY_KEYBOARD = ReplyKeyboardMarkup(
     [["Today"]],
@@ -82,9 +87,9 @@ def _now() -> datetime:
 
 # -- GitHub operations --
 
-async def _github_get() -> tuple[str | None, str | None]:
+async def _github_get(filepath: str) -> tuple[str | None, str | None]:
     """Fetch file content and SHA. Returns (content, sha)."""
-    url = f"{GITHUB_API}/repos/{REPO}/contents/{FILEPATH}"
+    url = f"{GITHUB_API}/repos/{REPO}/contents/{filepath}"
     headers = {
         "Authorization": f"token {GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json",
@@ -99,20 +104,20 @@ async def _github_get() -> tuple[str | None, str | None]:
             data = await resp.json()
             content = base64.b64decode(data["content"]).decode("utf-8")
             sha = data["sha"]
-            _sha_cache[FILEPATH] = sha
+            _sha_cache[filepath] = sha
             return content, sha
 
 
-async def _github_put(content: str, message: str):
+async def _github_put(filepath: str, content: str, message: str):
     """Write file to GitHub. Creates or updates."""
-    url = f"{GITHUB_API}/repos/{REPO}/contents/{FILEPATH}"
+    url = f"{GITHUB_API}/repos/{REPO}/contents/{filepath}"
     headers = {
         "Authorization": f"token {GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json",
     }
-    sha = _sha_cache.get(FILEPATH)
+    sha = _sha_cache.get(filepath)
     if not sha:
-        _, sha = await _github_get()
+        _, sha = await _github_get(filepath)
 
     encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
     payload = {"message": message, "content": encoded}
@@ -124,12 +129,12 @@ async def _github_put(content: str, message: str):
             async with session.put(url, headers=headers, json=payload) as resp:
                 if resp.status in (200, 201):
                     data = await resp.json()
-                    _sha_cache[FILEPATH] = data["content"]["sha"]
+                    _sha_cache[filepath] = data["content"]["sha"]
                     return
                 elif resp.status == 409 and attempt < 2:
-                    logger.warning(f"Conflict on {FILEPATH}, retrying")
-                    _sha_cache.pop(FILEPATH, None)
-                    _, sha = await _github_get()
+                    logger.warning(f"Conflict on {filepath}, retrying")
+                    _sha_cache.pop(filepath, None)
+                    _, sha = await _github_get(filepath)
                     payload["sha"] = sha
                     continue
                 else:
@@ -137,170 +142,170 @@ async def _github_put(content: str, message: str):
                     raise Exception(f"GitHub PUT {resp.status}: {text}")
 
 
-def _escape_pipe(text: str) -> str:
-    """Escape pipe characters in text for markdown table cells."""
-    return text.replace("|", "\\|")
-
-
 async def _append_entry(text: str) -> str:
-    """Append a timestamped entry to today's section. Returns the timestamp."""
+    """Append a timestamped entry to today's section. Returns (timestamp, today_str)."""
     now = _now()
     timestamp = now.strftime("%H:%M")
     today_str = now.strftime("%Y-%m-%d")
+    filepath = _filepath_for(now)
     date_header = f"## {today_str}"
-    escaped_text = _escape_pipe(text)
-    new_row = f"| {timestamp} | {escaped_text} |  |  |"
+    time_header = f"### {timestamp}"
+    new_entry = f"{time_header}\n{text}\n"
 
-    existing, _ = await _github_get()
+    existing, _ = await _github_get(filepath)
 
     if not existing:
-        # Brand new file
-        content = f"# Story Bot\n\n{date_header}\n\n{TABLE_HEADER}\n{new_row}\n"
+        month_label = now.strftime("%Y-%m")
+        content = f"# Story Bot - {month_label}\n\n{date_header}\n\n{new_entry}"
     elif date_header in existing:
-        # Today's section exists — append row after last table row in that section
+        # Today's section exists — append entry at end of today's section
         lines = existing.split("\n")
-        insert_idx = None
+        insert_idx = len(lines)
         in_today = False
         for i, line in enumerate(lines):
             if line.strip() == date_header:
                 in_today = True
             elif in_today and line.startswith("## "):
-                # Hit next date section
                 insert_idx = i
                 break
-            elif in_today and line.startswith("| ") and not line.startswith("|---"):
-                insert_idx = i + 1
-        if insert_idx is None:
-            insert_idx = len(lines)
         # Remove trailing empty lines before insert point
         while insert_idx > 0 and lines[insert_idx - 1].strip() == "":
             insert_idx -= 1
-            # Keep the empty line but insert before next section
-            if insert_idx < len(lines) and lines[insert_idx].startswith("## "):
-                break
-        lines.insert(insert_idx, new_row)
+        # Add separator between entries
+        lines.insert(insert_idx, f"\n---\n\n{new_entry}")
         content = "\n".join(lines)
         if not content.endswith("\n"):
             content += "\n"
     else:
-        # New day — add section at the top (after # Story Bot header)
+        # New day — add section at the top (after # Story Bot - YYYY-MM header)
         lines = existing.split("\n")
-        insert_idx = 1  # After "# Story Bot"
-        # Skip blank lines after header
+        insert_idx = 1
         while insert_idx < len(lines) and lines[insert_idx].strip() == "":
             insert_idx += 1
-        new_section = f"\n{date_header}\n\n{TABLE_HEADER}\n{new_row}\n"
-        lines.insert(insert_idx, new_section)
+        lines.insert(insert_idx, f"\n{date_header}\n\n{new_entry}")
         content = "\n".join(lines)
         if not content.endswith("\n"):
             content += "\n"
 
-    await _github_put(content, f"story: {today_str} {timestamp}")
+    await _github_put(filepath, content, f"story: {today_str} {timestamp}")
     return timestamp, today_str
 
 
 async def _update_entry_revision(date_str: str, timestamp: str, revised: str, notes: str):
-    """Update the Revised and Notes columns for an existing entry."""
-    content, _ = await _github_get()
+    """Add Revised and Notes under an existing entry's ### HH:MM section."""
+    month_str = date_str[:7]
+    filepath = f"{STORY_DIR}/{month_str}.md"
+    content, _ = await _github_get(filepath)
     if not content:
         return
 
-    date_header = f"## {date_str}"
-    if date_header not in content:
+    time_header = f"### {timestamp}"
+    if time_header not in content:
         return
 
-    escaped_revised = _escape_pipe(revised) if revised else ""
-    escaped_notes = _escape_pipe(notes) if notes else ""
+    revision_block = f"\n**Revised:** {revised}\n\n**Notes:**\n{notes}\n"
 
     lines = content.split("\n")
-    in_target_date = False
+    in_target = False
+    insert_idx = None
     for i, line in enumerate(lines):
-        if line.strip() == date_header:
-            in_target_date = True
-        elif in_target_date and line.startswith("## "):
+        if line.strip() == time_header:
+            in_target = True
+        elif in_target and (line.startswith("### ") or line.startswith("## ") or line.strip() == "---"):
+            insert_idx = i
             break
-        elif in_target_date and line.startswith(f"| {timestamp} |"):
-            # Parse existing row to get original story text
-            match = re.match(r"\|\s*\S+\s*\|\s*(.*?)\s*\|.*\|.*\|$", line)
-            if match:
-                original_story = match.group(1)
-            else:
-                match2 = re.match(r"\|\s*\S+\s*\|\s*(.*?)\s*\|$", line)
-                original_story = match2.group(1) if match2 else ""
-            lines[i] = f"| {timestamp} | {original_story} | {escaped_revised} | {escaped_notes} |"
-            break
+    if insert_idx is None and in_target:
+        insert_idx = len(lines)
 
+    if insert_idx is None:
+        return
+
+    # Remove trailing blank lines before insert
+    while insert_idx > 0 and lines[insert_idx - 1].strip() == "":
+        insert_idx -= 1
+
+    lines.insert(insert_idx, revision_block)
     new_content = "\n".join(lines)
     if not new_content.endswith("\n"):
         new_content += "\n"
-    await _github_put(new_content, f"story: revision {date_str} {timestamp}")
+    await _github_put(filepath, new_content, f"story: revision {date_str} {timestamp}")
 
 
 async def _delete_entry(date_str: str, timestamp: str) -> bool:
-    """Delete a specific entry by date and timestamp."""
-    content, _ = await _github_get()
+    """Delete a specific entry (### HH:MM section) by date and timestamp."""
+    month_str = date_str[:7]
+    filepath = f"{STORY_DIR}/{month_str}.md"
+    content, _ = await _github_get(filepath)
     if not content:
         return False
 
+    time_header = f"### {timestamp}"
     date_header = f"## {date_str}"
-    if date_header not in content:
+    if time_header not in content or date_header not in content:
         return False
 
     lines = content.split("\n")
-    found = False
-    in_target_date = False
-    remove_idx = None
-
-    for i, line in enumerate(lines):
-        if line.strip() == date_header:
-            in_target_date = True
-        elif in_target_date and line.startswith("## "):
-            break
-        elif in_target_date and line.startswith(f"| {timestamp} |"):
-            remove_idx = i
-            found = True
-            break
-
-    if not found:
-        return False
-
-    lines.pop(remove_idx)
-
-    # Check if this date section is now empty (only header + table header left)
-    in_target_date = False
-    has_data_rows = False
+    # Find the ### HH:MM section boundaries
     section_start = None
     section_end = None
+    in_date = False
     for i, line in enumerate(lines):
         if line.strip() == date_header:
-            in_target_date = True
-            section_start = i
-        elif in_target_date and line.startswith("## "):
+            in_date = True
+        elif in_date and line.strip() == time_header:
+            # Include preceding --- separator if present
+            start = i
+            while start > 0 and lines[start - 1].strip() in ("", "---"):
+                start -= 1
+            # But don't go past the date header
+            if start >= 0 and lines[start].strip() == date_header:
+                start = i
+            section_start = start
+        elif section_start is not None and (line.startswith("### ") or line.startswith("## ") or line.strip() == "---"):
             section_end = i
             break
-        elif in_target_date and line.startswith("| ") and not line.startswith("|---") and line.strip() != TABLE_HEADER.split("\n")[0]:
-            has_data_rows = True
 
-    if not has_data_rows and section_start is not None:
-        # Remove entire empty section
-        if section_end is None:
-            section_end = len(lines)
-        # Also remove blank line before section
-        while section_start > 0 and lines[section_start - 1].strip() == "":
-            section_start -= 1
-        del lines[section_start:section_end]
+    if section_start is None:
+        return False
+    if section_end is None:
+        section_end = len(lines)
+
+    del lines[section_start:section_end]
+
+    # Check if date section is now empty (no ### entries left)
+    has_entries = False
+    in_date = False
+    date_start = None
+    date_end = None
+    for i, line in enumerate(lines):
+        if line.strip() == date_header:
+            in_date = True
+            date_start = i
+        elif in_date and line.startswith("## "):
+            date_end = i
+            break
+        elif in_date and line.startswith("### "):
+            has_entries = True
+
+    if not has_entries and date_start is not None:
+        if date_end is None:
+            date_end = len(lines)
+        while date_start > 0 and lines[date_start - 1].strip() == "":
+            date_start -= 1
+        del lines[date_start:date_end]
 
     new_content = "\n".join(lines)
     if not new_content.endswith("\n"):
         new_content += "\n"
 
-    await _github_put(new_content, f"story: delete {timestamp} on {date_str}")
+    await _github_put(filepath, new_content, f"story: delete {timestamp} on {date_str}")
     return True
 
 
 async def _get_today_entries() -> str | None:
     """Get today's entries as readable text."""
-    content, _ = await _github_get()
+    filepath = _filepath_for()
+    content, _ = await _github_get(filepath)
     if not content:
         return None
 
@@ -313,33 +318,37 @@ async def _get_today_entries() -> str | None:
     lines = content.split("\n")
     in_today = False
     entries = []
+    current_entry = None
+
     for line in lines:
         if line.strip() == date_header:
             in_today = True
             continue
         if in_today and line.startswith("## "):
             break
-        if in_today and line.startswith("| ") and not line.startswith("|---") and not line.startswith("| Time"):
-            # Parse table row: 4-column or 2-column
-            match4 = re.match(r"\|\s*(\S+)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\|$", line)
-            match2 = re.match(r"\|\s*(\S+)\s*\|\s*(.*?)\s*\|$", line)
-            if match4:
-                time_str = match4.group(1)
-                story = match4.group(2).strip()
-                revised = match4.group(3).strip()
-                notes = match4.group(4).strip()
-                entry_text = f"{time_str}  {story}"
-                if revised:
-                    entry_text += f"\n  ✍️ {revised}"
-                if notes:
-                    entry_text += f"\n  📝 {notes}"
-                entries.append(entry_text)
-            elif match2:
-                entries.append(f"{match2.group(1)}  {match2.group(2)}")
+        if not in_today:
+            continue
+
+        time_match = re.match(r"^### (\d{2}:\d{2})$", line.strip())
+        if time_match:
+            if current_entry:
+                entries.append(current_entry)
+            current_entry = {"time": time_match.group(1), "lines": []}
+        elif current_entry is not None and line.strip() not in ("---", ""):
+            current_entry["lines"].append(line)
+
+    if current_entry:
+        entries.append(current_entry)
 
     if not entries:
         return None
-    return f"Today ({today_str}):\n\n" + "\n\n".join(entries)
+
+    result_parts = []
+    for entry in entries:
+        text = "\n".join(entry["lines"])
+        result_parts.append(f"{entry['time']}\n{text}")
+
+    return f"Today ({today_str}):\n\n" + "\n\n---\n\n".join(result_parts)
 
 
 # -- Handlers --
@@ -508,7 +517,7 @@ def main():
         handle_text,
     ))
 
-    print(f"Story bot starting... (saving to {FILEPATH})")
+    print(f"Story bot starting... (saving to {STORY_DIR}/YYYY-MM.md)")
     application.run_polling(drop_pending_updates=True)
 
 

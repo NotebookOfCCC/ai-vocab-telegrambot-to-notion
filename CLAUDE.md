@@ -106,9 +106,9 @@ main.py (Entry Point)
 - Captures fleeting thoughts/reflections via Telegram, saves to Obsidian via GitHub API
 - **AI-powered revision**: Every entry gets revised by Sonnet for grammar, naturalness, and fluency (~$0.005/message)
 - **Chinese input**: Translated to idiomatic English with explanation
-- **Private repo**: `NotebookOfCCC/Obsidian` → `01. Daily Reflection/99. Story Bot.md`
-- **Single file**: All entries in one `.md` file, organized by date headers (`## YYYY-MM-DD`)
-- **Table format**: Each day has a `| Time | Story | Revised | Notes |` table with timestamped rows
+- **Private repo**: `NotebookOfCCC/Obsidian` → `01. Daily Reflection/100. Story Bot/YYYY-MM.md`
+- **Monthly files**: Each month gets its own `.md` file, organized by date headers (`## YYYY-MM-DD`)
+- **Heading format**: `## date` > `### HH:MM` > story text + `**Revised:**` + `**Notes:**` — clean hierarchy in Obsidian
 - **Interaction**: Send text → `Saved (HH:MM)` + [Delete] button → AI revision message with revised text + Chinese grammar notes
 - **Delete**: Inline [Delete] button removes that specific entry from the file
 - **Reply keyboard**: [Today] — view all entries for today
@@ -629,4 +629,5 @@ Row 2: [Cancel]  [More]
 73. **Review TTS voice selector**: Review bot Schedule settings now include [Edit Voice] button — multi-select from 4 en-GB voices (Sonia, Libby, Ryan, Thomas). Voices rotate per review batch (9:00→Sonia, 10:00→Ryan, 11:00→Sonia...). Persisted in config DB as `tts_voices` list.
 74. **Slang category**: New vocabulary category "Slang" for internet slang, Gen Z expressions, viral catchphrases, memes, and trendy informal language (e.g. "this is mad", "slay", "no cap").
 75. **Story Bot**: 6th bot for capturing fleeting thoughts/reflections to Obsidian via GitHub API. Send text → saved with timestamp to `01. Daily Reflection/99. Story Bot/YYYY-MM-DD.md`. Delete button to remove entries. No AI, no Notion — free.
-76. **Story Bot AI revision**: Every story entry gets AI-powered revision using Sonnet (~$0.005/msg). Fixes grammar, improves naturalness, translates Chinese to English. 4-column table format: `| Time | Story | Revised | Notes |`. Two messages: instant `Saved` confirmation, then AI revision with detailed Chinese grammar notes. Fallback chain: Sonnet → Haiku → GPT-4o-mini.
+76. **Story Bot AI revision**: Every story entry gets AI-powered revision using Sonnet (~$0.005/msg). Fixes grammar, improves naturalness, translates Chinese to English. Two messages: instant `Saved` confirmation, then AI revision with detailed Chinese grammar notes + TTS voice. Fallback chain: Sonnet → Haiku → GPT-4o-mini.
+77. **Story Bot monthly files + heading format**: Changed from single file to monthly files in `100. Story Bot/YYYY-MM.md` folder. Replaced table format with clean heading hierarchy: `## date` > `### HH:MM` > story text + `**Revised:**` + `**Notes:**`. Entries separated by `---`. Much cleaner in Obsidian.
