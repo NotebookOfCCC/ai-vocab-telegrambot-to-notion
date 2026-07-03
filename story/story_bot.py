@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
 import base64
+import io
 import re
 import aiohttp
 from datetime import datetime
@@ -414,6 +415,11 @@ async def _revise_and_reply(update: Update, text: str, date_str: str, timestamp:
             msg = f"✍️ Revised:\n{revised}\n\n📝 Notes:\n{notes}"
             await update.message.reply_text(msg, reply_markup=REPLY_KEYBOARD)
             await _update_entry_revision(date_str, timestamp, revised, notes)
+
+            # Send voice message for revised text
+            audio_buf = await _generate_tts(revised)
+            if audio_buf:
+                await update.message.reply_voice(voice=audio_buf, reply_markup=REPLY_KEYBOARD)
         else:
             await update.message.reply_text(
                 "AI revision unavailable.",
@@ -425,6 +431,28 @@ async def _revise_and_reply(update: Update, text: str, date_str: str, timestamp:
             "AI revision unavailable.",
             reply_markup=REPLY_KEYBOARD,
         )
+
+
+async def _generate_tts(text: str) -> io.BytesIO | None:
+    """Generate TTS audio for text using edge-tts. Returns BytesIO buffer or None."""
+    try:
+        import edge_tts
+    except ImportError:
+        logger.warning("edge-tts not installed, skipping voice")
+        return None
+
+    try:
+        buf = io.BytesIO()
+        async for chunk in edge_tts.Communicate(text, "en-GB-SoniaNeural").stream():
+            if chunk["type"] == "audio":
+                buf.write(chunk["data"])
+        if buf.getbuffer().nbytes > 0:
+            buf.seek(0)
+            return buf
+        return None
+    except Exception as e:
+        logger.error(f"TTS error: {e}")
+        return None
 
 
 async def handle_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
