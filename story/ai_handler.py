@@ -147,27 +147,95 @@ class StoryAIHandler:
             logger.error(f"Story AI revision failed: {e}", exc_info=True)
             return {"revised": None, "notes": None}
 
-    def _revise_sync(self, text: str) -> dict:
-        """Synchronous revision call."""
-        logger.info(f"Story AI: calling {self.primary_model} for revision...")
-        response_text = self._get_response_text(
-            model=self.primary_model,
-            messages=[{"role": "user", "content": text}],
-            system=SYSTEM_PROMPT,
-        )
-        logger.info(f"Story AI: got response ({len(response_text)} chars)")
-
+    def _try_revise_with_model(self, model: str, text: str) -> dict | None:
+        """Try revision with a specific model. Returns result dict or None on failure."""
         try:
+            logger.info(f"Story AI: trying {model}...")
+            response_text = self._get_response_text(
+                model=model,
+                messages=[{"role": "user", "content": text}],
+                system=SYSTEM_PROMPT,
+            )
+            logger.info(f"Story AI: got response ({len(response_text)} chars)")
+
             result = self._parse_json(response_text)
+            revised = result.get("revised")
+            notes = result.get("notes")
+
+            if revised and notes:
+                logger.info(f"Story AI: success with {model}")
+                return {"revised": revised, "notes": notes}
+
+            logger.warning(f"Story AI: {model} returned incomplete (revised={revised is not None}, notes={notes is not None})")
+
+            # Retry once asking to fix the JSON
+            logger.info(f"Story AI: retrying {model} with JSON fix prompt...")
+            retry_text = self._get_response_text(
+                model=model,
+                messages=[
+                    {"role": "user", "content": text},
+                    {"role": "assistant", "content": response_text},
+                    {"role": "user", "content": "Your response had invalid or incomplete JSON. Please respond with ONLY valid JSON: {\"revised\": \"...\", \"notes\": \"...\"}"},
+                ],
+                system=SYSTEM_PROMPT,
+            )
+            result = self._parse_json(retry_text)
+            if result.get("revised") and result.get("notes"):
+                logger.info(f"Story AI: success with {model} (retry)")
+                return {"revised": result["revised"], "notes": result["notes"]}
+
+            return None
         except json.JSONDecodeError as e:
-            logger.error(f"Story AI: JSON parse failed: {e}")
-            logger.error(f"Story AI: raw response: {response_text[:500]}")
-            return {"revised": None, "notes": None}
+            logger.warning(f"Story AI: JSON parse failed with {model}: {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"Story AI: {model} failed: {e}")
+            return None
 
-        revised = result.get("revised")
-        notes = result.get("notes")
+    def _try_revise_openai(self, text: str) -> dict | None:
+        """Try revision with OpenAI as final fallback."""
+        if not self.openai_client:
+            return None
+        try:
+            logger.info("Story AI: trying OpenAI gpt-4o-mini...")
+            response = self.openai_client.chat.completions.create(
+                model=self.openai_model,
+                max_tokens=1000,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": text},
+                ],
+            )
+            response_text = response.choices[0].message.content
+            result = self._parse_json(response_text)
+            if result.get("revised") and result.get("notes"):
+                logger.info("Story AI: success with OpenAI")
+                return {"revised": result["revised"], "notes": result["notes"]}
+            return None
+        except Exception as e:
+            logger.warning(f"Story AI: OpenAI failed: {e}")
+            return None
 
-        if not revised or not notes:
-            logger.warning(f"Incomplete AI response: {response_text[:200]}")
+    def _revise_sync(self, text: str) -> dict:
+        """Synchronous revision with full retry chain:
+        1. Sonnet (+ JSON fix retry)
+        2. Haiku (+ JSON fix retry)
+        3. OpenAI gpt-4o-mini
+        """
+        # Try primary model (Sonnet)
+        result = self._try_revise_with_model(self.primary_model, text)
+        if result:
+            return result
 
-        return {"revised": revised, "notes": notes}
+        # Try fallback model (Haiku)
+        result = self._try_revise_with_model(self.fallback_model, text)
+        if result:
+            return result
+
+        # Try OpenAI
+        result = self._try_revise_openai(text)
+        if result:
+            return result
+
+        logger.error("Story AI: all models failed for revision")
+        return {"revised": None, "notes": None}
