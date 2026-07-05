@@ -140,22 +140,30 @@ class StoryAIHandler:
         Runs the blocking API call in a thread executor.
         """
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(None, self._revise_sync, text)
             return result
         except Exception as e:
-            logger.error(f"Story AI revision failed: {e}")
+            logger.error(f"Story AI revision failed: {e}", exc_info=True)
             return {"revised": None, "notes": None}
 
     def _revise_sync(self, text: str) -> dict:
         """Synchronous revision call."""
+        logger.info(f"Story AI: calling {self.primary_model} for revision...")
         response_text = self._get_response_text(
             model=self.primary_model,
             messages=[{"role": "user", "content": text}],
             system=SYSTEM_PROMPT,
         )
+        logger.info(f"Story AI: got response ({len(response_text)} chars)")
 
-        result = self._parse_json(response_text)
+        try:
+            result = self._parse_json(response_text)
+        except json.JSONDecodeError as e:
+            logger.error(f"Story AI: JSON parse failed: {e}")
+            logger.error(f"Story AI: raw response: {response_text[:500]}")
+            return {"revised": None, "notes": None}
+
         revised = result.get("revised")
         notes = result.get("notes")
 

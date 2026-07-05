@@ -405,8 +405,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Call AI in background for revision
         if _ai_handler:
-            import asyncio
-            asyncio.create_task(_revise_and_reply(update, text, today_str, timestamp))
+            context.application.create_task(
+                _revise_and_reply(update, text, today_str, timestamp),
+                update=update,
+            )
 
     except Exception as e:
         logger.error(f"Failed to save entry: {e}")
@@ -430,16 +432,20 @@ async def _revise_and_reply(update: Update, text: str, date_str: str, timestamp:
             if audio_buf:
                 await update.message.reply_voice(voice=audio_buf, reply_markup=REPLY_KEYBOARD)
         else:
+            logger.warning(f"AI revision returned empty: revised={revised is not None}, notes={notes is not None}")
             await update.message.reply_text(
                 "AI revision unavailable.",
                 reply_markup=REPLY_KEYBOARD,
             )
     except Exception as e:
-        logger.error(f"AI revision failed: {e}")
-        await update.message.reply_text(
-            "AI revision unavailable.",
-            reply_markup=REPLY_KEYBOARD,
-        )
+        logger.error(f"AI revision failed: {e}", exc_info=True)
+        try:
+            await update.message.reply_text(
+                "AI revision unavailable.",
+                reply_markup=REPLY_KEYBOARD,
+            )
+        except Exception:
+            pass  # Message might be too old to reply to
 
 
 async def _generate_tts(text: str) -> io.BytesIO | None:
