@@ -26,6 +26,7 @@ IMPORTANT:
 - "notes" should be detailed Chinese explanations (grammar errors, word choices, translation reasoning, improvement suggestions)
 - Keep the original meaning intact
 - Be encouraging but thorough
+- Do NOT suggest contractions (e.g. "There is" → "There's", "I am" → "I'm"). The user types uncontracted forms for convenience — this is intentional, not an error. Leave them as-is in both the revised text and notes.
 
 Respond with ONLY valid JSON, no markdown:
 {"revised": "the improved English text", "notes": "详细的中文语法解释和建议"}"""
@@ -68,7 +69,7 @@ class StoryAIHandler:
 
         raise last_error or RuntimeError("Unreachable")
 
-    def _get_response_text(self, model: str, messages: list, system: str = None) -> str:
+    def _get_response_text(self, model: str, messages: list, system: str = None, max_tokens: int = 1500) -> str:
         """Get AI response with fallback chain: requested model -> fallback model -> OpenAI."""
         anthropic_models = [model]
         if model != self.fallback_model:
@@ -79,7 +80,7 @@ class StoryAIHandler:
             try:
                 kwargs = {
                     "model": attempt_model,
-                    "max_tokens": 1000,
+                    "max_tokens": max_tokens,
                     "messages": messages,
                 }
                 if system:
@@ -104,7 +105,7 @@ class StoryAIHandler:
             openai_messages.extend(messages)
             response = self.openai_client.chat.completions.create(
                 model=self.openai_model,
-                max_tokens=1000,
+                max_tokens=max_tokens,
                 messages=openai_messages,
             )
             return response.choices[0].message.content
@@ -133,6 +134,23 @@ class StoryAIHandler:
         fixed = re.sub(r',(\s*[}\]])', r'\1', cleaned)
         return json.loads(fixed)
 
+    def _calc_max_tokens(self, text: str) -> int:
+        """Calculate max_tokens based on input length.
+
+        Longer inputs need more tokens for revised text + detailed notes.
+        Rough estimate: 1 word ≈ 1.3 tokens, output needs ~3x input
+        (revised text + Chinese notes with explanations).
+        """
+        word_count = len(text.split())
+        if word_count <= 30:
+            return 1500
+        elif word_count <= 80:
+            return 2500
+        elif word_count <= 150:
+            return 3500
+        else:
+            return 4096
+
     async def revise_text(self, text: str) -> dict:
         """Revise text and return {"revised": "...", "notes": "..."}.
 
@@ -147,14 +165,15 @@ class StoryAIHandler:
             logger.error(f"Story AI revision failed: {e}", exc_info=True)
             return {"revised": None, "notes": None}
 
-    def _try_revise_with_model(self, model: str, text: str) -> dict | None:
+    def _try_revise_with_model(self, model: str, text: str, max_tokens: int = 1500) -> dict | None:
         """Try revision with a specific model. Returns result dict or None on failure."""
         try:
-            logger.info(f"Story AI: trying {model}...")
+            logger.info(f"Story AI: trying {model} (max_tokens={max_tokens})...")
             response_text = self._get_response_text(
                 model=model,
                 messages=[{"role": "user", "content": text}],
                 system=SYSTEM_PROMPT,
+                max_tokens=max_tokens,
             )
             logger.info(f"Story AI: got response ({len(response_text)} chars)")
 
@@ -178,6 +197,7 @@ class StoryAIHandler:
                     {"role": "user", "content": "Your response had invalid or incomplete JSON. Please respond with ONLY valid JSON: {\"revised\": \"...\", \"notes\": \"...\"}"},
                 ],
                 system=SYSTEM_PROMPT,
+                max_tokens=max_tokens,
             )
             result = self._parse_json(retry_text)
             if result.get("revised") and result.get("notes"):
@@ -192,15 +212,15 @@ class StoryAIHandler:
             logger.warning(f"Story AI: {model} failed: {e}")
             return None
 
-    def _try_revise_openai(self, text: str) -> dict | None:
+    def _try_revise_openai(self, text: str, max_tokens: int = 1500) -> dict | None:
         """Try revision with OpenAI as final fallback."""
         if not self.openai_client:
             return None
         try:
-            logger.info("Story AI: trying OpenAI gpt-4o-mini...")
+            logger.info(f"Story AI: trying OpenAI gpt-4o-mini (max_tokens={max_tokens})...")
             response = self.openai_client.chat.completions.create(
                 model=self.openai_model,
-                max_tokens=1000,
+                max_tokens=max_tokens,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": text},
@@ -222,18 +242,20 @@ class StoryAIHandler:
         2. Haiku (+ JSON fix retry)
         3. OpenAI gpt-4o-mini
         """
+        max_tokens = self._calc_max_tokens(text)
+
         # Try primary model (Sonnet)
-        result = self._try_revise_with_model(self.primary_model, text)
+        result = self._try_revise_with_model(self.primary_model, text, max_tokens)
         if result:
             return result
 
         # Try fallback model (Haiku)
-        result = self._try_revise_with_model(self.fallback_model, text)
+        result = self._try_revise_with_model(self.fallback_model, text, max_tokens)
         if result:
             return result
 
         # Try OpenAI
-        result = self._try_revise_openai(text)
+        result = self._try_revise_openai(text, max_tokens)
         if result:
             return result
 
