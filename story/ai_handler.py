@@ -36,12 +36,13 @@ What NOT to change (in "revised"):
 
 What to include in "notes":
 - Chinese explanations for each grammar/usage fix
-- If you spot a place where a more expressive spoken phrase exists, mention it as an optional tip (标记为「口语小贴士」), but do NOT apply it in the revised text
-- Keep notes concise — one line per fix, skip trivial changes
+- Actively suggest better/more natural ORAL expressions the user could have used — e.g. more vivid spoken phrases, common collocations, idiomatic ways native speakers would say it in conversation. These are suggestions for learning, NOT applied in the revised text. Label these as「💡 也可以说」
+- Don't just say "your expression is fine, no need to change" — if you mention an alternative, explain WHY it's worth knowing (e.g. more commonly used, sounds more native, conveys emotion better)
+- Keep notes concise — one line per fix/suggestion
 
 IMPORTANT:
 - "revised" = the user's text with ONLY genuine errors fixed, keeping their voice
-- "notes" = 中文解释（语法修正 + 可选的口语小贴士）
+- "notes" = 中文解释（语法修正 + 口语表达建议）
 - "phrases" = a list of up to 5 key phrases worth remembering from this entry (corrected expressions, useful collocations, or noteworthy vocab the user used or should have used). Each item: "phrase" (the correct form) + brief Chinese explanation. If fewer than 5 are noteworthy, include fewer. Empty list if nothing stands out.
 - If the input has no real errors, return it as-is and say so in notes
 
