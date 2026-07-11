@@ -191,8 +191,8 @@ async def _append_entry(text: str) -> str:
     return timestamp, today_str
 
 
-async def _update_entry_revision(date_str: str, timestamp: str, revised: str, notes: str):
-    """Add Revised and Notes under an existing entry's ### HH:MM section."""
+async def _update_entry_revision(date_str: str, timestamp: str, revised: str, notes: str, phrases: list = None):
+    """Add Revised, Notes, and Key Phrases under an existing entry's ### HH:MM section."""
     month_str = date_str[:7]
     filepath = f"{STORY_DIR}/{month_str}.md"
     content, _ = await _github_get(filepath)
@@ -204,6 +204,9 @@ async def _update_entry_revision(date_str: str, timestamp: str, revised: str, no
         return
 
     revision_block = f"\n**Revised:** {revised}\n\n**Notes:**\n{notes}\n"
+    if phrases:
+        phrases_text = "\n".join(f"- **{p['phrase']}** — {p['note']}" for p in phrases)
+        revision_block += f"\n**Key Phrases:**\n{phrases_text}\n"
 
     lines = content.split("\n")
     in_target = False
@@ -423,9 +426,13 @@ async def _revise_and_reply(update: Update, text: str, date_str: str, timestamp:
         notes = result.get("notes")
 
         if revised and notes:
+            phrases = result.get("phrases", [])
             msg = f"✍️ Revised:\n{revised}\n\n📝 Notes:\n{notes}"
+            if phrases:
+                phrases_text = "\n".join(f"• {p['phrase']} — {p['note']}" for p in phrases[:5])
+                msg += f"\n\n🔑 Key Phrases:\n{phrases_text}"
             await update.message.reply_text(msg, reply_markup=REPLY_KEYBOARD)
-            await _update_entry_revision(date_str, timestamp, revised, notes)
+            await _update_entry_revision(date_str, timestamp, revised, notes, phrases)
 
             # Send voice message for revised text
             audio_buf = await _generate_tts(revised)

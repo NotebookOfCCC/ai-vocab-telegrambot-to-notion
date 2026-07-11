@@ -42,10 +42,11 @@ What to include in "notes":
 IMPORTANT:
 - "revised" = the user's text with ONLY genuine errors fixed, keeping their voice
 - "notes" = 中文解释（语法修正 + 可选的口语小贴士）
+- "phrases" = a list of up to 5 key phrases worth remembering from this entry (corrected expressions, useful collocations, or noteworthy vocab the user used or should have used). Each item: "phrase" (the correct form) + brief Chinese explanation. If fewer than 5 are noteworthy, include fewer. Empty list if nothing stands out.
 - If the input has no real errors, return it as-is and say so in notes
 
 Respond with ONLY valid JSON, no markdown:
-{"revised": "corrected text keeping user's voice", "notes": "中文语法解释"}"""
+{"revised": "...", "notes": "...", "phrases": [{"phrase": "push their luck", "note": "固定搭配，不用 push the luck"}]}"""
 
 
 class StoryAIHandler:
