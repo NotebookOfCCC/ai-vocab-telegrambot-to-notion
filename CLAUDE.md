@@ -104,12 +104,14 @@ main.py (Entry Point)
 
 ### 6. Story Bot (`story/story_bot.py`)
 - Captures fleeting thoughts/reflections via Telegram, saves to Obsidian via GitHub API
-- **AI-powered revision**: Every entry gets revised by Sonnet for grammar, naturalness, and fluency (~$0.005/message)
+- **AI-powered revision**: Every entry gets two versions from Sonnet (~$0.005/message):
+  1. **Revised** — minimal fixes preserving user's voice and style
+  2. **Native Version** — how a native speaker would naturally express the same ideas in casual conversation
 - **Chinese input**: Translated to idiomatic English with explanation
 - **Private repo**: `NotebookOfCCC/Obsidian` → `01. Daily Reflection/100. Story Bot/YYYY-MM.md`
 - **Monthly files**: Each month gets its own `.md` file, organized by date headers (`## YYYY-MM-DD`)
-- **Heading format**: `## date` > `### HH:MM` > story text + `**Revised:**` + `**Notes:**` — clean hierarchy in Obsidian
-- **Interaction**: Send text → `Saved (HH:MM)` + [Delete] button → AI revision message with revised text + Chinese grammar notes
+- **Heading format**: `## date` > `### HH:MM` > story text + `**Revised:**` + `**Native Version:**` + `**Notes:**` + `**Key Phrases:**` — clean hierarchy in Obsidian
+- **Interaction**: Send text → `Saved (HH:MM)` + [Delete] button → AI revision (Revised + Notes + Key Phrases) + TTS → Native Version + TTS
 - **Delete**: Inline [Delete] button removes that specific entry from the file
 - **Reply keyboard**: [Today] — view all entries for today
 - **Commands**: `/start`, `/help`, `/today`
@@ -634,3 +636,4 @@ Row 2: [Cancel]  [More]
 78. **Story Bot dynamic max_tokens**: AI revision max_tokens now scales with input length (≤30w→1500, ≤80w→2500, ≤150w→3500, >150w→4096) instead of fixed 1000. Fixes truncated/repeated feedback on long stories. Also: AI no longer suggests contractions (There is→There's) since user types uncontracted forms intentionally.
 79. **Story Bot oral voice preservation**: Rewrote AI prompt — entries are spoken reflections, not formal writing. AI only fixes genuine errors (grammar, Chinglish, wrong usage). Does NOT upgrade casual vocab ("super warm" stays, not "wonderfully warm") or replace natural expressions ("I feel for him" stays). Optional oral tips in notes as「口语小贴士」but not applied in revised text.
 80. **Story Bot Key Phrases**: Each AI revision now includes up to 5 key phrases worth remembering (corrected expressions, useful collocations, noteworthy vocab). Shown as 🔑 Key Phrases in Telegram and saved as **Key Phrases:** in Obsidian.
+81. **Story Bot Native Version**: Each entry now gets two AI outputs — (1) Revised: minimal fixes preserving user's voice, (2) Native Version: how a native speaker would naturally express the same ideas. Both get separate TTS audio messages. Saved as **Native Version:** in Obsidian between Revised and Notes.
