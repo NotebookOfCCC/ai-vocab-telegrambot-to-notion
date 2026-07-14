@@ -191,8 +191,8 @@ async def _append_entry(text: str) -> str:
     return timestamp, today_str
 
 
-async def _update_entry_revision(date_str: str, timestamp: str, revised: str, notes: str, phrases: list = None):
-    """Add Revised, Notes, and Key Phrases under an existing entry's ### HH:MM section."""
+async def _update_entry_revision(date_str: str, timestamp: str, revised: str, notes: str, phrases: list = None, recommended: str = None):
+    """Add Revised, Recommended, Notes, and Key Phrases under an existing entry's ### HH:MM section."""
     month_str = date_str[:7]
     filepath = f"{STORY_DIR}/{month_str}.md"
     content, _ = await _github_get(filepath)
@@ -203,7 +203,10 @@ async def _update_entry_revision(date_str: str, timestamp: str, revised: str, no
     if time_header not in content:
         return
 
-    revision_block = f"\n**Revised:** {revised}\n\n**Notes:**\n{notes}\n"
+    revision_block = f"\n**Revised:** {revised}\n"
+    if recommended:
+        revision_block += f"\n**Native Version:** {recommended}\n"
+    revision_block += f"\n**Notes:**\n{notes}\n"
     if phrases:
         phrases_text = "\n".join(f"- **{p['phrase']}** — {p['note']}" for p in phrases)
         revision_block += f"\n**Key Phrases:**\n{phrases_text}\n"
@@ -424,20 +427,36 @@ async def _revise_and_reply(update: Update, text: str, date_str: str, timestamp:
         result = await _ai_handler.revise_text(text)
         revised = result.get("revised")
         notes = result.get("notes")
+        recommended = result.get("recommended")
 
         if revised and notes:
             phrases = result.get("phrases", [])
+
+            # Message 1: Revised version (minimal fixes)
             msg = f"✍️ Revised:\n{revised}\n\n📝 Notes:\n{notes}"
             if phrases:
                 phrases_text = "\n".join(f"• {p['phrase']} — {p['note']}" for p in phrases[:5])
                 msg += f"\n\n🔑 Key Phrases:\n{phrases_text}"
             await update.message.reply_text(msg, reply_markup=REPLY_KEYBOARD)
-            await _update_entry_revision(date_str, timestamp, revised, notes, phrases)
 
-            # Send voice message for revised text
+            # TTS 1: Revised version
             audio_buf = await _generate_tts(revised)
             if audio_buf:
                 await update.message.reply_voice(voice=audio_buf, reply_markup=REPLY_KEYBOARD)
+
+            # Message 2: Recommended native version
+            if recommended:
+                await update.message.reply_text(
+                    f"🗣️ Native Version:\n{recommended}",
+                    reply_markup=REPLY_KEYBOARD,
+                )
+                # TTS 2: Recommended version
+                audio_buf2 = await _generate_tts(recommended)
+                if audio_buf2:
+                    await update.message.reply_voice(voice=audio_buf2, reply_markup=REPLY_KEYBOARD)
+
+            # Save to Obsidian
+            await _update_entry_revision(date_str, timestamp, revised, notes, phrases, recommended)
         else:
             logger.warning(f"AI revision returned empty: revised={revised is not None}, notes={notes is not None}")
             await update.message.reply_text(

@@ -43,12 +43,13 @@ What to include in "notes":
 
 IMPORTANT:
 - "revised" = the user's text with ONLY genuine errors fixed, keeping their voice
+- "recommended" = how a native English speaker would naturally express the SAME ideas/feelings in casual conversation. Rewrite freely — use more natural phrasing, idiomatic expressions, colloquial rhythms, and native-like sentence flow. This is NOT a correction, it's a demonstration of native oral style. Keep the same meaning and emotional tone, but express it the way a native speaker would actually say it.
 - "notes" = 中文解释（语法修正 + 口语表达建议 + 总评）
 - "phrases" = a list of up to 5 key phrases worth remembering from this entry (corrected expressions, useful collocations, or noteworthy vocab the user used or should have used). Each item: "phrase" (the correct form) + brief Chinese explanation. If fewer than 5 are noteworthy, include fewer. Empty list if nothing stands out.
-- If the input has no real errors, return it as-is and say so in notes
+- If the input has no real errors, return revised as-is and say so in notes. Still provide "recommended" showing native phrasing.
 
 Respond with ONLY valid JSON, no markdown:
-{"revised": "...", "notes": "...", "phrases": [{"phrase": "push their luck", "note": "固定搭配，不用 push the luck"}]}"""
+{"revised": "...", "recommended": "...", "notes": "...", "phrases": [{"phrase": "push their luck", "note": "固定搭配，不用 push the luck"}]}"""
 
 
 class StoryAIHandler:
@@ -202,7 +203,7 @@ class StoryAIHandler:
 
             if revised and notes:
                 logger.info(f"Story AI: success with {model}")
-                return {"revised": revised, "notes": notes}
+                return {"revised": revised, "notes": notes, "recommended": result.get("recommended")}
 
             logger.warning(f"Story AI: {model} returned incomplete (revised={revised is not None}, notes={notes is not None})")
 
@@ -213,7 +214,7 @@ class StoryAIHandler:
                 messages=[
                     {"role": "user", "content": text},
                     {"role": "assistant", "content": response_text},
-                    {"role": "user", "content": "Your response had invalid or incomplete JSON. Please respond with ONLY valid JSON: {\"revised\": \"...\", \"notes\": \"...\"}"},
+                    {"role": "user", "content": 'Your response had invalid or incomplete JSON. Please respond with ONLY valid JSON: {"revised": "...", "recommended": "...", "notes": "..."}'},
                 ],
                 system=SYSTEM_PROMPT,
                 max_tokens=max_tokens,
@@ -221,7 +222,7 @@ class StoryAIHandler:
             result = self._parse_json(retry_text)
             if result.get("revised") and result.get("notes"):
                 logger.info(f"Story AI: success with {model} (retry)")
-                return {"revised": result["revised"], "notes": result["notes"]}
+                return {"revised": result["revised"], "notes": result["notes"], "recommended": result.get("recommended")}
 
             return None
         except json.JSONDecodeError as e:
@@ -249,7 +250,7 @@ class StoryAIHandler:
             result = self._parse_json(response_text)
             if result.get("revised") and result.get("notes"):
                 logger.info("Story AI: success with OpenAI")
-                return {"revised": result["revised"], "notes": result["notes"]}
+                return {"revised": result["revised"], "notes": result["notes"], "recommended": result.get("recommended")}
             return None
         except Exception as e:
             logger.warning(f"Story AI: OpenAI failed: {e}")
